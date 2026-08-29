@@ -11,7 +11,7 @@ struct ContentView: View {
                 // Decorative — the title text below carries the meaning. Mark
                 // hidden so VoiceOver doesn't announce "hammer-and-wrench, image".
                 .accessibilityHidden(true)
-            Text("HelloApp")
+            Text("Indiagram Smoke App")
                 .font(.largeTitle.bold())
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier(AccessibilityIdentifiers.title)

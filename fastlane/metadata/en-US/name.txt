@@ -1,1 +1,1 @@
-HelloApp
+Indiagram Smoke App

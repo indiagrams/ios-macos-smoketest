@@ -1,8 +1,8 @@
-# XcodeGen configuration for HelloApp.
+# XcodeGen configuration for SmokeApp.
 # Generate the .xcodeproj with: xcodegen generate
 # (https://github.com/yonaskolb/XcodeGen)
 
-name: HelloApp
+name: SmokeApp
 
 options:
   bundleIdPrefix: com.example
@@ -29,7 +29,7 @@ settings:
 
 # ─── iOS app ──────────────────────────────────────────────────────────
 targets:
-  HelloApp-iOS:
+  SmokeApp-iOS:
     type: application
     platform: iOS
     sources:
@@ -38,7 +38,7 @@ targets:
     info:
       path: iOS/Generated-Info.plist
       properties:
-        CFBundleDisplayName: HelloApp
+        CFBundleDisplayName: Indiagram Smoke App
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -56,15 +56,15 @@ targets:
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.indiagram.smokeapp
         TARGETED_DEVICE_FAMILY: "1,2"           # iPhone + iPad
         SUPPORTS_MACCATALYST: NO
-        CODE_SIGN_ENTITLEMENTS: iOS/HelloApp.entitlements
+        CODE_SIGN_ENTITLEMENTS: iOS/SmokeApp.entitlements
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
-        INFOPLIST_KEY_NSHumanReadableCopyright: "TODO Copyright © <year> <Your Org>. All rights reserved."
+        INFOPLIST_KEY_NSHumanReadableCopyright: "TODO Copyright © 2026 <Your Org>. All rights reserved."
 
 # ─── macOS app ────────────────────────────────────────────────────────
-  HelloApp-macOS:
+  SmokeApp-macOS:
     type: application
     platform: macOS
     sources:
@@ -78,12 +78,12 @@ targets:
     info:
       path: macOS/Generated-Info.plist
       properties:
-        CFBundleDisplayName: HelloApp
+        CFBundleDisplayName: Indiagram Smoke App
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSApplicationCategoryType: public.app-category.utilities
-        NSHumanReadableCopyright: "TODO Copyright © <year> <Your Org>. All rights reserved."
+        NSHumanReadableCopyright: "TODO Copyright © 2026 <Your Org>. All rights reserved."
         NSPrincipalClass: NSApplication
         # CFBundleIconName intentionally NOT set — its presence makes Sonoma+
         # prefer Assets.car AppIcon (which has actool's broken 4-size set).
@@ -92,8 +92,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp
-        CODE_SIGN_ENTITLEMENTS: macOS/HelloApp.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.indiagram.smokeapp
+        CODE_SIGN_ENTITLEMENTS: macOS/SmokeApp.entitlements
         # Suppress actool's auto-injection of CFBundleIconName=AppIcon. Empty
         # value = actool emits Assets.car as before but does not set the key,
         # so macOS reads CFBundleIconFile → our hand-rolled 10-size .icns.
@@ -114,7 +114,7 @@ targets:
           echo "Overwrote $SCRIPT_OUTPUT_FILE_0 with hand-rolled 10-size .icns"
 
 # ─── UITest target (drives App Store screenshot capture) ────────────────────
-  HelloAppUITests:
+  SmokeAppUITests:
     type: bundle.ui-testing
     platform: iOS
     sources:
@@ -128,8 +128,8 @@ targets:
       - path: Shared/AccessibilityIdentifiers.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.uitests
-        TEST_TARGET_NAME: HelloApp-iOS
+        PRODUCT_BUNDLE_IDENTIFIER: com.indiagram.smokeapp.uitests
+        TEST_TARGET_NAME: SmokeApp-iOS
         GENERATE_INFOPLIST_FILE: YES
         # SnapshotHelper.swift is fastlane-shipped and predates Swift 6's
         # strict-by-default concurrency model. Pin this target to Swift 5
@@ -137,92 +137,92 @@ targets:
         SWIFT_VERSION: "5.9"
         SWIFT_STRICT_CONCURRENCY: minimal
     dependencies:
-      - target: HelloApp-iOS
+      - target: SmokeApp-iOS
 
 
 # ─── Unit-test target (sanity tests; forks should add real tests here) ─────
-  HelloAppTests:
+  SmokeAppTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - path: Tests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.tests
-        TEST_TARGET_NAME: HelloApp-iOS
+        PRODUCT_BUNDLE_IDENTIFIER: com.indiagram.smokeapp.tests
+        TEST_TARGET_NAME: SmokeApp-iOS
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
-      - target: HelloApp-iOS
+      - target: SmokeApp-iOS
 # ─── macOS UITest target (drives App Store screenshot capture) ─────────────
-  HelloAppMacOSUITests:
+  SmokeAppMacOSUITests:
     type: bundle.ui-testing
     platform: macOS
     sources:
       - path: MacOSUITests
-      # See HelloAppUITests above — same rationale for the shared
+      # See SmokeAppUITests above — same rationale for the shared
       # selector enum. The macOS UI test doesn't query it today, but
       # making the symbol available so future macOS test screens can.
       - path: Shared/AccessibilityIdentifiers.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.macuitests
-        TEST_TARGET_NAME: HelloApp-macOS
+        PRODUCT_BUNDLE_IDENTIFIER: com.indiagram.smokeapp.macuitests
+        TEST_TARGET_NAME: SmokeApp-macOS
         GENERATE_INFOPLIST_FILE: YES
         # AppStoreScreenshotTests overrides XCTestCase.setUpWithError /
         # tearDownWithError in a @MainActor class — Swift 6 errors on
         # main-actor-isolated mutation in nonisolated overrides. Pin this
-        # target to Swift 5 mode (parallel to HelloAppUITests).
+        # target to Swift 5 mode (parallel to SmokeAppUITests).
         SWIFT_VERSION: "5.9"
         SWIFT_STRICT_CONCURRENCY: minimal
     dependencies:
-      - target: HelloApp-macOS
+      - target: SmokeApp-macOS
 
 # ─── macOS unit-test target ─────────────────────────────────────────────
-  HelloAppMacOSTests:
+  SmokeAppMacOSTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - path: MacOSTests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.mactests
-        TEST_TARGET_NAME: HelloApp-macOS
+        PRODUCT_BUNDLE_IDENTIFIER: com.indiagram.smokeapp.mactests
+        TEST_TARGET_NAME: SmokeApp-macOS
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
-      - target: HelloApp-macOS
+      - target: SmokeApp-macOS
 
 # ─── Schemes ──────────────────────────────────────────────────────────
 schemes:
-  HelloApp-iOS:
+  SmokeApp-iOS:
     build:
       targets:
-        HelloApp-iOS: all
-        HelloAppUITests: [test]
-        HelloAppTests: [test]
+        SmokeApp-iOS: all
+        SmokeAppUITests: [test]
+        SmokeAppTests: [test]
     run:
       config: Debug
-      executable: HelloApp-iOS
+      executable: SmokeApp-iOS
     test:
       config: Debug
       targets:
-        - HelloAppUITests
-        - HelloAppTests
+        - SmokeAppUITests
+        - SmokeAppTests
     archive:
       config: Release
 
-  HelloApp-macOS:
+  SmokeApp-macOS:
     build:
       targets:
-        HelloApp-macOS: all
-        HelloAppMacOSUITests: [test]
-        HelloAppMacOSTests: [test]
+        SmokeApp-macOS: all
+        SmokeAppMacOSUITests: [test]
+        SmokeAppMacOSTests: [test]
     run:
       config: Debug
-      executable: HelloApp-macOS
+      executable: SmokeApp-macOS
     test:
       config: Debug
       targets:
-        - HelloAppMacOSUITests
-        - HelloAppMacOSTests
+        - SmokeAppMacOSUITests
+        - SmokeAppMacOSTests
     archive:
       config: Release

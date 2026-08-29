@@ -1,4 +1,4 @@
-// app/Project.swift — Tuist 4 manifest for the HelloApp template stub.
+// app/Project.swift — Tuist 4 manifest for the SmokeApp template stub.
 //
 // 1:1 equivalent of app/project.yml. Both ship on `main`; bin/rename.sh's
 // `--generator=tuist|xcodegen` flag (see #38) selects which one a fresh
@@ -7,7 +7,7 @@
 //
 // When editing this file, also update app/project.yml (and vice versa).
 // The CI matrix is the source of truth — both must produce a
-// build-green HelloApp.xcodeproj.
+// build-green SmokeApp.xcodeproj.
 
 import ProjectDescription
 
@@ -30,7 +30,7 @@ let baseSettings: SettingsDictionary = [
 // MARK: - iOS app
 
 let iosInfoPlist: [String: Plist.Value] = [
-    "CFBundleDisplayName": "HelloApp",
+    "CFBundleDisplayName": "Indiagram Smoke App",
     "CFBundleShortVersionString": "$(MARKETING_VERSION)",
     "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
     "UILaunchScreen": .dictionary([:]),
@@ -52,10 +52,10 @@ let iosInfoPlist: [String: Plist.Value] = [
 ]
 
 let iosTarget = Target.target(
-    name: "HelloApp-iOS",
+    name: "SmokeApp-iOS",
     destinations: [.iPhone, .iPad],
     product: .app,
-    bundleId: "com.example.helloapp",
+    bundleId: "com.indiagram.smokeapp",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .extendingDefault(with: iosInfoPlist),
     sources: ["Shared/**", "iOS/**"],
@@ -64,25 +64,25 @@ let iosTarget = Target.target(
         "Shared/PrivacyInfo.xcprivacy",
         "Shared/Localizable.xcstrings",
     ],
-    entitlements: .file(path: "iOS/HelloApp.entitlements"),
+    entitlements: .file(path: "iOS/SmokeApp.entitlements"),
     settings: .settings(base: [
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.example.helloapp",
+        "PRODUCT_BUNDLE_IDENTIFIER": "com.indiagram.smokeapp",
         "TARGETED_DEVICE_FAMILY": "1,2",
         "SUPPORTS_MACCATALYST": "NO",
         "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
-        "INFOPLIST_KEY_NSHumanReadableCopyright": "TODO Copyright © <year> <Your Org>. All rights reserved.",
+        "INFOPLIST_KEY_NSHumanReadableCopyright": "TODO Copyright © 2026 <Your Org>. All rights reserved.",
     ])
 )
 
 // MARK: - macOS app
 
 let macInfoPlist: [String: Plist.Value] = [
-    "CFBundleDisplayName": "HelloApp",
+    "CFBundleDisplayName": "Indiagram Smoke App",
     "CFBundleShortVersionString": "$(MARKETING_VERSION)",
     "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
     "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
     "LSApplicationCategoryType": "public.app-category.utilities",
-    "NSHumanReadableCopyright": "TODO Copyright © <year> <Your Org>. All rights reserved.",
+    "NSHumanReadableCopyright": "TODO Copyright © 2026 <Your Org>. All rights reserved.",
     "NSPrincipalClass": "NSApplication",
     // CFBundleIconName intentionally NOT set — its presence makes Sonoma+
     // prefer Assets.car AppIcon (which has actool's broken 4-size set).
@@ -108,10 +108,10 @@ let macIconScript: TargetScript = .post(
 )
 
 let macTarget = Target.target(
-    name: "HelloApp-macOS",
+    name: "SmokeApp-macOS",
     destinations: [.mac],
     product: .app,
-    bundleId: "com.example.helloapp",
+    bundleId: "com.indiagram.smokeapp",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .extendingDefault(with: macInfoPlist),
     sources: [
@@ -126,10 +126,10 @@ let macTarget = Target.target(
         "Shared/PrivacyInfo.xcprivacy",
         "Shared/Localizable.xcstrings",
     ],
-    entitlements: .file(path: "macOS/HelloApp.entitlements"),
+    entitlements: .file(path: "macOS/SmokeApp.entitlements"),
     scripts: [macIconScript],
     settings: .settings(base: [
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.example.helloapp",
+        "PRODUCT_BUNDLE_IDENTIFIER": "com.indiagram.smokeapp",
         // Suppress actool's auto-injection of CFBundleIconName=AppIcon.
         // Empty value = actool emits Assets.car as before but does not set
         // the key, so macOS reads CFBundleIconFile → our hand-rolled .icns.
@@ -140,16 +140,16 @@ let macTarget = Target.target(
 // MARK: - UI test targets
 
 let iosUITestTarget = Target.target(
-    name: "HelloAppUITests",
+    name: "SmokeAppUITests",
     destinations: [.iPhone, .iPad],
     product: .uiTests,
-    bundleId: "com.example.helloapp.uitests",
+    bundleId: "com.indiagram.smokeapp.uitests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
     sources: ["UITests/**", "Shared/AccessibilityIdentifiers.swift"],
-    dependencies: [.target(name: "HelloApp-iOS")],
+    dependencies: [.target(name: "SmokeApp-iOS")],
     settings: .settings(base: [
-        "TEST_TARGET_NAME": "HelloApp-iOS",
+        "TEST_TARGET_NAME": "SmokeApp-iOS",
         // SnapshotHelper.swift is fastlane-shipped and predates Swift 6's
         // strict-by-default concurrency model. Pin this target to Swift 5
         // mode so the file compiles unmodified — base SWIFT_VERSION is 6.0.
@@ -159,16 +159,16 @@ let iosUITestTarget = Target.target(
 )
 
 let macUITestTarget = Target.target(
-    name: "HelloAppMacOSUITests",
+    name: "SmokeAppMacOSUITests",
     destinations: [.mac],
     product: .uiTests,
-    bundleId: "com.example.helloapp.macuitests",
+    bundleId: "com.indiagram.smokeapp.macuitests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
     sources: ["MacOSUITests/**", "Shared/AccessibilityIdentifiers.swift"],
-    dependencies: [.target(name: "HelloApp-macOS")],
+    dependencies: [.target(name: "SmokeApp-macOS")],
     settings: .settings(base: [
-        "TEST_TARGET_NAME": "HelloApp-macOS",
+        "TEST_TARGET_NAME": "SmokeApp-macOS",
         // AppStoreScreenshotTests overrides XCTestCase.setUpWithError /
         // tearDownWithError in a @MainActor class — Swift 6 errors on
         // main-actor-isolated mutation in nonisolated overrides. Pin this
@@ -181,67 +181,67 @@ let macUITestTarget = Target.target(
 // MARK: - Unit test targets (sanity tests; forks should add real tests here)
 
 let iosUnitTestTarget = Target.target(
-    name: "HelloAppTests",
+    name: "SmokeAppTests",
     destinations: [.iPhone, .iPad],
     product: .unitTests,
-    bundleId: "com.example.helloapp.tests",
+    bundleId: "com.indiagram.smokeapp.tests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
     sources: ["Tests/**"],
-    dependencies: [.target(name: "HelloApp-iOS")],
+    dependencies: [.target(name: "SmokeApp-iOS")],
     settings: .settings(base: [
-        "TEST_TARGET_NAME": "HelloApp-iOS",
+        "TEST_TARGET_NAME": "SmokeApp-iOS",
     ])
 )
 
 let macUnitTestTarget = Target.target(
-    name: "HelloAppMacOSTests",
+    name: "SmokeAppMacOSTests",
     destinations: [.mac],
     product: .unitTests,
-    bundleId: "com.example.helloapp.mactests",
+    bundleId: "com.indiagram.smokeapp.mactests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
     sources: ["MacOSTests/**"],
-    dependencies: [.target(name: "HelloApp-macOS")],
+    dependencies: [.target(name: "SmokeApp-macOS")],
     settings: .settings(base: [
-        "TEST_TARGET_NAME": "HelloApp-macOS",
+        "TEST_TARGET_NAME": "SmokeApp-macOS",
     ])
 )
 
 // MARK: - Schemes
 
 let iosScheme: Scheme = .scheme(
-    name: "HelloApp-iOS",
+    name: "SmokeApp-iOS",
     shared: true,
     // NB: only the main app target — UI tests live in testAction only.
-    // Including HelloAppUITests here would compile it during plain
+    // Including SmokeAppUITests here would compile it during plain
     // `xcodebuild build` and trip strict-concurrency errors that the
     // per-target SWIFT_STRICT_CONCURRENCY=minimal override can't suppress.
-    buildAction: .buildAction(targets: ["HelloApp-iOS"]),
+    buildAction: .buildAction(targets: ["SmokeApp-iOS"]),
     testAction: .targets(
-        ["HelloAppUITests", "HelloAppTests"],
+        ["SmokeAppUITests", "SmokeAppTests"],
         configuration: .debug
     ),
-    runAction: .runAction(configuration: .debug, executable: "HelloApp-iOS"),
+    runAction: .runAction(configuration: .debug, executable: "SmokeApp-iOS"),
     archiveAction: .archiveAction(configuration: .release)
 )
 
 let macScheme: Scheme = .scheme(
-    name: "HelloApp-macOS",
+    name: "SmokeApp-macOS",
     shared: true,
-    buildAction: .buildAction(targets: ["HelloApp-macOS"]),
+    buildAction: .buildAction(targets: ["SmokeApp-macOS"]),
     testAction: .targets(
-        ["HelloAppMacOSUITests", "HelloAppMacOSTests"],
+        ["SmokeAppMacOSUITests", "SmokeAppMacOSTests"],
         configuration: .debug
     ),
-    runAction: .runAction(configuration: .debug, executable: "HelloApp-macOS"),
+    runAction: .runAction(configuration: .debug, executable: "SmokeApp-macOS"),
     archiveAction: .archiveAction(configuration: .release)
 )
 
 // MARK: - Project
 
 let project = Project(
-    name: "HelloApp",
+    name: "SmokeApp",
     options: .options(
         defaultKnownRegions: ["en"],
         developmentRegion: "en"

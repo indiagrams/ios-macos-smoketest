@@ -119,12 +119,12 @@ end
 # An ASC error body, carrying a marker string. Cases assert the marker survives
 # into stderr, which is what proves the *body* half of the [status, body] tuple
 # reached the caller rather than only the status.
-def error_body(marker)
+def error_body(marker, status: "403")
   {
     "errors" => [
       {
         "id" => "00000000-0000-0000-0000-000000000000",
-        "status" => "403",
+        "status" => status,
         "code" => "FORBIDDEN_ERROR",
         "title" => marker,
         "detail" => "Provided user is not authorized to perform this operation."
@@ -206,7 +206,7 @@ end
 # two cases are the only thing standing between this phase and that failure.
 with_fixtures do |dir|
   f403 = write_fixture(dir, "forbidden.json", error_body("marker-403-insufficient-role"), status: 403)
-  f409 = write_fixture(dir, "conflict.json", error_body("marker-409-state-conflict"), status: 409)
+  f409 = write_fixture(dir, "conflict.json", error_body("marker-409-state-conflict", status: "409"), status: 409)
 
   _out, err403, code403 = probe("read-back", "bundle-id", "--identifier", IOS_ID, "--fixture", f403)
   _out, err409, code409 = probe("read-back", "bundle-id", "--identifier", IOS_ID, "--fixture", f409)

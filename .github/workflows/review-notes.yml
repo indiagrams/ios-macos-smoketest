@@ -93,3 +93,11 @@ jobs:
           ruby tools/gen-review-notes.rb --check
           ruby test/gen_review_notes_test.rb
           ruby test/docs_structure_test.rb
+          # Offline by construction, which is what keeps bundler-cache: false
+          # above honest: every case drives tools/asc-probe.rb through --fixture
+          # with credentials cleared, so this suite needs no gem, no network and
+          # no App Store Connect token. It is a step inside this job rather than a
+          # job of its own on purpose — a second job would be a tenth status
+          # context, which branch protection does not require, so it would run and
+          # report and block nothing.
+          ruby test/asc_probe_test.rb

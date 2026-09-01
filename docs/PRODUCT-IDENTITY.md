@@ -10,20 +10,24 @@ it is what later work reads when it needs the actual strings: the App Store Conn
 records, the identity replacement in the project manifests, and the App Store metadata
 all resolve their values from here.
 
-Nothing in this file is implemented yet. Recording the decision and changing the
-identity strings in build files are separate steps, deliberately in separate phases.
-This file is the record; the implementation lands later, in the identity work tracked
-as `IDENT-01` onward.
+**The App Store Connect side of this identity is live; the build-file side is not.**
+As of 2026-09-01 the record, the store name, the bundle ID and the SKU exist at Apple
+and are recorded below. Changing the identity strings inside the project manifests is a
+separate step in a separate phase, tracked as `IDENT-01` onward. A reader who finds the
+old placeholder identity in `app/` has not found a contradiction — they have found the
+half that has not landed yet.
 
 ## Identity
 
 | Field | Value | Decision |
 |---|---|---|
 | App Store display name | Shipkit Pipes | D-01 |
-| iOS bundle ID | `com.indiagram.shipkitpipes.ios` | D-04 |
-| macOS bundle ID | `com.indiagram.shipkitpipes.macos` | D-04 |
+| Universal Purchase | **Adopted** — one app record serving both iOS and macOS | D-44, reversing D-05 |
+| App Store Connect record | `6807393045` — one record, two platform versions | D-44 |
+| Shared bundle ID, iOS and macOS | `com.indiagram.shipkitpipes.ios` | D-44, superseding D-04 |
+| SKU — permanent, never reissuable | `shipkitpipes-ios-001` | D-31 |
+| Registered but unused App ID | `com.indiagram.shipkitpipes.macos` (`KPNQ2D3B8A`) | D-44 |
 | Bundle ID prefix | `com.indiagram.*` | D-06 |
-| Universal Purchase | Declined — two independent app records, one per platform | D-05 |
 | GitHub repository name | Unchanged: `indiagrams/ios-macos-smoketest` | D-02 |
 | Xcode target and scheme names | Generic and fork-independent — decided, not yet implemented | D-03 |
 
@@ -49,12 +53,54 @@ product rather than a vehicle for testing a pipeline; the risk is logged and acc
 rather than argued away, and the review arguments in
 [REVIEW-ARGUMENTS.md](REVIEW-ARGUMENTS.md) carry that weight instead.
 
-> [!IMPORTANT]
-> **The display name is not confirmed.** App Store display names must be unique
-> store-wide, and that cannot be checked from a build machine — only from App Store
-> Connect at the moment a record is created. Phase 2 confirms availability when it
-> creates the two ASC records. Until then, "Shipkit Pipes" is a first choice, not a
-> settled fact, and anything downstream that hardcodes it inherits that caveat.
+**The display name is confirmed.** App Store Connect accepted "Shipkit Pipes" on
+2026-09-01 for record `6807393045`, and reservation is a side effect of that creation
+because Apple exposes no availability-query endpoint to ask in advance (D-01, D-30).
+Anything downstream may hardcode the name without inheriting a caveat. The name was read
+back from Apple rather than trusted from the form: `GET /v1/apps` reports `name` as
+`Shipkit Pipes`, `sku` as `shipkitpipes-ios-001`, and `primaryLocale` as `en-US`.
+
+## One record, two platforms
+
+**Universal Purchase was adopted on 2026-09-01, reversing the decision to decline it
+(D-44, reversing D-05).** This is the one place a fresh clone can read why, so it is
+recorded here rather than only in the gitignored planning notes.
+
+The reversal was forced by a fact no source consulted in this project had surfaced:
+**App Store names must be unique within an account, not merely store-wide.** Creating a
+second record for macOS under the same name failed, and Apple's rejection said so
+verbatim:
+
+> "The app name you entered is already being used for another app in your account. If
+> you would like to use the name for this app you will need to submit an update to your
+> other app to change the name, or remove it from App Store Connect."
+
+The collision was not with a third party. It was with this project's own iOS record,
+created minutes earlier. Two records in one account cannot share a name, so the
+two-record shape and the single store name in this table could not both hold — the plan
+was unsatisfiable by construction rather than by mistake, and one of the two had to go.
+The name is load-bearing for the guideline 4.3(b) argument the whole submission rests on
+(D-08, D-24), so the record shape gave way instead (D-30 forbids substituting a name).
+
+**What it costs, recorded rather than argued away.** D-05 declined Universal Purchase to
+keep the two platforms' App Review rejection blast radius independent. That property is
+now given up: one record, one name, one metadata tree. iOS and macOS remain separate
+`AppStoreVersion`s and can still be submitted independently, so the two submissions stay
+separate — but a name or metadata rejection now lands on both. This was chosen with the
+trade stated, which is what the roadmap's criterion asks of this decision.
+
+**The `.ios` suffix on a cross-platform bundle ID is deliberate, not a leftover.**
+`com.indiagram.shipkitpipes.ios` now identifies both platforms. Renaming it would have
+meant deleting the record, and a removed app's SKU cannot be reused in the same
+organization — so `shipkitpipes-ios-001` would have been burned permanently to fix a
+string no user ever sees. The cosmetic oddity was the cheaper of the two.
+
+**`com.indiagram.shipkitpipes.macos` (`KPNQ2D3B8A`) is registered and now permanently
+unused.** It is left in place deliberately: deleting App IDs is not obviously reversible
+and keeping it costs nothing. Its SKU, `shipkitpipes-macos-001`, was never consumed. A
+read-back for that identifier correctly returns not-found, because no app record was ever
+created against it — that is the expected result under Universal Purchase and not a
+defect to be repaired.
 
 ## What v1 ships
 
@@ -122,6 +168,106 @@ Three consequences follow from that, and downstream work depends on all three:
 - **The "we stored your API key" failure mode is eliminated.** People paste secrets —
   tokens, keys, payloads — into tools like this one. Nothing persisted means nothing to
   leak, and it means that property is structural rather than a promise.
+
+## European Union trader status
+
+**This app ships as a declared trader in the European Union, and that is recorded here
+at both of the surfaces Apple keeps it on (D-38).** Under the Digital Services Act an app
+whose developer has not made the declaration is withdrawn from the EU App Store, so this
+is availability state rather than paperwork. It lives in this tracked file rather than
+only in this project's planning notes because those notes are gitignored and do not
+survive a fresh clone — the same reasoning that produced D-23.
+
+**There are two surfaces, and the second one is the one that goes unchecked.** A shipping-
+guidance file this project inherited states that trader status is an account-level setting
+only. It is not: Apple carries an account-level declaration under Business and a separate
+per-app declaration under App Information, and a check that reads only the first would
+report green while an individual app sat undeclared (R-05, C-08). Both were read on the
+same day by the account holder, and both are below. Every string is quoted as it appeared
+on screen; nothing here is a normalised or expected value.
+
+| Surface | Observed string | Observed (ISO-8601) | Against |
+|---|---|---|---|
+| Business, Agreements, Compliance, Digital Services Act — the status | `Active`, shown alongside `Digital Services Act`, `27 Countries or Regions`, a `View` link, and `May 17, 2026` | 2026-09-01 | account, team `G5H628C6WR` |
+| The `Digital Services Act Compliance` dialog — the selected option | `I'm a trader under the DSA`, its radio filled | 2026-09-01 | account, team `G5H628C6WR` |
+| The `Digital Services Act Compliance` dialog — the unselected option | `I'm not a trader under the DSA or I don't plan to distribute in the EU` | 2026-09-01 | account, team `G5H628C6WR` |
+| App Information, App Store Regulations and Permits, Digital Services Act | `This developer has identified itself as a trader for this app` | 2026-09-01 | record `6807393045`, bundle ID `com.indiagram.shipkitpipes.ios` |
+| App Information, App Store Regulations and Permits — the platform selector | `There is no platform selector.` One Digital Services Act block serves the whole record | 2026-09-01 | record `6807393045`, covering both its `IOS` and `MAC_OS` versions |
+
+**The account-level declaration was read, never touched.** The dialog was opened, both of
+its options were read, and it was dismissed. `Next` was not clicked, no selection was
+changed, and nothing was submitted. Changing that selection removes published apps from
+the EU App Store until re-verified, and team `G5H628C6WR` is shared with another shipping
+product, so the blast radius of a stray click there is not this project's alone.
+
+**Declaring as a trader publishes contact details on the public product page.** The
+selected option's own sub-text says so: a trader provides an address, a phone number and
+an email address "for the purpose of posting on your App Store product page in accordance
+with the DSA", and the same sentence adds that this is display-only and does not change
+the contact details on any Apple account or membership. The unselected option's sub-text
+is the complement — no contact information to be displayed. This is recorded because it is
+a consequence of trader status that nothing in this project had written down, and because
+it sits next to a standing rule without contradicting it: **Apple publishes those details
+by regulation, and this repository still does not commit them.** No address, phone number
+or email value appears anywhere in this file, and `test/docs_structure_test.rb` sweeps for
+the shapes of them.
+
+**Under Universal Purchase the per-app declaration is one surface, not two, and that was
+observed rather than assumed.** Record `6807393045` carries two `appStoreVersions`, `IOS`
+and `MAC_OS` (D-44). The obvious hazard was that App Store Regulations and Permits might
+expose the declaration per platform, in which case reading the iOS half would say nothing
+about the macOS half — the same substitution R-05 forbids, one seam further in. The
+surface was checked for a platform selector and has none, so the single block above covers
+both versions. That is a row in the table, and it is a measurement, not a note.
+
+**Apple publishes no verification state labels and no turnaround commitment.** That is a
+verified negative claim, not an omission: the help page, the four dated developer news
+posts, and the App Store Connect API specification were all read on 2026-09-01 and none
+of the five names a state vocabulary or a service-level target (T-10). There is therefore
+no such thing as waiting for a particular word to appear. What exists is the status string
+above, on the date above.
+
+**No label in the table above was predicted, and every prediction about these strings has
+now failed.** The pair this project was told to check the account-level status for —
+`Verified` and `Pending` — appears in no first-party Apple source, and neither is what the
+screen says; the screen says `Active` (R-06). Apple's own documentation describes the
+dialog's choice as being between "This is a trader account" and "This is not a trader
+account"; **both** real labels differ from both documented ones, and the real first option
+is a contraction, `I'm`, which is the kind of difference a paraphrase erases without
+anybody noticing. That makes three documented-strings-versus-reality failures inside one
+phase: the status vocabulary, the dialog's option labels, and `UNIVERSAL` being stored for
+every App ID whatever platform was requested (R-10). The rule that survives all three is
+the one this section is built on — a string is recorded because someone read it, or it is
+not recorded.
+
+> [!IMPORTANT]
+> Trader status is enforced by Apple **at submission time**. This section is evidence that
+> the declaration was in place on 2026-09-01 against the record named — not a standing
+> guarantee. The staleness window for it in
+> [APPLE-ACCOUNT-STATE.md](APPLE-ACCOUNT-STATE.md) is `per submission`, and Phases 10 and
+> 11 re-read both surfaces rather than trusting this file's date.
+
+**The D-37 exit condition, written from what was read.** D-37 requires Apple to have
+confirmed trader status before Phase 2 exits, and R-06 forbids naming the confirming string
+in advance — so the condition could only be written afterwards, from the terminal state
+that actually exists. It is this: the account-level Digital Services Act row reads `Active`
+on a recorded date against team `G5H628C6WR`, **and** the Digital Services Act block on
+record `6807393045`'s own App Information page states that this developer has identified
+itself as a trader for this app, on a recorded date, read at the app's surface rather than
+inferred from the account. Both halves held on 2026-09-01 and both are rows in the table
+above, so the condition is met. An account-level reading on its own does not meet it —
+that substitution is precisely what R-05 exists to prevent — and there is nothing stronger
+available to ask Apple for.
+
+**What could not be checked, stated rather than papered over.** The strongest evidence a
+state is real is watching it change: a per-app surface read before and after a declaration
+is made shows two different strings, where one string read once shows only that something
+was displayed. That control could not run here. Record `6807393045` was already declared
+when it was first looked at, there was no action to take, and no before-and-after pair
+exists. What stands in its place, labelled as a substitute and not as a control, is the
+pair of option labels in the dialog: the surface demonstrably expresses both a trader and
+a non-trader state, and the one selected is the trader state. A fabricated pair would have
+been worse than this admission.
 
 ## Not in v1
 

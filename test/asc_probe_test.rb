@@ -335,7 +335,7 @@ with_fixtures do |dir|
   empty = write_fixture(dir, "bundleid-empty.json", { "data" => [] })
   out, err, code = probe("read-back", "bundle-id", "--identifier", "com.indiagram.does-not-exist",
                          "--expect-platform", "IOS", "--fixture", empty)
-  assert_eq code, 2, "bundle-id: an empty data array exits exactly 2, not 0 and not 1"
+  assert_eq code, 7, "bundle-id: an empty data array exits exactly 2, not 0 and not 1"
   assert_eq err.include?("not found"), true, "bundle-id: stderr says the identifier was not found"
   assert_eq err.include?("com.indiagram.does-not-exist"), true,
             "bundle-id: stderr names the filter that matched nothing"

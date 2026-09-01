@@ -91,8 +91,10 @@ KEY_MATERIAL_VARS = %w[ASC_API_KEY_P8_BASE64 ASC_API_KEY_P8_PATH].freeze
 USAGE = <<~TXT
   usage: ruby tools/asc-probe.rb <subcommand> [options]
 
-    read-back bundle-id --identifier <id>
-    read-back app       --bundle-id <id>
+    read-back bundle-id --identifier <id> --expect-platform <IOS|MAC_OS>
+    read-back app       --bundle-id <id> [--expect-sku <sku>]
+                                         [--expect-locale <locale>]
+                                         [--expect-name <name>]
 
   common options:
     --fixture <path>  read a saved response envelope from disk instead of
@@ -282,7 +284,7 @@ end
 # structural departure from that precedent and it buys nothing this loop does
 # not already do.
 def parse_read_back_args(argv)
-  options = { identifier: nil, bundle_id: nil, fixture: nil }
+  options = { identifier: nil, bundle_id: nil, fixture: nil, expect: {} }
 
   index = 0
   while index < argv.length
@@ -295,6 +297,22 @@ def parse_read_back_args(argv)
       index += 1
       die "--bundle-id requires a value\n#{USAGE}" if argv[index].nil?
       options[:bundle_id] = utf8_arg(argv[index])
+    when "--expect-platform"
+      index += 1
+      die "--expect-platform requires a value\n#{USAGE}" if argv[index].nil?
+      options[:expect]["platform"] = utf8_arg(argv[index])
+    when "--expect-sku"
+      index += 1
+      die "--expect-sku requires a value\n#{USAGE}" if argv[index].nil?
+      options[:expect]["sku"] = utf8_arg(argv[index])
+    when "--expect-locale"
+      index += 1
+      die "--expect-locale requires a value\n#{USAGE}" if argv[index].nil?
+      options[:expect]["primaryLocale"] = utf8_arg(argv[index])
+    when "--expect-name"
+      index += 1
+      die "--expect-name requires a value\n#{USAGE}" if argv[index].nil?
+      options[:expect]["name"] = utf8_arg(argv[index])
     when "--fixture"
       index += 1
       die "--fixture requires a value\n#{USAGE}" if argv[index].nil?
@@ -315,6 +333,38 @@ def require_flag!(value, flag, context)
   return value unless value.nil?
 
   die "#{context} requires #{flag}\n#{USAGE}"
+end
+
+# A flag that belongs to the other noun is rejected rather than parsed and
+# ignored. Silently accepting --expect-sku on a bundle-id read-back would
+# produce a green run in which the SKU was never checked -- an assertion the
+# caller believes ran and did not.
+def reject_flags!(present, allowed, context)
+  offenders = present.keys - allowed
+  return if offenders.empty?
+
+  die "#{offenders.map { |k| FLAG_FOR_KEY.fetch(k, k) }.join(', ')} " \
+      "#{offenders.length == 1 ? 'is' : 'are'} not valid for #{context}\n#{USAGE}"
+end
+
+# Attribute key -> the flag a caller typed, so an error message names what the
+# caller wrote rather than the JSON field it maps to.
+FLAG_FOR_KEY = {
+  "platform" => "--expect-platform",
+  "sku" => "--expect-sku",
+  "primaryLocale" => "--expect-locale",
+  "name" => "--expect-name",
+  "bundleId" => "--bundle-id",
+  "identifier" => "--identifier"
+}.freeze
+
+# Collects every mismatch rather than dying on the first, so one run tells the
+# caller everything Apple disagrees with instead of one thing at a time.
+def compare(mismatches, key, expected, actual)
+  return if expected.nil?
+  return if expected == actual
+
+  mismatches << "expected #{key}=#{expected.inspect}, got #{actual.inspect}"
 end
 
 # Fetches the single record a filter is expected to match, and refuses every
@@ -349,7 +399,14 @@ end
 # measured_at are stamped in so every report is already the dated triple
 # 02-VALIDATION.md requires rather than a bare value a later reader has to date
 # from memory.
-def report(subcommand, resource, filter, id, attributes)
+def report(subcommand, resource, filter, id, attributes, mismatches)
+  unless mismatches.empty?
+    mismatches.each { |mismatch| warn "asc-probe: #{mismatch}" }
+    warn "asc-probe: #{subcommand} FAILED — App Store Connect did not store " \
+         "what was expected for #{filter}."
+    exit 1
+  end
+
   puts JSON.pretty_generate(
     "subcommand" => subcommand,
     "team" => EXPECTED_TEAM,
@@ -361,15 +418,60 @@ def report(subcommand, resource, filter, id, attributes)
   )
 end
 
+# ACCT-01's instrument. --expect-platform is REQUIRED, not optional: a
+# read-back with no assertion in it is a request, not a gate, and correction
+# C-02 is the reason the accepted set is exactly two values -- spaceship's
+# BundleIdPlatform in the locked fastlane 2.238.0 exposes IOS and MAC_OS and
+# nothing else, and D-05 declined the Universal Purchase model UNIVERSAL implies.
 def read_back_bundle_id(options)
+  reject_flags!(options[:expect], ["platform"], "read-back bundle-id")
+  die "read-back bundle-id does not take --bundle-id; use --identifier\n#{USAGE}" unless options[:bundle_id].nil?
+
   identifier = require_flag!(options[:identifier], "--identifier", "read-back bundle-id")
   validate_identifier!(identifier, "--identifier")
+
+  platform = require_flag!(options[:expect]["platform"], "--expect-platform", "read-back bundle-id")
+  unless BUNDLE_ID_PLATFORMS.include?(platform)
+    die "invalid --expect-platform #{platform.inspect}: must be one of " \
+        "#{BUNDLE_ID_PLATFORMS.join(', ')}. Apple's API enum also has " \
+        "UNIVERSAL, but spaceship does not expose it and D-05 declined the " \
+        "Universal Purchase model it implies (C-02)."
+  end
 
   filter = "filter[identifier]=#{identifier}"
   path = "/v1/bundleIds?filter%5Bidentifier%5D=#{identifier}&limit=200"
   attributes, id = fetch_one(path, filter, options[:fixture])
 
-  report("read-back bundle-id", "bundleIds", filter, id, attributes)
+  mismatches = []
+  compare(mismatches, "platform", platform, attributes["platform"])
+  compare(mismatches, "identifier", identifier, attributes["identifier"])
+
+  report("read-back bundle-id", "bundleIds", filter, id, attributes, mismatches)
+end
+
+# ACCT-03's instrument. /v1/apps is get-only in ASC OpenAPI 4.4.1 (F-1/R-01),
+# so this reads a record a human created in the web UI and never writes one.
+# Of the four attributes it asserts on, only sku is genuinely permanent (R-02);
+# the others are read back anyway, because "what Apple stored" is the evidence
+# this phase records, not "what was typed into the form".
+def read_back_app(options)
+  reject_flags!(options[:expect], %w[sku primaryLocale name], "read-back app")
+  die "read-back app does not take --identifier; use --bundle-id\n#{USAGE}" unless options[:identifier].nil?
+
+  bundle_id = require_flag!(options[:bundle_id], "--bundle-id", "read-back app")
+  validate_identifier!(bundle_id, "--bundle-id")
+
+  filter = "filter[bundleId]=#{bundle_id}"
+  path = "/v1/apps?filter%5BbundleId%5D=#{bundle_id}&limit=200"
+  attributes, id = fetch_one(path, filter, options[:fixture])
+
+  mismatches = []
+  compare(mismatches, "bundleId", bundle_id, attributes["bundleId"])
+  compare(mismatches, "sku", options[:expect]["sku"], attributes["sku"])
+  compare(mismatches, "primaryLocale", options[:expect]["primaryLocale"], attributes["primaryLocale"])
+  compare(mismatches, "name", options[:expect]["name"], attributes["name"])
+
+  report("read-back app", "apps", filter, id, attributes, mismatches)
 end
 
 def run_read_back(argv)
@@ -382,6 +484,8 @@ def run_read_back(argv)
     exit 0
   when "bundle-id"
     read_back_bundle_id(parse_read_back_args(argv[1..] || []))
+  when "app"
+    read_back_app(parse_read_back_args(argv[1..] || []))
   else
     die "unknown read-back noun #{noun.inspect}\n#{USAGE}"
   end

@@ -213,7 +213,8 @@ assert_eq err.include?("--identifier"), true, "argv: stderr names the missing re
 #    an empty response (which would look like "not found").
 with_fixtures do |dir|
   absent = File.join(dir, "does-not-exist.json")
-  _out, err, code = probe("read-back", "bundle-id", "--identifier", IOS_ID, "--fixture", absent)
+  _out, err, code = probe("read-back", "bundle-id", "--identifier", IOS_ID,
+                          "--expect-platform", "IOS", "--fixture", absent)
   assert_eq code, 1, "--fixture: a missing fixture file exits 1"
   assert_eq err.include?(absent), true, "--fixture: stderr names the path that could not be read"
 end
@@ -229,8 +230,10 @@ with_fixtures do |dir|
   f403 = write_fixture(dir, "forbidden.json", error_body("marker-403-insufficient-role"), status: 403)
   f409 = write_fixture(dir, "conflict.json", error_body("marker-409-state-conflict", status: "409"), status: 409)
 
-  _out, err403, code403 = probe("read-back", "bundle-id", "--identifier", IOS_ID, "--fixture", f403)
-  _out, err409, code409 = probe("read-back", "bundle-id", "--identifier", IOS_ID, "--fixture", f409)
+  _out, err403, code403 = probe("read-back", "bundle-id", "--identifier", IOS_ID,
+                                "--expect-platform", "IOS", "--fixture", f403)
+  _out, err409, code409 = probe("read-back", "bundle-id", "--identifier", IOS_ID,
+                                "--expect-platform", "IOS", "--fixture", f409)
 
   assert_eq code403, 1, "transport: a 403 response exits 1"
   assert_eq err403.include?("403"), true, "transport: a 403 is reported verbatim as 403"
@@ -283,7 +286,7 @@ end
 #     ASC_API_KEY_P8_PATH, and the resulting KeyError names nothing useful.
 #     This case is also what keeps the suite offline on the one path that has no
 #     fixture.
-_out, err, code = probe("read-back", "bundle-id", "--identifier", IOS_ID)
+_out, err, code = probe("read-back", "bundle-id", "--identifier", IOS_ID, "--expect-platform", "IOS")
 assert_eq code, 1, "credentials: a live call with no credentials exits 1"
 assert_eq err.include?("ASC_API_KEY_ID"), true, "credentials: stderr names the missing variable"
 assert_eq err.include?("KeyError"), false, "credentials: the failure is a message, not an opaque KeyError"

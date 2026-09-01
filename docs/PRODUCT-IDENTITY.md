@@ -10,20 +10,24 @@ it is what later work reads when it needs the actual strings: the App Store Conn
 records, the identity replacement in the project manifests, and the App Store metadata
 all resolve their values from here.
 
-Nothing in this file is implemented yet. Recording the decision and changing the
-identity strings in build files are separate steps, deliberately in separate phases.
-This file is the record; the implementation lands later, in the identity work tracked
-as `IDENT-01` onward.
+**The App Store Connect side of this identity is live; the build-file side is not.**
+As of 2026-09-01 the record, the store name, the bundle ID and the SKU exist at Apple
+and are recorded below. Changing the identity strings inside the project manifests is a
+separate step in a separate phase, tracked as `IDENT-01` onward. A reader who finds the
+old placeholder identity in `app/` has not found a contradiction — they have found the
+half that has not landed yet.
 
 ## Identity
 
 | Field | Value | Decision |
 |---|---|---|
 | App Store display name | Shipkit Pipes | D-01 |
-| iOS bundle ID | `com.indiagram.shipkitpipes.ios` | D-04 |
-| macOS bundle ID | `com.indiagram.shipkitpipes.macos` | D-04 |
+| Universal Purchase | **Adopted** — one app record serving both iOS and macOS | D-44, reversing D-05 |
+| App Store Connect record | `6807393045` — one record, two platform versions | D-44 |
+| Shared bundle ID, iOS and macOS | `com.indiagram.shipkitpipes.ios` | D-44, superseding D-04 |
+| SKU — permanent, never reissuable | `shipkitpipes-ios-001` | D-31 |
+| Registered but unused App ID | `com.indiagram.shipkitpipes.macos` (`KPNQ2D3B8A`) | D-44 |
 | Bundle ID prefix | `com.indiagram.*` | D-06 |
-| Universal Purchase | Declined — two independent app records, one per platform | D-05 |
 | GitHub repository name | Unchanged: `indiagrams/ios-macos-smoketest` | D-02 |
 | Xcode target and scheme names | Generic and fork-independent — decided, not yet implemented | D-03 |
 
@@ -49,12 +53,54 @@ product rather than a vehicle for testing a pipeline; the risk is logged and acc
 rather than argued away, and the review arguments in
 [REVIEW-ARGUMENTS.md](REVIEW-ARGUMENTS.md) carry that weight instead.
 
-> [!IMPORTANT]
-> **The display name is not confirmed.** App Store display names must be unique
-> store-wide, and that cannot be checked from a build machine — only from App Store
-> Connect at the moment a record is created. Phase 2 confirms availability when it
-> creates the two ASC records. Until then, "Shipkit Pipes" is a first choice, not a
-> settled fact, and anything downstream that hardcodes it inherits that caveat.
+**The display name is confirmed.** App Store Connect accepted "Shipkit Pipes" on
+2026-09-01 for record `6807393045`, and reservation is a side effect of that creation
+because Apple exposes no availability-query endpoint to ask in advance (D-01, D-30).
+Anything downstream may hardcode the name without inheriting a caveat. The name was read
+back from Apple rather than trusted from the form: `GET /v1/apps` reports `name` as
+`Shipkit Pipes`, `sku` as `shipkitpipes-ios-001`, and `primaryLocale` as `en-US`.
+
+## One record, two platforms
+
+**Universal Purchase was adopted on 2026-09-01, reversing the decision to decline it
+(D-44, reversing D-05).** This is the one place a fresh clone can read why, so it is
+recorded here rather than only in the gitignored planning notes.
+
+The reversal was forced by a fact no source consulted in this project had surfaced:
+**App Store names must be unique within an account, not merely store-wide.** Creating a
+second record for macOS under the same name failed, and Apple's rejection said so
+verbatim:
+
+> "The app name you entered is already being used for another app in your account. If
+> you would like to use the name for this app you will need to submit an update to your
+> other app to change the name, or remove it from App Store Connect."
+
+The collision was not with a third party. It was with this project's own iOS record,
+created minutes earlier. Two records in one account cannot share a name, so the
+two-record shape and the single store name in this table could not both hold — the plan
+was unsatisfiable by construction rather than by mistake, and one of the two had to go.
+The name is load-bearing for the guideline 4.3(b) argument the whole submission rests on
+(D-08, D-24), so the record shape gave way instead (D-30 forbids substituting a name).
+
+**What it costs, recorded rather than argued away.** D-05 declined Universal Purchase to
+keep the two platforms' App Review rejection blast radius independent. That property is
+now given up: one record, one name, one metadata tree. iOS and macOS remain separate
+`AppStoreVersion`s and can still be submitted independently, so the two submissions stay
+separate — but a name or metadata rejection now lands on both. This was chosen with the
+trade stated, which is what the roadmap's criterion asks of this decision.
+
+**The `.ios` suffix on a cross-platform bundle ID is deliberate, not a leftover.**
+`com.indiagram.shipkitpipes.ios` now identifies both platforms. Renaming it would have
+meant deleting the record, and a removed app's SKU cannot be reused in the same
+organization — so `shipkitpipes-ios-001` would have been burned permanently to fix a
+string no user ever sees. The cosmetic oddity was the cheaper of the two.
+
+**`com.indiagram.shipkitpipes.macos` (`KPNQ2D3B8A`) is registered and now permanently
+unused.** It is left in place deliberately: deleting App IDs is not obviously reversible
+and keeping it costs nothing. Its SKU, `shipkitpipes-macos-001`, was never consumed. A
+read-back for that identifier correctly returns not-found, because no app record was ever
+created against it — that is the expected result under Universal Purchase and not a
+defect to be repaired.
 
 ## What v1 ships
 

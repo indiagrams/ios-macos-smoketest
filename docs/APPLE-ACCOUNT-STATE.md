@@ -139,7 +139,7 @@ twice. 02-09 exercises both paths and fills these rows with what it saw.
 | `com.indiagram.shipkitpipes.macos` App ID | Registered — `id=KPNQ2D3B8A`, name `Shipkit Pipes macOS`. Requested `platform: MAC_OS`; **Apple stores `UNIVERSAL`** | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.shipkitpipes.macos --expect-platform MAC_OS` |
 | `com.indiagram.smokeapp` App ID (pre-existing) | Present, `id=TP38APY79P`, platform `UNIVERSAL`. Deliberately not deleted — Apple does not allow deleting an App ID that has ever been used | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.smokeapp --expect-platform IOS` |
 | Both App IDs confirmed in the Developer portal | Seen by the account holder in Certificates, Identifiers and Profiles, Identifiers: `com.indiagram.shipkitpipes.ios` and `com.indiagram.shipkitpipes.macos` both present. Exactly the two intended identifiers were created by these runs — no third. `com.indiagram.smokeapp` still present and untouched | 2026-09-01 | team `G5H628C6WR` | per phase | Apple Developer portal, Certificates, Identifiers and Profiles, Identifiers |
-| Universal Purchase | Declined and executed — two App IDs registered as two independent records, so rejection blast radius stays independent (D-05) | 2026-09-01 | team `G5H628C6WR` | per phase | `grep -n 'Universal Purchase' docs/PRODUCT-IDENTITY.md` |
+| Universal Purchase | **Adopted** — one app record (`6807393045`) serves both platforms from the single bundle ID `com.indiagram.shipkitpipes.ios` (D-44, reversing D-05). The earlier value of this row read "Declined and executed — two App IDs registered as two independent records"; that was true of the App IDs and never became true of the app records, because the second record could not be created. `com.indiagram.shipkitpipes.macos` remains a registered App ID with no app record against it | 2026-09-01 | team `G5H628C6WR` | per phase | `grep -n 'Universal Purchase' docs/PRODUCT-IDENTITY.md` |
 
 ### Apple stores `UNIVERSAL` for every App ID in this team, whatever platform was requested
 
@@ -175,6 +175,69 @@ Consequences, stated no more strongly than the observation supports:
   *requested* value rather than the response, so it is not evidence either way. Settling it would
   mean creating a third App ID purely to watch the create response, and an App ID that has ever
   been used cannot be reclaimed (T-02-32), so it was not done.
+
+## App Store Connect app record
+
+| Fact | Value | Measured (ISO-8601) | Against (team / key / record id) | Valid until | Re-check command |
+|---|---|---|---|---|---|
+| App record id | `6807393045` — the only app record this project owns | 2026-09-01 | record `6807393045` on team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001 --expect-locale en-US --expect-name 'Shipkit Pipes'` |
+| App record `name` | `Shipkit Pipes` — accepted by App Store Connect at creation | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001 --expect-locale en-US --expect-name 'Shipkit Pipes'` |
+| App record `sku` | `shipkitpipes-ios-001` — matches D-31 character for character. **Permanent**: cannot be changed, and cannot be reused in this organization even if the record is removed | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001 --expect-locale en-US --expect-name 'Shipkit Pipes'` |
+| App record `primaryLocale` | `en-US` — set explicitly per D-32 rather than relying on the documented default | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001 --expect-locale en-US --expect-name 'Shipkit Pipes'` |
+| App record `bundleId` | `com.indiagram.shipkitpipes.ios` — shared by both platforms under Universal Purchase | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001 --expect-locale en-US --expect-name 'Shipkit Pipes'` |
+| `appStoreVersions` on the record | Two: `platform=IOS state=PREPARE_FOR_SUBMISSION version=1.0` and `platform=MAC_OS state=PREPARE_FOR_SUBMISSION version=1.0`. Both platforms live on the one record, and each can be submitted independently | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby -e 'require "spaceship"; Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(key_id: ENV["ASC_API_KEY_ID"], issuer_id: ENV["ASC_API_KEY_ISSUER_ID"], key: Base64.decode64(ENV["ASC_API_KEY_P8_BASE64"])); Spaceship::ConnectAPI.get_app_store_versions(app_id: "6807393045").to_models.each { |v| puts "#{v.platform} #{v.app_store_state} #{v.version_string}" }'` |
+| App records named `Shipkit Pipes` on this team | Exactly one. Enumerated all five app records on the team; no second `Shipkit Pipes` and no record against `com.indiagram.shipkitpipes.macos` | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby -e 'require "spaceship"; Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(key_id: ENV["ASC_API_KEY_ID"], issuer_id: ENV["ASC_API_KEY_ISSUER_ID"], key: Base64.decode64(ENV["ASC_API_KEY_P8_BASE64"])); puts Spaceship::ConnectAPI::App.all.map { |a| "#{a.id} #{a.name}" }'` |
+| `com.indiagram.shipkitpipes.macos` app record | **None, permanently and by design.** The App ID `KPNQ2D3B8A` stays registered; no app record was ever created against it and none will be. A `read-back app` for this identifier exits `2` — that is the correct result under Universal Purchase, not a defect | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.macos --expect-sku shipkitpipes-macos-001` |
+| SKU `shipkitpipes-macos-001` | Never consumed. D-31 reserved it for the second record that was never created; it is not attached to anything at Apple | 2026-09-01 | team `G5H628C6WR` | per phase | Absent from the `App.all` enumeration above |
+| App Store name uniqueness scope | **Account-scoped, not merely store-wide.** Two app records in one account cannot carry the same name. Observed by Apple refusing the second record, not read from documentation | 2026-09-01 | team `G5H628C6WR` | per phase | Apple returns the refusal only at record creation; there is no query endpoint |
+| Field mutability at record creation | `sku` **permanent** — "You can't change the SKU after you add the app to your account". `bundleId` frozen at **first upload**, not at creation — "You can't change this property after you upload a build". `name` editable **until the app is submitted to App Review**. `primaryLocale` editable **at any time** — "You can change the primary language at any time" | 2026-09-01 | record `6807393045` | per phase | [Apple: add an app to your account](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app) |
+
+### Only two moments here are irreversible, and record creation is not one of them
+
+Creating the record feels like the one-way door, and mostly it is not. Of the four fields
+set at creation, three have a correction path: the name can be changed until the app is
+submitted for review, the primary language can be changed at any time, and the bundle ID
+is not frozen until the first build is uploaded. What genuinely cannot be undone is the
+**SKU string**, which is permanent and whose value cannot be reissued in this organization
+even if the record is deleted, and the **first upload**, which is what freezes the bundle
+ID. Phases 8, 9 and 10 should place their caution accordingly: the risk is not in having
+created the record, it is in the SKU that was typed and in the first binary that is sent.
+
+### The read-back is a working instrument, which is newly demonstrable
+
+Before this record existed, every identifier returned exit `2`, so a not-found control
+proved nothing — it could not be distinguished from a probe that returned `2`
+unconditionally. Now that one real record exists, the same instrument was observed
+producing all three of its documented outcomes against live data on 2026-09-01:
+
+```
+exit 0  read-back app --bundle-id com.indiagram.shipkitpipes.ios \
+          --expect-sku shipkitpipes-ios-001 --expect-locale en-US \
+          --expect-name 'Shipkit Pipes'
+        the record is found and every assertion holds
+
+exit 2  read-back app --bundle-id com.indiagram.definitely-not-a-real-app-zzz9 \
+          --expect-sku shipkitpipes-ios-001
+        absence is detected rather than passed over
+
+exit 1  read-back app --bundle-id com.indiagram.shipkitpipes.ios \
+          --expect-sku shipkitpipes-ios-999
+        the SKU assertion actually executes, and says so:
+        asc-probe: expected sku="shipkitpipes-ios-999", got "shipkitpipes-ios-001"
+```
+
+That block is deliberately fenced rather than tabulated. `test/docs_structure_test.rb`
+parses every markdown table inside a fact section and requires each row to carry a
+measurement date and a target, so a three-column illustration in this section is read as
+a malformed fact row and fails the suite. It did, while this section was being written.
+The same shape is UL-010's, and the fix is the one this file already uses for the example
+header row in [How to read a row](#how-to-read-a-row): put prose tables in a fence, and
+leave the pipes to the facts.
+
+**The bogus identifier is deliberately not `com.indiagram.shipkitpipes.macos`.** That one
+also returns `2`, but it returns `2` for a reason that changed during this phase — it is
+now correctly absent under Universal Purchase. A control that passes for a changed reason
+is not a control, so a string that has never existed and never will is used instead.
 
 ## Certificate census
 

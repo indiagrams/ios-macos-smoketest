@@ -119,6 +119,7 @@ ACCOUNT_STATE_FACT_SECTIONS = [
   /^## Apple Developer Program and account/,
   /^## ASC API key/,
   /^## App IDs/,
+  /^## App Store Connect app record/,
   /^## Certificate census/
 ].freeze
 
@@ -420,10 +421,19 @@ puts "#{PRODUCT_IDENTITY} — the identity strings are recorded:"
 
 identity = read_doc(PRODUCT_IDENTITY)
 
+# The three strings are unchanged; two of the labels are not. Universal Purchase
+# was adopted on 2026-09-01 (D-44, reversing D-05), so there is no longer an "iOS
+# bundle ID" and a "macOS bundle ID": one shared bundle ID serves both platforms
+# on record 6807393045, and the .macos identifier is a registered App ID that no
+# app record was ever created against. Both strings must still appear in the
+# identity document -- the shared one because it is the identity, the unused one
+# because an orphaned-but-registered identifier that goes unrecorded is exactly
+# the kind of account state that later gets rediscovered as a surprise. The
+# assertions were relabelled to say what is true, not relaxed to accept less.
 {
-  "the App Store display name" => "Shipkit Pipes",
-  "the iOS bundle ID"          => "com.indiagram.shipkitpipes.ios",
-  "the macOS bundle ID"        => "com.indiagram.shipkitpipes.macos"
+  "the App Store display name"           => "Shipkit Pipes",
+  "the shared iOS+macOS bundle ID"       => "com.indiagram.shipkitpipes.ios",
+  "the registered but unused App ID"     => "com.indiagram.shipkitpipes.macos"
 }.each do |what, value|
   assert identity.include?(value), "#{PRODUCT_IDENTITY}: records #{what} (#{value})"
 end

@@ -82,6 +82,18 @@ ALL_DOCS           = [REVIEW_ARGUMENTS, UPSTREAM_LEDGER, CONTRIBUTING_UP, PRODUC
 # say, which is not a test.
 VERDICTS = %w[Pending Submitted Merged Denied Out-of-scope Fork-only].freeze
 
+# The bracket half of that vocabulary, which the closed-set check alone does not
+# reach. It matches on the leading word, so `Merged` with the bracket dropped
+# passes it — and the close-out grep counts only `Pending` and `Submitted`, so
+# such a row reads as closed while naming nothing anyone can open. Observed:
+# UL-013 rewritten to a bare `Merged` passed all 62 assertions before this block
+# existed, which is the whole reason it exists. UPSTREAM-LEDGER.md's own
+# vocabulary section already says the bracket is required for five of the six
+# values; this is what makes saying so enforceable.
+BRACKETED_VERDICTS   = %w[Submitted Merged Denied Out-of-scope Fork-only].freeze
+# Two of those five must carry a pull request number specifically, not prose.
+PR_NUMBER_VERDICTS   = %w[Submitted Merged].freeze
+
 # The six columns of every fact table in APPLE-ACCOUNT-STATE.md, in order.
 # Duplicated here for the same reason VERDICTS is: a test that read its column
 # names out of the file under test would accept whatever that file happened to
@@ -351,6 +363,24 @@ if verdict_idx
   assert bad.empty?,
          "#{UPSTREAM_LEDGER}: every Verdict is drawn from the closed vocabulary " \
          "(#{VERDICTS.join(' | ')})#{bad.empty? ? '' : " — offending: #{bad.join('; ')}"}"
+
+  bracketless = data_rows.filter_map do |r|
+    c       = cells(r)
+    verdict = c[verdict_idx].to_s
+    word    = verdict[/\A[A-Za-z][A-Za-z-]*/]
+    next unless BRACKETED_VERDICTS.include?(word)
+
+    detail = verdict[/\A#{Regexp.escape(word)}\s+\[(.+)\]\z/, 1]
+    if detail.nil?
+      "#{c.first} => #{verdict.inspect} (no bracketed detail)"
+    elsif PR_NUMBER_VERDICTS.include?(word) && detail !~ /\A#\d+\z/
+      "#{c.first} => #{verdict.inspect} (bracket is not a #N pull request number)"
+    end
+  end
+  assert bracketless.empty?,
+         "#{UPSTREAM_LEDGER}: every non-Pending Verdict carries its required bracket — a " \
+         "#N pull request number for #{PR_NUMBER_VERDICTS.join('/')}, a reason for the rest" \
+         "#{bracketless.empty? ? '' : " — offending: #{bracketless.join('; ')}"}"
 end
 
 ids  = data_rows.map { |r| cells(r).first }

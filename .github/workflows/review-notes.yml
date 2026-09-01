@@ -1,0 +1,83 @@
+# ─── FORK-OWNED, ADDITIVE ─────────────────────────────────────────────────────
+#
+# This file belongs to this fork, not to apple-shipkit. It is a NEW file rather
+# than an edit, which is the whole reason it can exist: AGENTS.md marks `bin/`,
+# `ci/`, `Makefile`, `fastlane/Fastfile` and every EXISTING workflow as
+# template-owned, so there is no `make check-notes` target to add, no
+# `ci/check-review-notes.sh` to write, and no job in `pr.yml` to extend —
+# `pr.yml` has exactly four jobs (config, swiftlint, swiftformat, and the `app`
+# matrix) and none of them runs a generic repo-level check. Adding a new file to
+# this directory is the only placement that does not modify template-owned code.
+#
+# What it enforces: D-13 — the argument that reaches App Review is the argument
+# that was reasoned about. `fastlane/metadata/review_information/notes.txt` is
+# generated from the `id=core` block in `docs/REVIEW-ARGUMENTS.md`, and a hand
+# edit to either side fails here. Before this workflow existed the drift check
+# ran only when somebody remembered to run it, which is the difference between
+# "we generate notes.txt" and "notes.txt cannot diverge".
+#
+# The upstreaming shape for all of this — rename to `bin/gen-review-notes.rb`,
+# add a `ci/check-review-notes.sh` wrapper matching `ci/check-app-icon.sh`, and
+# add a job to upstream's own `pr.yml` — is written down in
+# docs/CONTRIBUTING-UPSTREAM.md and tracked as ledger row UL-001.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: review notes
+
+on:
+  # NO `paths:` FILTER, DELIBERATELY. This job is a required status check on
+  # `main` and branch protection there runs with `strict: true`. A required
+  # check that never fires does not "pass by default" — it leaves the pull
+  # request permanently unmergeable, with no way out but an admin edit to
+  # protection. A paths filter would trade roughly twenty seconds on
+  # ubuntu-latest for a whole class of stuck PRs. Run it every time.
+  pull_request:
+  push:
+    branches: [main]
+
+# Least-privilege token, and nothing beyond it. This workflow checks out
+# untrusted pull-request content and runs Ruby over it, so it reads the repo and
+# does nothing else: it does not write back, comment, push tags, or receive any
+# secret. Note the trigger above is `pull_request` and deliberately NOT its
+# `_target` variant: that variant runs with a writable token in the context of
+# the base repository while checking out a contributor's code, which is the
+# standard way this exact shape becomes a privilege escalation. The variant's
+# literal name is not spelled anywhere in this file on purpose, so that a plain
+# grep for it over this directory cannot be fooled by a comment explaining why
+# it is absent.
+permissions:
+  contents: read
+
+jobs:
+  review-notes:
+    # This string becomes the branch-protection status-check context, so it must
+    # match the required check exactly, spaces included. Renaming the job
+    # silently un-requires the check: protection keeps requiring the old context,
+    # which no longer reports, and every PR hangs.
+    name: review notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # the generator and both suites are stdlib-only; no gems to install
+
+      # Ordered, and failing on the first failure, because the later steps are
+      # only meaningful if the earlier ones held.
+      #
+      # WHAT THE --check STEP DOES NOT PROVE HERE. Its guard has two halves: the
+      # generated file matching the doc, and APP_REVIEW_NOTES not overriding the
+      # generated file. On a runner `.bootstrap.env` is gitignored and therefore
+      # absent, so the `.bootstrap.env` half of that override guard is vacuous —
+      # only the process-environment half can fire. The full guard is a local,
+      # pre-push property. A green check here means the doc and notes.txt agree;
+      # it does not mean nobody's `.bootstrap.env` is about to send Apple
+      # something else. Do not read more into this badge than that.
+      - name: Check review notes are generated, and pin the tooling that generates them
+        run: |
+          set -euo pipefail
+          ruby tools/gen-review-notes.rb --check
+          ruby test/gen_review_notes_test.rb
+          ruby test/docs_structure_test.rb

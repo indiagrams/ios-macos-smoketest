@@ -41,8 +41,9 @@
 #   - APPLE-ACCOUNT-STATE.md    the six-column dated-triple contract holds: every
 #                           fact row carries a measurement date (or an explicit
 #                           `pending NN-NN` marker naming the plan that will
-#                           measure it) and, once measured, the team or key it
-#                           was measured against. That convention is the file's
+#                           measure it, or `abandoned NN-NN` naming the plan
+#                           that closed without measuring it) and, once
+#                           measured, the team or key it was measured against. That convention is the file's
 #                           entire value, and an unguarded convention decays
 #                           exactly the way release.yml:35's A1B2C3D4E5
 #                           measurement did — a number with no date and no
@@ -604,23 +605,34 @@ assert ragged.empty?,
   fact_i, value_i, measured_i, against_i =
     ACCOUNT_STATE_COLUMNS.values_at(0, 1, 2, 3).map { |c| ACCOUNT_STATE_COLUMNS.index(c) }
 
-  # The date half of the triple. A row is either measured on a real ISO-8601 day
+  # The date half of the triple. A row is either measured on a real ISO-8601 day,
   # or explicitly not measured yet, and "not measured yet" has to name the plan
-  # that will measure it — a bare blank reads as a zero to the next person.
+  # involved — a bare blank reads as a zero to the next person.
+  #
+  # Two "not measured" markers, because there are two different states and
+  # collapsing them lies to the reader. `pending NN-NN` means a plan is still
+  # going to take the measurement. `abandoned NN-NN` means the plan that was
+  # going to take it has closed without taking it, so nobody is coming. Plan
+  # 02-11 added the second marker after finding two rows still reading
+  # `pending 02-09` when 02-09 had closed with its probe abandoned (UL-018):
+  # a completed plan sitting in a `pending` cell is a promise nothing will keep.
   undated = data_rows.filter_map do |r|
     c = cells(r)
     m = c[measured_i].to_s
-    "#{c[fact_i]} => #{m.inspect}" unless m =~ /\A\d{4}-\d{2}-\d{2}\z/ || m =~ /\Apending \d{2}-\d{2}\z/
+    unless m =~ /\A\d{4}-\d{2}-\d{2}\z/ || m =~ /\A(pending|abandoned) \d{2}-\d{2}\z/
+      "#{c[fact_i]} => #{m.inspect}"
+    end
   end
   assert undated.empty?,
          "#{APPLE_ACCOUNT_STATE}: every '#{label}' row carries an ISO-8601 Measured date or an " \
-         "explicit `pending NN-NN` marker#{undated.empty? ? '' : " — offending: #{undated.join('; ')}"}"
+         "explicit `pending NN-NN` / `abandoned NN-NN` marker" \
+         "#{undated.empty? ? '' : " — offending: #{undated.join('; ')}"}"
 
   # The target half of the triple, which is the half C-05 is missing. Pending rows
   # are exempt because they have not been measured against anything yet.
   targetless = data_rows.filter_map do |r|
     c = cells(r)
-    next if c[measured_i].to_s =~ /\Apending \d{2}-\d{2}\z/
+    next if c[measured_i].to_s =~ /\A(pending|abandoned) \d{2}-\d{2}\z/
 
     c[fact_i] if c[against_i].to_s.empty?
   end

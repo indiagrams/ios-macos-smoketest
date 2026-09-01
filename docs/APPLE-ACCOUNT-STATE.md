@@ -69,12 +69,15 @@ nothing to say about why. Both were hit on 2026-09-01 while re-checking the App 
 below, which is why those rows now spell out
 `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb ...`.
 
-The remaining `pending 02-09` rows still carry the short forms. They are placeholders for
-measurements that have not been taken, and the plan that takes each one writes its real
-re-check command then; correcting a command for a row whose value is an em dash would be
-tidying a cell nobody can run yet. Named here rather than left to be rediscovered. The
-certificate-census rows were placeholders of the same kind until 02-10 measured them, and
-they now carry the pinned form.
+**There are two "not measured" markers, and the difference matters.** `pending NN-NN` means
+a plan is still going to take the measurement. `abandoned NN-NN` means the plan that was
+going to take it has closed without taking it, so nobody is coming. Both are asserted
+structurally. The second marker was added at phase close on 2026-09-01, when the two role
+rows in the section below were found still reading `pending 02-09` — and 02-09 had closed
+with its probe abandoned (UL-018). A completed plan sitting in a `pending` cell is a promise
+nothing will keep, and it had been sitting there since that plan closed. The
+certificate-census rows were placeholders of the genuine `pending` kind until 02-10 measured
+them, and they now carry the pinned form.
 
 **A `|` inside a cell is written `\|`, and that is not cosmetic.** GitHub breaks a table
 cell on a bare pipe even inside a code span, so a re-check command containing a Ruby block
@@ -96,8 +99,8 @@ rendered page is what these rows are for.
 | Team id | `G5H628C6WR` | 2026-09-01 | team `G5H628C6WR` | per phase | `grep FASTLANE_TEAM_ID .bootstrap.env` |
 | Enrollment type | `organization` — `Indiagram LLC` | 2026-09-01 | team `G5H628C6WR` | per phase | App Store Connect, Business, Account Information |
 | Account holder access | `Account Holder + Admin` | 2026-09-01 | team `G5H628C6WR` | per phase | App Store Connect, Users and Access, People |
-| Paid Apps Agreement | `Active` — `May 17, 2026 – May 16, 2027` | 2026-09-01 | team `G5H628C6WR` | 2027-05-16 | `ruby bin/verify-asc-agreements.rb` |
-| Free Apps Agreement | `Active` — `Aug 26, 2026 – May 16, 2027` | 2026-09-01 | team `G5H628C6WR` | 2027-05-16 | `ruby bin/verify-asc-agreements.rb` |
+| Paid Apps Agreement | `Active` — `May 17, 2026 – May 16, 2027` | 2026-09-01 | team `G5H628C6WR` | 2027-05-16 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby bin/verify-asc-agreements.rb` |
+| Free Apps Agreement | `Active` — `Aug 26, 2026 – May 16, 2027` | 2026-09-01 | team `G5H628C6WR` | 2027-05-16 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby bin/verify-asc-agreements.rb` |
 | EU DSA trader declaration, account level | `Active` — displayed with `Digital Services Act`, `27 Countries or Regions`, a `View` link, and `May 17, 2026`. The literal status string is `Active`; neither of the two state labels the inherited guidance predicted was on screen, and neither has a first-party source (R-06) | 2026-09-01 | team `G5H628C6WR` | per submission | App Store Connect, Business, Agreements, Compliance, Digital Services Act |
 | EU DSA trader dialog options | Both read verbatim off the `Digital Services Act Compliance` dialog: `I'm a trader under the DSA`, radio filled, and `I'm not a trader under the DSA or I don't plan to distribute in the EU`. Apple's documented wording for this choice matches neither. Read only — `Next` was not clicked and no selection was changed | 2026-09-01 | team `G5H628C6WR` | per submission | App Store Connect, Business, Agreements, Compliance, Digital Services Act, Edit |
 | EU DSA trader contact publication | Declaring as a trader publishes an address, a phone number and an email address on the App Store product page, display-only and without altering any Apple account's own contact details — stated by the selected option's sub-text. **No such value is recorded in this repository**, and this row records only that the publication happens | 2026-09-01 | team `G5H628C6WR` | per submission | App Store Connect, Business, Agreements, Compliance, Digital Services Act, Edit |
@@ -133,10 +136,11 @@ convenient.
 | Key id | `SCH57C86HT` | 2026-09-01 | team `G5H628C6WR` | per phase | `grep ASC_API_KEY_ID .bootstrap.env` |
 | Key kind | `Team key` | 2026-09-01 | key `SCH57C86HT` | per phase | App Store Connect, Users and Access, Integrations, Team Keys |
 | Key expiry | `no expiry` — `Active until revoked` | 2026-09-01 | key `SCH57C86HT` | per phase | Apple key-management documentation, re-read per phase |
-| `POST /v1/bundleIds`, as exercised | `App Manager` key `SCH57C86HT` sufficient for `POST /v1/bundleIds` — observed 2026-09-01 against team `G5H628C6WR`. The justification is Apple's own response: both creates returned a record with an Apple-assigned id and no refusal text. The role string is metadata and is never the proof (D-40). Claims nothing about certificates (02-10) or submission (02-09) | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec fastlane register_app_id platform:ios` with `BUNDLE_ID` overridden |
-| Access role, as exercised | — | pending 02-09 | — | — | `ruby tools/asc-probe.rb probe-compare --primary <f> --control <f>` |
-| Upload path exercised | — | pending 02-09 | — | — | `ruby tools/asc-probe.rb read-back app --bundle-id <id> --expect-platform <p>` |
+| `POST /v1/bundleIds`, as exercised | `App Manager` key `SCH57C86HT` sufficient for `POST /v1/bundleIds` — observed 2026-09-01 against team `G5H628C6WR`. The justification is Apple's own response: both creates returned a record with an Apple-assigned id and no refusal text. The role string is metadata and is never the proof (D-40). Claims nothing about certificates (02-10) or submission (02-09) | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | **This one is a write, and it is published as a re-check only because nothing read-only can re-take it.** `/opt/homebrew/opt/ruby@3.3/bin/bundle exec fastlane register_app_id platform:ios` with `BUNDLE_ID` overridden registers a *new* App ID, and an App ID that has ever been used cannot be reclaimed (T-02-32). Do not run it to confirm this row. The read-only neighbour that confirms the two existing App IDs are still there is `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.shipkitpipes.ios --expect-platform IOS`, which exits `1` by design — see the App IDs section |
+| Access role, as exercised | **Never measured, and no plan is coming.** 02-09 was to run the primary/control probe pair and read the verdict off `probe-compare`; it closed with the probe abandoned after its own write turned out to be irreversible (UL-018), so the Developer-role control was deliberately never run and no `probe-compare` was ever performed. The control key that would have supplied the `--control` observation has since been revoked and its `.p8` destroyed, so re-taking this measurement needs a newly generated Developer-role key first. Read as an untaken measurement, never as a pass | abandoned 02-09 | — | — | Needs a fresh Developer-role team key, then `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb submission-probe` twice and `ruby tools/asc-probe.rb probe-compare --primary <primary.json> --control <control.json>`. **Not runnable today** — and per UL-018 the primary half must not be re-run against a record whose submission slot is free |
+| Upload path exercised | **Never measured — nothing has ever been uploaded.** No build exists in this phase, so there was no upload to exercise and no result to record; 02-09 closed without touching it. The published re-check on this row was also not a runnable command: `read-back app` takes `--expect-sku`, `--expect-locale` and `--expect-name` and has no `--expect-platform` flag at all, so the old form exited `1` on argument validation whatever values were substituted. Corrected here, and the fact restated as the untaken measurement it is | abandoned 02-09 | — | — | Nothing read-only can settle this: the upload path is exercised by actually uploading. Phase 9's TestFlight rehearsal is where it gets measured. The nearest read-only neighbour, which asserts the record exists but says nothing about upload authority, is `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001` |
 | Submission path exercised | `POST /v1/reviewSubmissions` accepted: `201 Created`, creating container `7972166e-3e8f-477a-bad4-2706898c4357` on app `6807393045`. **This is an observation, not proof that the key's role permits submission.** The Developer-role control was never run — see the `Access role, as exercised` row, still pending — so one uncontrolled `201` cannot separate a key that may submit from an endpoint that accepts the create regardless of role, which is what D-40 forbids treating as evidence. **The write must not be re-run.** It is irreversible by every API route (UL-018): the container allows no `DELETE`, and a cancel is refused while it is unsubmitted, so each run permanently consumes one of the one-open-submission-per-app-and-platform slots. The container above is still open and no sanctioned route retires it. | 2026-09-01 | app `6807393045`, key `SCH57C86HT`, team `G5H628C6WR` | per phase | read-only: `GET /v1/apps/6807393045/reviewSubmissions` and confirm the container's `state`. Never re-run `submission-probe` against a record whose submission slot is free (UL-018) |
+| Review-submission container `7972166e-3e8f-477a-bad4-2706898c4357`, re-read at phase close | `state=READY_FOR_REVIEW`, `platform=IOS`, `submitted` empty — still open, still unsubmitted, still irretirable. Read-only `GET /v1/apps/6807393045/reviewSubmissions` returned `200` with exactly this one container. **It occupies the record's single open `IOS` submission slot and nothing retires it** (UL-018). The `MAC_OS` slot is unoccupied, and that is stated so a later phase does not probe it to find out — the probe is what consumed the iOS one. Phase 10 will have to submit *through* this container rather than creating another | 2026-09-01 | app `6807393045`, key `SCH57C86HT`, team `G5H628C6WR` | per phase | read-only `GET /v1/apps/6807393045/reviewSubmissions`; confirm the container's `state`. Never call `POST /v1/reviewSubmissions` again (UL-018) |
 
 **The key has no expiry, and that is a verified negative claim rather than an omission.**
 Apple's key-creation page, its key-revocation reference, and the App Store Connect help
@@ -153,13 +157,22 @@ and the repository's Actions secrets (K-3). The old key stays valid during the s
 revocation is irreversible, so the replacement is proven working before anything is
 revoked. That is why an insufficient key is a one-way door and belongs to this phase.
 
-**The role rows stay pending on purpose.** A role string was displayed for this key in the
-App Store Connect interface during Phase 2 planning on 2026-09-01, and it is recorded in
-the phase's planning notes as metadata. It is deliberately not a fact row here, and it is
-never proof: D-40 and D-42 both turn on establishing sufficiency by exercising the upload
-path and the submission path and observing what Apple actually returns. Reading a role
-label and concluding sufficiency is the inference-from-a-name pattern that cost Phase 1
-twice. 02-09 exercises both paths and fills these rows with what it saw.
+**The role rows carry no verdict on purpose, and they are now marked `abandoned` rather
+than `pending`.** A role string was displayed for this key in the App Store Connect
+interface during Phase 2 planning on 2026-09-01, and it is recorded in the phase's planning
+notes as metadata. It is deliberately not a fact row here, and it is never proof: D-40 and
+D-42 both turn on establishing sufficiency by exercising the upload path and the submission
+path and observing what Apple actually returns. Reading a role label and concluding
+sufficiency is the inference-from-a-name pattern that cost Phase 1 twice.
+
+**02-09 was to exercise both paths and fill these rows. It did not.** Its submission probe
+created a review-submission container that no API route can retire (UL-018), which
+permanently consumed the app's single open iOS submission slot, so the Developer-role
+control was deliberately not run and no sufficiency verdict exists. The upload path was
+never reachable at all, because no build has ever been uploaded. Both rows therefore record
+an untaken measurement, and ACCT-04's submission half stays **OPEN**. Rounding either row up
+to a pass at close-out — on the strength of the one uncontrolled `201` in the row below —
+is exactly what D-40 forbids, and it is the failure this phase spent ten plans avoiding.
 
 ## App IDs
 
@@ -286,6 +299,7 @@ is not a control, so a string that has never existed and never will is used inst
 | Whether any mint still available could settle ACCT-04b | **No.** For team `G5H628C6WR` the login keychain already holds a valid `Apple Distribution` identity and a `3rd Party Mac Developer Installer` certificate, so a mint of either distribution-family type reuses and never reaches Apple. It holds no `Apple Development` identity for this team, so that one type would genuinely create — but `DEVELOPMENT` is not the permission ACCT-04b asks about. Read-only reading; nothing was added to or removed from the keychain | 2026-09-01 | login keychain against team `G5H628C6WR` | 2026-09-08 | `security find-identity -v \| grep G5H628C6WR` and the same with `-p codesigning`; the two lists differ, and both matter |
 | Capacity, per type | **Unobserved for all three types**, `DISTRIBUTION` included — its mint reused rather than created, so no create attempt has ever been made against this team by this project. Nothing numeric is recorded here because nothing numeric was measured; the rows above carry occupancy, which is a different quantity | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | Only an attempted create can observe it, and attempting one consumes a slot on a team shared with another shipping product — a human decision, not a re-check |
 | Post-decision occupancy, re-measured rather than predicted | Unchanged: one certificate of each of the three release types, the same three ids. Taken at `2026-09-01T18:11:07Z`, after the decision rather than before it, and `census-diff` against the pre-mint baseline exited `0` — no id absent, none added | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json`, then `census-diff` against the previous census |
+| Phase-close occupancy, re-measured at 02-11 rather than inherited | Unchanged again: one certificate of each of the three release types, the same three ids `6B8BWZ4B4X` / `2VJC2RHG62` / `BRDTBXL68H`, and the same three `expirationDate` values. Taken at `2026-09-01T18:28:41Z`, seventeen minutes after 02-10's post-decision census, and `census-diff` exited `0` against all three of 02-10's censuses — pre-mint, post-mint and post-decision. **This row exists because inheriting the phase-start figure is the copied-measurement-forward pattern C-05 caught**: this team is shared with another shipping product and its Saturday canary mutates certificate state weekly, so a number measured at the start of a phase is not evidence about the end of it. It happened not to have moved. That is a result, not a reason to have skipped the measurement | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json`, then `census-diff` against the previous census |
 | ACCT-05 — the certificate criterion as a whole | **Not met in full, and deliberately not marked complete.** Occupancy is measured and dated, nothing was revoked, and every unproven type is stated as such — but the criterion also asks for a mint attempted for the types the release lane needs, and only `DISTRIBUTION` was attempted. `DEVELOPMENT` and `MAC_INSTALLER_DISTRIBUTION` were never attempted at all | 2026-09-01 | team `G5H628C6WR` | per phase | Closing it means attempting those two mints, each of which consumes a slot on a shared team |
 | ACCT-04 — both halves | **OPEN.** The submission half was abandoned during 02-09 with no sufficiency verdict reached (ledger row UL-018), and the distribution half is unproven above. Neither half is closed, and neither may be read across to the other | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | Each half has its own verdict row; read both, and do not treat one as evidence about the other |
 
@@ -441,7 +455,7 @@ stale = ["## Apple Developer Program and account", "## ASC API key", "## Certifi
   j = lines[(i + 1)..].index { |l| l.start_with?("## ") }
   lines[(i + 1)...(j ? i + 1 + j : lines.length)]
 }.map(&:strip).select { |l| l.start_with?("|") }.reject { |l| l =~ /\A\|[\s:|-]+\|\z/ }.filter_map { |r|
-  c = r.split("|")[1..].to_a.map(&:strip)
+  c = r.split(/(?<!\\)\|/)[1..].to_a.map(&:strip)
   next if c[0] == "Fact"
   next unless c[4].to_s =~ /\A\d{4}-\d{2}-\d{2}\z/
   "#{c[0]} (valid until #{c[4]})" if Date.parse(c[4]) < Date.today
@@ -461,6 +475,18 @@ table it was supposed to watch had rotted away. The check above extracts the thr
 fact sections first and parses their table rows; `test/docs_structure_test.rb` asserts
 against this file the same way, for the same reason. Ledger row UL-010 records three
 separate near-misses of exactly this shape in Phase 1.
+
+**And it split on the wrong pipe until 2026-09-01.** The check above used to split each row
+on every `|`, which is the identical defect 02-10 fixed in `test/docs_structure_test.rb` —
+a row containing an escaped `\|` inside a code span parses as seven cells instead of six, so
+`Valid until` is read out of the wrong index and the row is silently skipped rather than
+watched. It was **latent, not active**: measured at close-out, exactly one row in the three
+checked sections contained an escaped pipe, and that pipe fell after index 4, so no row was
+actually going unwatched. It was fixed anyway, because the sentence above claims this check
+parses "the same way" as the guard and that sentence was false while the two split
+differently. A latent instrument defect found by measuring rather than by being bitten is
+still a defect; the point of the close-out is to catch it in the state where it costs
+nothing.
 
 ## What guards this file
 

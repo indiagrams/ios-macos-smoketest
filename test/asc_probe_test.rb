@@ -40,6 +40,7 @@ require "tmpdir"
 require "fileutils"
 require "json"
 require "rbconfig"
+require "time"
 
 SCRIPT = File.expand_path("../tools/asc-probe.rb", __dir__)
 
@@ -504,6 +505,390 @@ assert_eq source.include?("return nil unless"), false,
           "source: the transport never collapses a response to nil"
 assert_eq source.scan(/^\s+rescue StandardError/).empty?, true,
           "source: there is no broad rescue in the probe"
+
+# ---------------------------------------------------------------------------
+# census — ACCT-05's instrument
+# ---------------------------------------------------------------------------
+
+# The closed set of certificate types the release lane mints (C-06,
+# .github/workflows/release.yml:7, .github/workflows/canary-local-mode.yml:24).
+# Deliberately duplicated here rather than read back out of the census the probe
+# produced, exactly as test/docs_structure_test.rb:63-67 duplicates the verdict
+# vocabulary: a test that derived its vocabulary from the artifact under test
+# would accept whatever that artifact happened to say, which is not a test.
+RELEASE_CERT_TYPES = %w[DISTRIBUTION DEVELOPMENT MAC_INSTALLER_DISTRIBUTION].freeze
+
+# The exact fields ACCT-05 records, per fastlane/Fastfile:862-870 (list_certs)
+# and ASC OpenAPI 4.4.1 components.schemas.Certificate. Also duplicated rather
+# than derived.
+CENSUS_ENTRY_KEYS = %w[id display_name expiration_date].freeze
+
+# An ASC /v1/certificates response body, built from [id, type, display, expiry]
+# tuples so a fixture's contents are readable at the call site.
+#
+# certificateContent is present in every entry ON PURPOSE. Apple returns it, so
+# a fixture without it could not tell "the census drops the certificate payload"
+# apart from "the census never had one to drop" — the same self-invalidating
+# shape as an ASCII fixture for an encoding test (gen_review_notes_test.rb:237-240).
+def certificates_body(entries)
+  {
+    "data" => entries.map do |id, type, display_name, expiration|
+      {
+        "type" => "certificates",
+        "id" => id,
+        "attributes" => {
+          "certificateType" => type,
+          "displayName" => display_name,
+          "expirationDate" => expiration,
+          "serialNumber" => "SERIAL-#{id}",
+          "platform" => "IOS",
+          "certificateContent" => "MIIFtSECRETCERTIFICATEPAYLOADzzz",
+          "activated" => true
+        }
+      }
+    end
+  }
+end
+
+# Two DISTRIBUTION and one DEVELOPMENT, so the grouping assertion has two
+# distinct counts to get wrong.
+CERT_ENTRIES = [
+  ["CERTDIST1", "DISTRIBUTION", "Apple Distribution: Indiagram", "2027-05-01T12:00:00.000+0000"],
+  ["CERTDIST2", "DISTRIBUTION", "Apple Distribution: Indiagram (2)", "2027-06-01T12:00:00.000+0000"],
+  ["CERTDEV1",  "DEVELOPMENT",  "Apple Development: Prakash", "2027-07-01T12:00:00.000+0000"]
+].freeze
+
+# A census document built INDEPENDENTLY of the probe, so the diff cases are not
+# testing the census writer and the diff reader against each other's bugs.
+def census_doc(entries, team: "G5H628C6WR", measured_at: "2026-09-01T10:00:00Z")
+  census = {}
+  RELEASE_CERT_TYPES.each { |type| census[type] = [] }
+  entries.each do |id, type, display_name, expiration|
+    (census[type] ||= []) << {
+      "id" => id, "display_name" => display_name, "expiration_date" => expiration
+    }
+  end
+  doc = { "census" => census }
+  doc["team"] = team unless team.nil?
+  doc["measured_at"] = measured_at unless measured_at.nil?
+  doc
+end
+
+def write_json(dir, name, doc)
+  path = File.join(dir, name)
+  File.write(path, JSON.pretty_generate(doc), encoding: "UTF-8")
+  path
+end
+
+# Every id in a census document, whatever type it sits under.
+def census_ids(doc)
+  doc.fetch("census", {}).values.flatten.map { |entry| entry["id"] }
+end
+
+# 29. The envelope. Its three top-level keys are the contract docs/APPLE-ACCOUNT-STATE.md
+#     is summarised from, so they are asserted exactly rather than by inclusion.
+with_fixtures do |dir|
+  certs = write_fixture(dir, "certs.json", certificates_body(CERT_ENTRIES))
+  out_path = File.join(dir, "census.json")
+  out, err, code = probe("census", "--fixture", certs, "--out", out_path)
+  assert_eq code, 0, "census: a 200 certificates response exits 0 (stderr: #{err.strip})"
+  assert_eq File.file?(out_path), true, "census: --out writes the file it was given"
+
+  doc = File.file?(out_path) ? JSON.parse(File.read(out_path, encoding: "UTF-8")) : {}
+  assert_eq doc.keys.sort, %w[census measured_at team],
+            "census: the envelope's top-level keys are exactly team, measured_at, census"
+  assert_eq doc["team"], "G5H628C6WR",
+            "census: the census carries the team it was measured against (C-05)"
+
+  parsed_time = begin
+    Time.iso8601(doc["measured_at"].to_s)
+  rescue StandardError
+    nil
+  end
+  assert_eq parsed_time.nil?, false, "census: measured_at parses as ISO-8601"
+  assert_eq doc["measured_at"].to_s.end_with?("Z"), true, "census: measured_at is UTC"
+  assert_eq out.strip.empty?, false, "census: --out still reports where it wrote to"
+end
+
+# 30. Grouping by certificate type, and the three release types present even when
+#     one of them is empty — an absent type is invisible; a zero is a measurement.
+with_fixtures do |dir|
+  certs = write_fixture(dir, "certs.json", certificates_body(CERT_ENTRIES))
+  out_path = File.join(dir, "census.json")
+  _out, _err, code = probe("census", "--fixture", certs, "--out", out_path)
+  assert_eq code, 0, "census: grouping run exits 0"
+  doc = File.file?(out_path) ? JSON.parse(File.read(out_path, encoding: "UTF-8")) : {}
+  census = doc["census"] || {}
+
+  assert_eq census["DISTRIBUTION"].is_a?(Array) && census["DISTRIBUTION"].length, 2,
+            "census: two DISTRIBUTION certificates are grouped under DISTRIBUTION"
+  assert_eq census["DEVELOPMENT"].is_a?(Array) && census["DEVELOPMENT"].length, 1,
+            "census: one DEVELOPMENT certificate is grouped under DEVELOPMENT"
+  RELEASE_CERT_TYPES.each do |type|
+    assert_eq census.key?(type), true,
+              "census: #{type} is present as a key even with zero entries"
+  end
+  assert_eq census["MAC_INSTALLER_DISTRIBUTION"], [],
+            "census: a type the team has none of reads as an explicit empty list"
+end
+
+# 31. What a census entry may and may not contain. certificateContent is the
+#     certificate payload and this file is summarised into a tracked document
+#     (T-02-14); createdDate does not exist on Certificate at all (C-E), and
+#     inventing one is how R-04's false "revokes the oldest by creation date"
+#     claim survived in the repo.
+with_fixtures do |dir|
+  certs = write_fixture(dir, "certs.json", certificates_body(CERT_ENTRIES))
+  out_path = File.join(dir, "census.json")
+  probe("census", "--fixture", certs, "--out", out_path)
+  raw = File.file?(out_path) ? File.read(out_path, encoding: "UTF-8") : ""
+  doc = raw.empty? ? {} : JSON.parse(raw)
+  entry = (doc.dig("census", "DISTRIBUTION") || [{}]).first || {}
+
+  assert_eq entry.keys.sort, CENSUS_ENTRY_KEYS.sort,
+            "census: an entry carries exactly id, display_name and expiration_date"
+  assert_eq entry["id"], "CERTDIST1", "census: the certificate id is recorded verbatim"
+  assert_eq entry["display_name"], "Apple Distribution: Indiagram",
+            "census: the display name is recorded verbatim"
+  assert_eq entry["expiration_date"], "2027-05-01T12:00:00.000+0000",
+            "census: the expiration date is recorded verbatim (the only ordering proxy, C-E)"
+  assert_eq raw.include?("SECRETCERTIFICATEPAYLOAD"), false,
+            "census: the certificate payload never reaches the census file (T-02-14)"
+  assert_eq raw.downcase.include?("createddate") || raw.include?("created_date"), false,
+            "census: no created date is invented — Certificate has none (C-E)"
+  assert_eq raw.include?("serialNumber") || raw.include?("serial_number"), false,
+            "census: fields ACCT-05 does not need are not carried along"
+end
+
+# 32. A certificate type outside the release lane's three is still reported.
+#     Reporting only the closed set would hide occupancy that competes for the
+#     same team, which is the measurement ACCT-05 exists to produce.
+with_fixtures do |dir|
+  extra = CERT_ENTRIES + [["CERTDEVID1", "DEVELOPER_ID_APPLICATION", "Developer ID Application: Indiagram",
+                           "2028-01-01T12:00:00.000+0000"]]
+  certs = write_fixture(dir, "certs-extra.json", certificates_body(extra))
+  out_path = File.join(dir, "census.json")
+  _out, _err, code = probe("census", "--fixture", certs, "--out", out_path)
+  assert_eq code, 0, "census: an unlisted certificate type does not fail the run"
+  doc = File.file?(out_path) ? JSON.parse(File.read(out_path, encoding: "UTF-8")) : {}
+  assert_eq (doc["census"] || {}).key?("DEVELOPER_ID_APPLICATION"), true,
+            "census: a type outside the release set is reported, not dropped"
+end
+
+# 33. Without --out the envelope goes to stdout, so the census composes with a pipe.
+with_fixtures do |dir|
+  certs = write_fixture(dir, "certs.json", certificates_body(CERT_ENTRIES))
+  out, _err, code = probe("census", "--fixture", certs)
+  assert_eq code, 0, "census: no --out exits 0"
+  doc = out.strip.empty? ? {} : JSON.parse(out)
+  assert_eq doc.keys.sort, %w[census measured_at team],
+            "census: stdout carries the same three-key envelope"
+end
+
+# 34. Zero certificates is a measurement, not a failure — occupancy 0 is exactly
+#     what ACCT-05 may need to record. It must still be a full envelope.
+with_fixtures do |dir|
+  certs = write_fixture(dir, "certs-empty.json", { "data" => [] })
+  out, _err, code = probe("census", "--fixture", certs)
+  assert_eq code, 0, "census: an empty certificate list exits 0 — zero occupancy is a measurement"
+  doc = out.strip.empty? ? {} : JSON.parse(out)
+  RELEASE_CERT_TYPES.each do |type|
+    assert_eq (doc["census"] || {})[type], [],
+              "census: #{type} reads as an explicit empty list when the team has none"
+  end
+end
+
+# 35. A non-2xx is reported verbatim rather than written out as an empty census.
+#     A census file created from a 403 would be a fabricated measurement.
+with_fixtures do |dir|
+  denied = write_fixture(dir, "certs-403.json", error_body("marker-census-forbidden"), status: 403)
+  out_path = File.join(dir, "census.json")
+  _out, err, code = probe("census", "--fixture", denied, "--out", out_path)
+  assert_eq code, 1, "census: a 403 exits 1"
+  assert_eq err.include?("403"), true, "census: the 403 is reported verbatim"
+  assert_eq File.file?(out_path), false, "census: no census file is written from a failed measurement"
+end
+
+# 36. The offline guarantee on the one path that has no fixture.
+_out, err, code = probe("census")
+assert_eq code, 1, "census: a live census with no credentials exits 1"
+assert_eq err.include?("ASC_API_KEY_ID"), true, "census: stderr names the missing credential"
+
+# 37. A display name with a diacritic, read under a cleared locale (UL-012).
+with_fixtures do |dir|
+  named = write_fixture(dir, "certs-utf8.json",
+                        certificates_body([["CERT1", "DISTRIBUTION", "Apple Distribution: Café Müller",
+                                            "2027-05-01T12:00:00.000+0000"]]))
+  out, err, code = probe("census", "--fixture", named, env: NO_LOCALE)
+  assert_eq code, 0, "census: a non-ASCII display name is read under a cleared locale (stderr: #{err.strip})"
+  assert_eq out.include?("Café Müller"), true, "census: the non-ASCII display name survives intact"
+end
+
+# ---------------------------------------------------------------------------
+# census-diff — ACCT-05b's "nothing was revoked" proof
+# ---------------------------------------------------------------------------
+
+# 38. Two identical censuses. Nothing disappeared, so exit 0.
+with_fixtures do |dir|
+  before = write_json(dir, "before.json", census_doc(CERT_ENTRIES))
+  after  = write_json(dir, "after.json", census_doc(CERT_ENTRIES, measured_at: "2026-09-01T11:00:00Z"))
+  _out, err, code = probe("census-diff", "--before", before, "--after", after)
+  assert_eq code, 0, "census-diff: an unchanged id set exits 0 (stderr: #{err.strip})"
+end
+
+# 39. The set grew. A mint that CREATED is the ACCT-04b evidence (VALIDATION.md's
+#     correction note), so an addition must be reported and must not be a failure.
+with_fixtures do |dir|
+  grown = CERT_ENTRIES + [["CERTDIST3", "DISTRIBUTION", "Apple Distribution: Indiagram (3)",
+                           "2027-08-01T12:00:00.000+0000"]]
+  before = write_json(dir, "before.json", census_doc(CERT_ENTRIES))
+  after  = write_json(dir, "after.json", census_doc(grown))
+  out, err, code = probe("census-diff", "--before", before, "--after", after)
+  assert_eq code, 0, "census-diff: an id set that grew exits 0"
+  assert_eq (out + err).include?("CERTDIST3"), true,
+            "census-diff: the added id is reported — it is ACCT-04b's CREATED evidence"
+end
+
+# 40. THE REMOVAL CASE. ACCT-05b's whole point, and the case 02-VALIDATION.md
+#     requires be proven with a SYNTHETIC fixture: nothing is ever revoked to
+#     test this (D-39).
+#
+#     The fixture sanity assertion below is not ceremony. 02-PATTERNS.md names
+#     this exact hazard: "a census-diff fixture whose 'removed id' is not
+#     actually present in the *before* set asserts nothing" — the Phase 2
+#     analogue of gen_review_notes_test.rb:237-240's ASCII fixture that passed
+#     against the unfixed generator. So the before file is asserted to contain
+#     the id whose absence the case is about.
+with_fixtures do |dir|
+  removed_id = "CERTDIST2"
+  before_doc = census_doc(CERT_ENTRIES)
+  after_doc  = census_doc(CERT_ENTRIES.reject { |entry| entry[0] == removed_id })
+
+  assert_eq census_ids(before_doc).include?(removed_id), true,
+            "census-diff fixture: the removed id IS present in the before census"
+  assert_eq census_ids(after_doc).include?(removed_id), false,
+            "census-diff fixture: the removed id is absent from the after census"
+
+  before = write_json(dir, "before.json", before_doc)
+  after  = write_json(dir, "after.json", after_doc)
+  _out, err, code = probe("census-diff", "--before", before, "--after", after)
+  assert_eq code, 1, "census-diff: an id present in before and absent from after exits exactly 1"
+  assert_eq err.include?(removed_id), true, "census-diff: stderr names the removed certificate id"
+  assert_eq err.include?("DISTRIBUTION"), true, "census-diff: stderr names the removed certificate's type"
+  assert_eq err.include?("Apple Distribution: Indiagram (2)"), true,
+            "census-diff: stderr names the removed certificate's display name"
+
+  # The mirror direction: the same two files swapped is an addition, not a
+  # removal. A diff that flagged both directions would be a permanently red
+  # gate rather than a detector.
+  _out, _err, code = probe("census-diff", "--before", after, "--after", before)
+  assert_eq code, 0, "census-diff: the same pair reversed is an addition and exits 0"
+end
+
+# 41. WRONG TEAM. A census that does not carry THIS team's id is the C-05 failure
+#     repeating — release.yml:35 carries caps measured against A1B2C3D4E5 and
+#     nothing in the file says so. Diffing it silently would launder that mistake.
+with_fixtures do |dir|
+  good = write_json(dir, "good.json", census_doc(CERT_ENTRIES))
+  foreign = write_json(dir, "foreign.json", census_doc(CERT_ENTRIES, team: "A1B2C3D4E5"))
+
+  _out, err, code = probe("census-diff", "--before", foreign, "--after", good)
+  assert_eq code, 2, "census-diff: a before census from team A1B2C3D4E5 exits exactly 2"
+  assert_eq err.include?("A1B2C3D4E5"), true, "census-diff: stderr names the foreign team it found"
+  assert_eq err.include?("G5H628C6WR"), true, "census-diff: stderr names the team it required"
+
+  _out, _err, code = probe("census-diff", "--before", good, "--after", foreign)
+  assert_eq code, 2, "census-diff: an after census from the wrong team exits exactly 2"
+
+  no_team = write_json(dir, "no-team.json", census_doc(CERT_ENTRIES, team: nil))
+  _out, err, code = probe("census-diff", "--before", no_team, "--after", good)
+  assert_eq code, 2, "census-diff: a census with no team key at all exits exactly 2"
+  assert_eq err.include?("team"), true, "census-diff: stderr says the team is missing"
+end
+
+# 42. NO DATE. An undated measurement cannot self-invalidate, which is the whole
+#     point of the dated-triple discipline in 02-VALIDATION.md.
+with_fixtures do |dir|
+  good = write_json(dir, "good.json", census_doc(CERT_ENTRIES))
+  undated = write_json(dir, "undated.json", census_doc(CERT_ENTRIES, measured_at: nil))
+
+  _out, err, code = probe("census-diff", "--before", undated, "--after", good)
+  assert_eq code, 2, "census-diff: a census with no measured_at exits exactly 2"
+  assert_eq err.include?("measured_at"), true, "census-diff: stderr names the missing key"
+
+  _out, _err, code = probe("census-diff", "--before", good, "--after", undated)
+  assert_eq code, 2, "census-diff: an undated after census exits exactly 2"
+
+  no_census = write_json(dir, "no-census.json",
+                         { "team" => "G5H628C6WR", "measured_at" => "2026-09-01T10:00:00Z" })
+  _out, _err, code = probe("census-diff", "--before", no_census, "--after", good)
+  assert_eq code, 2, "census-diff: a document with no census key exits exactly 2"
+end
+
+# 43. Argv. A diff missing half its input is a usage error, not an empty diff
+#     that trivially passes.
+with_fixtures do |dir|
+  good = write_json(dir, "good.json", census_doc(CERT_ENTRIES))
+
+  _out, err, code = probe("census-diff", "--before", good)
+  assert_eq code, 1, "census-diff: omitting --after exits 1"
+  assert_eq err.include?("--after"), true, "census-diff: stderr names the missing flag"
+
+  _out, err, code = probe("census-diff", "--after", good)
+  assert_eq code, 1, "census-diff: omitting --before exits 1"
+  assert_eq err.include?("--before"), true, "census-diff: stderr names the missing flag"
+
+  absent = File.join(dir, "nope.json")
+  _out, err, code = probe("census-diff", "--before", absent, "--after", good)
+  assert_eq code, 1, "census-diff: a census file that does not exist exits 1"
+  assert_eq err.include?(absent), true, "census-diff: stderr names the unreadable path"
+
+  garbage = File.join(dir, "garbage.json")
+  File.write(garbage, "not json at all", encoding: "UTF-8")
+  _out, _err, code = probe("census-diff", "--before", garbage, "--after", good)
+  assert_eq code, 1, "census-diff: a census file that is not JSON exits 1"
+end
+
+# 44. ROUND TRIP. The diff must consume what the census actually writes, not only
+#     the hand-built document the cases above use.
+with_fixtures do |dir|
+  certs = write_fixture(dir, "certs.json", certificates_body(CERT_ENTRIES))
+  fewer = write_fixture(dir, "certs-fewer.json",
+                        certificates_body(CERT_ENTRIES.reject { |entry| entry[0] == "CERTDEV1" }))
+  before = File.join(dir, "census-before.json")
+  after  = File.join(dir, "census-after.json")
+  same   = File.join(dir, "census-same.json")
+
+  probe("census", "--fixture", certs, "--out", before)
+  probe("census", "--fixture", certs, "--out", same)
+  probe("census", "--fixture", fewer, "--out", after)
+
+  _out, _err, code = probe("census-diff", "--before", before, "--after", same)
+  assert_eq code, 0, "census-diff: two censuses the probe itself wrote diff clean"
+
+  _out, err, code = probe("census-diff", "--before", before, "--after", after)
+  assert_eq code, 1, "census-diff: a certificate missing from a probe-written census exits 1"
+  assert_eq err.include?("CERTDEV1"), true, "census-diff: the removed id from the round trip is named"
+end
+
+# 45. Source assertions for the certificate half. Asserted against the source
+#     because the guarantee is the ABSENCE of a code path, which no fixture can
+#     demonstrate: there is no input that makes a revocation that does not exist
+#     happen (T-02-13, D-39, C-G).
+census_source = File.read(SCRIPT, encoding: "UTF-8")
+code_lines = census_source.lines.reject { |line| line.start_with?("#") }.join
+assert_eq code_lines.include?("delete_certificate"), false,
+          "source: no revocation code path exists in the probe (D-39, T-02-13)"
+assert_eq code_lines.match?(/\bcap\b *= *[0-9]|maximum *= *[0-9]/), false,
+          "source: no numeric certificate quota is encoded (C-A, Pitfall 4)"
+assert_eq code_lines.downcase.include?("createddate") || code_lines.include?("created_date"), false,
+          "source: no created date is referenced — Certificate has none (C-E)"
+assert_eq code_lines.include?("certificate_content") || code_lines.include?("certificateContent"), false,
+          "source: the certificate payload is never read into the census (T-02-14)"
+assert_eq census_source.include?("Spaceship::ConnectAPI::Certificate.all"), true,
+          "source: the census enumerates with the same call fastlane list_certs uses"
+assert_eq code_lines.include?("DELETE"), false,
+          "source: the tool contains no certificate deletion request (C-G exists; D-39 forbids it)"
 
 if @failures.zero?
   puts "\nAll #{@checks} asc-probe regression assertions passed."

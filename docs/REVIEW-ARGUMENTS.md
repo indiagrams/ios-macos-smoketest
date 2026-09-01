@@ -47,8 +47,8 @@ exercised still says so.
 | Developer Tools - Tooly (`id6639614589`) | iOS + macOS | Base64, JSON↔XML, string case, Unix time; tools also exposed as Shortcuts actions | No | Opened during the 2026-08-31 sweep; no pipeline, recipe, chain, workflow, or "send output to…" affordance found — each tool takes its own input and returns its own output. Shortcuts-based chaining is out-of-app and unchanged by this scan | 2026-08-31 |
 | Hex: Dev Tools (`id6760552804`) | iOS App Store | Base64, MD5/SHA-1/SHA-256/SHA-512, clipboard auto-detect | No | Opened during the 2026-08-31 sweep; no pipeline, recipe, chain, workflow, or "send output to…" affordance found — each tool takes its own input and returns its own output | 2026-08-31 |
 | DevToys (macOS) | Mac App Store | Converters, encoders/decoders, formatters | No | Opened during the 2026-08-31 sweep; no pipeline, recipe, chain, workflow, or "send output to…" affordance found — each tool takes its own input and returns its own output | 2026-08-31 |
-| CyberChef, or any derivative or port | Searched on both stores | ~300 operations chained as "recipes" in the web original | **UNVERIFIED — a derivative WAS found; see the `CyberChef Pro` row** | The desk assumption that no CyberChef derivative ships natively is wrong: `CyberChef Pro` was found on the App Store on 2026-08-31 | 2026-08-31 |
-| CyberChef Pro | App Store | Not established — see evidence | **UNVERIFIED — could not exercise** | Found on the App Store during the 2026-08-31 sweep. Reached and opened, but could not be exercised: its in-app search did not work and no recipes were available to test, so whether it implements CyberChef's recipe/chaining model is **unknown**. Not scanned in the sense this table means by "scanned" — the app was reached, not exercised | 2026-08-31 (found, not exercised) |
+| CyberChef, or any derivative or port | Searched on both stores | ~300 operations chained as "recipes" in the web original | No | No CyberChef derivative or port found on either store. One name match surfaced — `CyberChef Pro` — and was checked and ruled out; see the row below | 2026-08-31 |
+| CyberChef Pro (`id6743856931`) | iOS App Store — iPhone only; free + $9.99 IAP | **Not a CyberChef derivative.** A cooking app | No — not applicable | **Name collision, ruled out 2026-08-31.** Seller is Far Outpost LP. Its own listing reads: *"Transform your kitchen with CyberChef Pro, your ultimate culinary companion! Powered by neural networks, it crafts diverse, delicious recipes based on the ingredients you have on hand."* The "recipes" are food. This explains why the scanner found its search non-functional and no recipes to test — the app has no data operations to search for. Verified against the live App Store listing | 2026-08-31 |
 
 Rules for filling this table in. A row is only marked `No` if somebody opened
 the app and looked; a row nobody reached keeps its `UNVERIFIED` cell and gains
@@ -67,20 +67,24 @@ the failure mode the rule above exists to prevent.
 
 ### Assumption verdicts
 
-- `A3 — CyberChef or a derivative ships on the App Store: YES` — `CyberChef Pro`
-  was found on the App Store on 2026-08-31. Its functionality could **not** be
-  verified: in-app search was non-functional and no recipes were available to
-  test, so whether it genuinely implements the recipe/chaining model is unknown.
-  The desk-research assumption that no CyberChef derivative ships natively is
-  nonetheless falsified — the app is on the shelf.
-- `A4 — an incumbent developer toolkit chains one tool's output into another: UNRESOLVED` — **NO for every app actually exercised, UNRESOLVED overall.**
-  Cleared by the sweep: `DevUtils: Dev Toolkit`, `DevUtils.app`, `Developer Tools - Tooly`,
-  `Hex: Dev Tools`, and `DevToys`. Each was opened and none offered a pipeline,
-  recipe, chain, or "send output to…" affordance. Not cleared: `CyberChef Pro`,
-  which could not be exercised at all. Chaining is CyberChef's defining model,
-  so the one app most likely to falsify A4 is precisely the one that could not
-  be tested. A4 is therefore recorded as UNRESOLVED and **not** as NO; rounding
-  it to NO would assert something the scan did not establish.
+- `A3 — CyberChef or a derivative ships on the App Store: NO` — no CyberChef
+  derivative or port was found on either store. One name match surfaced,
+  `CyberChef Pro` (`id6743856931`), and was ruled out on inspection: it is an
+  unrelated iPhone-only cooking app by Far Outpost LP whose "recipes" are food.
+  **Audit trail:** this verdict was first recorded as `YES` on the strength of
+  the name alone, before the listing was read, and corrected the same day once
+  it was. The correction is kept visible rather than rewritten away, because the
+  original error — inferring a product from its name — is exactly the kind of
+  reasoning this document exists to guard against.
+- `A4 — an incumbent developer toolkit chains one tool's output into another: NO` —
+  cleared by the sweep: `DevUtils: Dev Toolkit`, `DevUtils.app`,
+  `Developer Tools - Tooly`, `Hex: Dev Tools`, and `DevToys`. Each was opened and
+  none offered a pipeline, recipe, chain, or "send output to…" affordance. The
+  one app that could not be exercised, `CyberChef Pro`, is not a developer tool
+  at all and is therefore not a counter-example. No app remains unaccounted for.
+  Note that `Developer Tools - Tooly` exposes its tools as Shortcuts actions —
+  that chaining lives in Apple's Shortcuts app, not in-app, and is a hostile-read
+  objection the argument must answer rather than a falsification of A4.
 
 **A `YES` on either verdict falsifies the sole defensible 4.3(b) claim — that no
 native App Store app makes the chain the primary work surface — and the phase
@@ -91,9 +95,12 @@ the differentiator; a `YES` means the concept needs rethinking, not rewording.
 That is why this scan runs before any argument text is written, and why the
 checkpoint gating it is blocking rather than end-of-phase.
 
-**A3 came back `YES`. That clause has fired.** See
-[Assumption falsified — escalation required](#assumption-falsified--escalation-required)
-at the end of this section for what it means and what stops.
+**Both verdicts came back `NO`. The clause did not fire.** The claim that no
+native App Store app makes the chain the primary work surface is supported by
+this scan, dated 2026-08-31. It is supported, not proven — App Store search is
+region-, device-, and account-specific, and absence of evidence across four
+search terms is weaker than a census. Re-run before submission if the gap is
+long.
 
 ### Scan protocol
 
@@ -114,56 +121,42 @@ for the iOS App Store, and a Mac for the Mac App Store. Do both stores.
 5. Record the date the scan was actually run in the section heading above. It
    is the scan date that matters, not the date the desk inventory was compiled.
 
-### Assumption falsified — escalation required
+### Assumption resolved — claim supported
 
-**A3 is `YES`, and A4 is `UNRESOLVED` rather than `NO`. D-24's sole defensible
-4.3(b) claim — *no native App Store app makes the chain the primary work
-surface* — is therefore not established.** It has not been disproved either.
-It is simply unsupported, and an unsupported claim is not one to put in front
-of App Review.
+**Both A3 and A4 came back `NO`. D-24's claim — *no native App Store app makes
+the chain the primary work surface* — is supported by the 2026-08-31 scan.**
+`01-05` may write the 4.3(b) differentiation argument on this premise.
 
-The reasoning, stated plainly:
+How it resolved, kept in full because the path matters more than the answer:
 
-- A CyberChef derivative, `CyberChef Pro`, **is** on the App Store. The desk
-  research assumed none was, and that assumption is wrong.
-- The chained recipe is CyberChef's defining model. An app carrying that name
-  is the single most likely thing on the shelf to make the chain its primary
-  work surface.
-- That app could not be exercised on 2026-08-31 — its in-app search was
-  non-functional and no recipes were available to test — so nobody has looked
-  at what it actually does.
-- Every other app on the worksheet was opened and none chained. The claim is
-  therefore intact against the incumbent toolkits and open against the one app
-  that matters most to it.
+- The scan cleared five incumbent developer toolkits. Each was opened; none
+  offered a pipeline, recipe, chain, or "send output to…" affordance.
+- One app could not be exercised — `CyberChef Pro` — and on the name alone it
+  looked like the single most likely thing on the shelf to falsify the claim.
+  A3 was recorded `YES` and the phase was stopped.
+- Reading the actual listing settled it: `CyberChef Pro` (`id6743856931`,
+  Far Outpost LP, iPhone-only, free + $9.99 IAP) is a **cooking app**. Its
+  description begins *"Transform your kitchen with CyberChef Pro, your ultimate
+  culinary companion!"* and its "recipes" are food. It shares a name with
+  GCHQ's CyberChef and nothing else.
+- That also explains the scan obstacle rather than leaving it as an anomaly:
+  the in-app search returned nothing useful and no recipes were available to
+  test **because there are no data operations in a recipe app**.
 
-**Consequence.** `01-05-PLAN.md` must **not** write the 4.3(b) differentiation
-argument on this premise. Doing so would put a claim in front of Apple that
-this repo's own evidence does not carry, in the exact place — a 4.3(b)
-response — where being caught overstating is most expensive. The phase stops
-here by the owner's decision rather than proceeding on a premise that has been
-weakened but not resolved.
+**The error worth remembering.** A3 was set to `YES` from the name before the
+listing was read — a product inferred from its title. The scanner reported the
+obstacle honestly instead of rounding an untested app to `NO`, which is what
+made the mistake findable. Both halves of that are the process working.
 
-**The open question that settles it.** Does `CyberChef Pro` present a stacking
-recipe / steps / pipeline pane, distinct from its input and its output, that a
-user builds up and reorders?
+**What is still true.** `Developer Tools - Tooly` exposes its tools as Shortcuts
+actions. That chaining is real but lives in Apple's Shortcuts app, not in-app.
+It does not falsify A4, and the 4.3(b) argument must answer it directly rather
+than ignore it — a reviewer who knows Shortcuts will raise it.
 
-- **If yes** — D-24's claim collapses outright. The chain is already the
-  primary work surface of a native App Store app, and the differentiator has to
-  be found somewhere else or the concept reconsidered.
-- **If no** — the app borrowed the name without the model, A4 returns to `NO`,
-  and D-24's claim is restored on evidence.
-
-Answering it requires exercising the app, which the 2026-08-31 sweep could not
-do. That is the next action, and it is a scan action, not a writing action.
-
-**A possible alternative path, recorded and explicitly not adopted.** Guideline
-4.3(b) asks for a "meaningfully different **or improved** experience" — the
-disjunction is the guideline's own. If `CyberChef Pro` turns out to be a native
-port that is broken in practice, an argument from improved execution rather
-than from a different model may be available. That is a **different argument**
-with a different evidence burden, and adopting it is a product decision
-requiring replanning, not something this scan or this file may decide. It is
-written down here only so the option is not lost. **It is not adopted.**
+**Strength of the claim.** Supported, not proven. Four search terms across two
+stores is not a census, and App Store results are region-, device-, and
+account-specific. The argument should be phrased to survive a reviewer knowing
+of an app this scan missed.
 
 **Shelf life.** All of the above is a 2026-08-31 observation of a store that
 changes weekly. Whatever is decided must be re-verified before the review notes

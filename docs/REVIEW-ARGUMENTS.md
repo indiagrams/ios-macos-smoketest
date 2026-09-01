@@ -403,3 +403,111 @@ plain, specific description and a walkthrough that demonstrates chaining, and
 the guideline argument waits here for the one place a guideline citation is
 actually responsive — a Resolution Center reply to a rejection that raised it.
 
+## Verbatim notes block
+
+> [!CAUTION]
+> Everything between the `id=core` sentinels below is copied byte-for-byte into
+> `fastlane/metadata/review_information/notes.txt` by `tools/gen-review-notes.rb`.
+> Editing `notes.txt` directly will fail CI. The fix is always to edit the block
+> here and run `ruby tools/gen-review-notes.rb` to regenerate.
+
+The block below deliberately contains no rule numbers, no argument, and no
+marketing language — see §"Why the notes do not contain this argument". It
+describes the app and shows a reviewer how to exercise chaining in about a
+minute. The literal values in the walkthrough were computed and checked before
+being written down; a wrong expected value in the notes is worse than having no
+walkthrough at all.
+
+<!-- BEGIN:REVIEW-NOTES id=core -->
+Shipkit Pipes is an offline developer utility for converting and inspecting
+text: encoding and decoding, hashing, and timestamp conversion.
+
+It is built for developers who do this work on the machine or device in front
+of them, and who would rather not paste data - tokens, payloads, log lines -
+into a website in order to convert it.
+
+THE FIVE SCREENS
+
+1. Pipeline - the "Pipeline" tab in the tab bar on iOS; the "Pipeline" item in
+   the sidebar on macOS. This is the main screen and the one the app opens on.
+2. Encode / Decode - the "Encode" tab on iOS; the "Encode / Decode" sidebar
+   item on macOS. Base64, URL percent-encoding, and HTML entities.
+3. Hashing - the "Hashing" tab on iOS; the "Hashing" sidebar item on macOS.
+   MD5, SHA-1, SHA-256, and SHA-512.
+4. Timestamps - the "Timestamps" tab on iOS; the "Timestamps" sidebar item on
+   macOS. Unix epoch to ISO 8601 and to local time, and back, with a time zone
+   picker that defaults to the device time zone.
+5. History - the "History" tab on iOS; the "History" sidebar item on macOS.
+   Inputs and results from the current session.
+
+Screens 2 to 4 open as a pipeline pre-seeded with one step, so they are entry
+points into the same canvas rather than separate modes.
+
+CHAINING: A ONE-MINUTE WALKTHROUGH
+
+The app is built around chaining one tool's output into the next tool's input.
+To see it, with exact values to check against:
+
+1. Open the "Pipeline" tab (iOS) or the "Pipeline" sidebar item (macOS).
+2. Type this into the input field, with no trailing newline or space:
+   hello
+3. Add a step and choose Encode / Decode, then Base64 encode. The step shows:
+   aGVsbG8=
+4. Add a second step and choose Hashing, then SHA-256. It takes step 3's output
+   as its input, not the original text, and shows:
+   333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2
+5. Both steps stay on screen with their intermediate values visible. Delete the
+   Base64 step and the SHA-256 step recomputes over "hello" directly, changing
+   to:
+   2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+6. Steps can also be reordered, and the values update in place.
+
+WHY THERE IS NO DEMO ACCOUNT
+
+There is nothing to sign in to. The app has no accounts, no sign-in, and no
+server, and it is fully offline: it has no network code path and no networking
+entitlement on either platform. There are no credentials to supply.
+
+ANTICIPATED QUESTIONS
+
+Does any data the user enters leave the device?
+No. Every operation runs locally. The app makes no network requests and has no
+networking entitlement, so there is nothing to intercept or opt out of.
+
+Is anything stored?
+History is held in memory only and is cleared when the app quits. No input,
+result, or pipeline is written to disk. The only persisted setting is which
+tool screen was open last.
+
+What does the app do with no network connection?
+Everything. There is no online mode and no reduced offline mode; the app
+behaves identically in airplane mode.
+<!-- END:REVIEW-NOTES id=core -->
+
+<!--
+  NOTE FOR A LATER READER: the id=macos block below has NO generation
+  destination in Phase 1, and that is deliberate rather than an oversight.
+  fastlane/metadata/ currently holds exactly one review_information/ directory,
+  while D-04 and D-05 create two independent App Store records that each need
+  their own review notes. Phase 8 splits the metadata tree per app record and
+  adds a second generator invocation - `ruby tools/gen-review-notes.rb --id
+  macos --dest fastlane/metadata/<macos-tree>/review_information/notes.txt` -
+  at which point this block becomes live. Until then it is intentionally
+  unwired. Do not delete it as dead text; the generator's block-isolation
+  behaviour is already pinned by test/gen_review_notes_test.rb case 3 precisely
+  so that this block can be wired later without changing the tool.
+-->
+
+<!-- BEGIN:REVIEW-NOTES id=macos -->
+Shipkit Pipes for Mac is a native Mac app rather than a port of the iOS build.
+The five screens are reached from a sidebar rather than a tab bar, and the app
+uses standard Mac window resizing, keyboard focus, and copy and paste.
+
+It runs in the App Sandbox with no networking entitlement. It installs no login
+item, no launch agent, and no privileged helper tool, and it embeds no update
+mechanism of its own - it is distributed through the Mac App Store only, and it
+does nothing while it is not running.
+
+The tool set, the five screens, and the chaining walkthrough are the same as on
+iOS.
+<!-- END:REVIEW-NOTES id=macos -->

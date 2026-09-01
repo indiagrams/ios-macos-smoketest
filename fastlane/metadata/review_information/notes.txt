@@ -1,1 +1,63 @@
-TODO: notes for App Review (e.g., demo account credentials, test instructions, anything reviewers need to know).
+Shipkit Pipes is an offline developer utility for converting and inspecting
+text: encoding and decoding, hashing, and timestamp conversion.
+
+It is built for developers who do this work on the machine or device in front
+of them, and who would rather not paste data - tokens, payloads, log lines -
+into a website in order to convert it.
+
+THE FIVE SCREENS
+
+1. Pipeline - the "Pipeline" tab in the tab bar on iOS; the "Pipeline" item in
+   the sidebar on macOS. This is the main screen and the one the app opens on.
+2. Encode / Decode - the "Encode" tab on iOS; the "Encode / Decode" sidebar
+   item on macOS. Base64, URL percent-encoding, and HTML entities.
+3. Hashing - the "Hashing" tab on iOS; the "Hashing" sidebar item on macOS.
+   MD5, SHA-1, SHA-256, and SHA-512.
+4. Timestamps - the "Timestamps" tab on iOS; the "Timestamps" sidebar item on
+   macOS. Unix epoch to ISO 8601 and to local time, and back, with a time zone
+   picker that defaults to the device time zone.
+5. History - the "History" tab on iOS; the "History" sidebar item on macOS.
+   Inputs and results from the current session.
+
+Screens 2 to 4 open as a pipeline pre-seeded with one step, so they are entry
+points into the same canvas rather than separate modes.
+
+CHAINING: A ONE-MINUTE WALKTHROUGH
+
+The app is built around chaining one tool's output into the next tool's input.
+To see it, with exact values to check against:
+
+1. Open the "Pipeline" tab (iOS) or the "Pipeline" sidebar item (macOS).
+2. Type this into the input field, with no trailing newline or space:
+   hello
+3. Add a step and choose Encode / Decode, then Base64 encode. The step shows:
+   aGVsbG8=
+4. Add a second step and choose Hashing, then SHA-256. It takes step 3's output
+   as its input, not the original text, and shows:
+   333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2
+5. Both steps stay on screen with their intermediate values visible. Delete the
+   Base64 step and the SHA-256 step recomputes over "hello" directly, changing
+   to:
+   2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+6. Steps can also be reordered, and the values update in place.
+
+WHY THERE IS NO DEMO ACCOUNT
+
+There is nothing to sign in to. The app has no accounts, no sign-in, and no
+server, and it is fully offline: it has no network code path and no networking
+entitlement on either platform. There are no credentials to supply.
+
+ANTICIPATED QUESTIONS
+
+Does any data the user enters leave the device?
+No. Every operation runs locally. The app makes no network requests and has no
+networking entitlement, so there is nothing to intercept or opt out of.
+
+Is anything stored?
+History is held in memory only and is cleared when the app quits. No input,
+result, or pipeline is written to disk. The only persisted setting is which
+tool screen was open last.
+
+What does the app do with no network connection?
+Everything. There is no online mode and no reduced offline mode; the app
+behaves identically in airplane mode.

@@ -890,6 +890,270 @@ assert_eq census_source.include?("Spaceship::ConnectAPI::Certificate.all"), true
 assert_eq code_lines.include?("DELETE"), false,
           "source: the tool contains no certificate deletion request (C-G exists; D-39 forbids it)"
 
+# ---------------------------------------------------------------------------
+# submission-probe — ACCT-04's write-path instrument
+# ---------------------------------------------------------------------------
+
+# The keys 02-09 pastes into its SUMMARY, duplicated here rather than read back
+# out of the probe's own output.
+PROBE_KEYS = %w[label app_id platform team status body_excerpt measured_at].freeze
+
+APP_ID = "6749152233"
+
+# What App Store Connect returns when a review submission is refused. The status
+# lives in the ENVELOPE, not in this body -- that separation is the point: the
+# body is context, the HTTP status is the observation.
+def review_error_body(marker, status: "403", code: "FORBIDDEN_ERROR")
+  {
+    "errors" => [
+      {
+        "id" => "11111111-2222-3333-4444-555555555555",
+        "status" => status,
+        "code" => code,
+        "title" => marker,
+        "detail" => "The request could not be completed."
+      }
+    ]
+  }
+end
+
+# 46. THE LOAD-BEARING CASE FOR ACCT-04. Three statuses, each reported verbatim,
+#     each exiting 0 — because a completed request is an observation, and the
+#     tool's job ends at reporting it. 403 means the key's role does not permit
+#     Submit apps; 409/422 mean it does and the record was refused on business
+#     grounds. That mapping is assumption A1 and is NOT asserted here, because
+#     the tool does not make it.
+with_fixtures do |dir|
+  observations = {}
+  { 403 => "marker-403-role-refused",
+    409 => "marker-409-record-conflict",
+    422 => "marker-422-unprocessable" }.each do |status, marker|
+    fixture = write_fixture(dir, "submit-#{status}.json",
+                            review_error_body(marker, status: status.to_s), status: status)
+    out, err, code = probe("submission-probe", "--app-id", APP_ID, "--fixture", fixture)
+    assert_eq code, 0, "submission-probe: a #{status} is a completed request and exits 0 (stderr: #{err.strip})"
+
+    parsed = out.strip.empty? ? {} : JSON.parse(out)
+    observations[status] = parsed
+    assert_eq parsed["status"], status,
+              "submission-probe: the #{status} is reported verbatim in the status field"
+    assert_eq parsed["body_excerpt"].to_s.include?(marker), true,
+              "submission-probe: the #{status} response body reaches the caller alongside the status"
+    assert_eq out.include?("SUFFICIENT"), false,
+              "submission-probe: the #{status} run renders no verdict — that needs two runs (02-09)"
+  end
+
+  # THE DISCRIMINATION. Asserted on the PARSED status field rather than on a
+  # substring of raw output, so a formatting change cannot make this pass while
+  # the discrimination is gone.
+  assert_eq observations[403]["status"] == observations[409]["status"], false,
+            "submission-probe: 403 and 409 produce different status values"
+  assert_eq observations[403]["status"] == observations[422]["status"], false,
+            "submission-probe: 403 and 422 produce different status values"
+  assert_eq [observations[403]["status"], observations[409]["status"], observations[422]["status"]],
+            [403, 409, 422],
+            "submission-probe: each of the three statuses survives as itself"
+end
+
+# 47. The report's shape. 02-09 pastes this JSON into a tracked SUMMARY, so its
+#     keys are a contract and its excerpt is bounded.
+with_fixtures do |dir|
+  fixture = write_fixture(dir, "submit-409.json",
+                          review_error_body("marker-409", status: "409"), status: 409)
+  out, _err, code = probe("submission-probe", "--app-id", APP_ID,
+                          "--platform", "MAC_OS", "--label", "primary", "--fixture", fixture)
+  assert_eq code, 0, "submission-probe: a labelled run exits 0"
+  parsed = out.strip.empty? ? {} : JSON.parse(out)
+
+  assert_eq parsed.keys.sort, PROBE_KEYS.sort,
+            "submission-probe: the report carries exactly the observation keys"
+  assert_eq parsed["label"], "primary", "submission-probe: --label is carried into the report"
+  assert_eq parsed["app_id"], APP_ID, "submission-probe: the app id is carried into the report"
+  assert_eq parsed["platform"], "MAC_OS", "submission-probe: --platform is carried into the report"
+  assert_eq parsed["team"], "G5H628C6WR", "submission-probe: the observation names its team (C-05)"
+  assert_eq parsed["measured_at"].to_s.end_with?("Z"), true,
+            "submission-probe: the observation is dated in UTC"
+end
+
+# 48. --platform defaults to IOS and is validated against the closed set BEFORE
+#     any request. The fixture below does not exist, so a probe that validated
+#     after fetching would name the fixture instead of the platform.
+with_fixtures do |dir|
+  fixture = write_fixture(dir, "submit-409.json",
+                          review_error_body("marker-409", status: "409"), status: 409)
+  out, _err, code = probe("submission-probe", "--app-id", APP_ID, "--fixture", fixture)
+  assert_eq code, 0, "submission-probe: omitting --platform is allowed"
+  parsed = out.strip.empty? ? {} : JSON.parse(out)
+  assert_eq parsed["platform"], "IOS", "submission-probe: --platform defaults to IOS"
+
+  absent = File.join(dir, "never-created.json")
+  _out, err, code = probe("submission-probe", "--app-id", APP_ID,
+                          "--platform", "BOGUS", "--fixture", absent)
+  assert_eq code, 1, "submission-probe: a platform outside the closed set exits 1"
+  assert_eq err.include?("BOGUS"), true, "submission-probe: stderr names the rejected platform"
+  assert_eq err.include?(absent), false,
+            "submission-probe: the platform is rejected BEFORE any request is made"
+
+  _out, _err, code = probe("submission-probe", "--app-id", APP_ID,
+                           "--platform", "UNIVERSAL", "--fixture", absent)
+  assert_eq code, 1, "submission-probe: UNIVERSAL is rejected — spaceship does not expose it (C-02)"
+end
+
+# 49. Argv. A probe that ran against no app is not an observation.
+_out, err, code = probe("submission-probe")
+assert_eq code, 1, "submission-probe: omitting --app-id exits 1"
+assert_eq err.include?("--app-id"), true, "submission-probe: stderr names the missing flag"
+
+with_fixtures do |dir|
+  absent = File.join(dir, "never-created.json")
+  _out, err, code = probe("submission-probe", "--app-id", "6749152233/../../evil", "--fixture", absent)
+  assert_eq code, 1, "submission-probe: an app id carrying path metacharacters is rejected"
+  assert_eq err.include?(absent), false,
+            "submission-probe: the app id is rejected BEFORE any request is made"
+
+  _out, err, code = probe("submission-probe", "--app-id", APP_ID, "--fixture", absent)
+  assert_eq code, 1, "submission-probe: a fixture that cannot be read exits 1"
+  assert_eq err.include?(absent), true, "submission-probe: stderr names the unreadable fixture"
+end
+
+# 50. The offline guarantee for the one path with no fixture: the POST is never
+#     issued from the suite, because the probe dies on credentials first.
+_out, err, code = probe("submission-probe", "--app-id", APP_ID)
+assert_eq code, 1, "submission-probe: a live POST with no credentials exits 1"
+assert_eq err.include?("ASC_API_KEY_ID"), true, "submission-probe: stderr names the missing credential"
+
+# 51. A 400-character bound on the excerpt, asserted against a body that is
+#     genuinely longer — a short body could not tell truncation from its absence.
+with_fixtures do |dir|
+  long = write_fixture(dir, "submit-long.json",
+                       { "errors" => [{ "detail" => "x" * 5000, "title" => "marker-long" }] },
+                       status: 422)
+  out, _err, code = probe("submission-probe", "--app-id", APP_ID, "--fixture", long)
+  assert_eq code, 0, "submission-probe: a long body still exits 0"
+  parsed = out.strip.empty? ? {} : JSON.parse(out)
+  assert_eq parsed["body_excerpt"].to_s.length <= 400, true,
+            "submission-probe: body_excerpt is at most 400 characters"
+  assert_eq parsed["body_excerpt"].to_s.include?("x" * 100), true,
+            "submission-probe: the excerpt is the start of the real body, not a placeholder"
+end
+
+# 52. A 201 would mean the record accepted a submission. It is still just a
+#     status: the tool reports it and exits 0 rather than declaring anything.
+with_fixtures do |dir|
+  created = write_fixture(dir, "submit-201.json",
+                          { "data" => { "type" => "reviewSubmissions", "id" => "SUB1" } }, status: 201)
+  out, _err, code = probe("submission-probe", "--app-id", APP_ID, "--fixture", created)
+  assert_eq code, 0, "submission-probe: a 201 exits 0 like every other completed request"
+  parsed = out.strip.empty? ? {} : JSON.parse(out)
+  assert_eq parsed["status"], 201, "submission-probe: a 201 is reported verbatim too"
+end
+
+# 53. Encoding, on the write path, under a cleared locale (UL-012).
+with_fixtures do |dir|
+  accented = write_fixture(dir, "submit-utf8.json",
+                           review_error_body("Réservé — Café Müller", status: "409"), status: 409)
+  out, err, code = probe("submission-probe", "--app-id", APP_ID, "--fixture", accented, env: NO_LOCALE)
+  assert_eq code, 0, "submission-probe: a non-ASCII body is read under a cleared locale (stderr: #{err.strip})"
+  assert_eq out.include?("Café Müller"), true, "submission-probe: the non-ASCII body survives intact"
+end
+
+# ---------------------------------------------------------------------------
+# probe-compare — the pair, and the outcome that says the pair proves nothing
+# ---------------------------------------------------------------------------
+
+# 54. Two observations that differ. The pair discriminates; what the two codes
+#     MEAN is A1's mapping and remains 02-09's reading, never this tool's.
+with_fixtures do |dir|
+  f403 = write_fixture(dir, "submit-403.json", review_error_body("m403"), status: 403)
+  f409 = write_fixture(dir, "submit-409.json", review_error_body("m409", status: "409"), status: 409)
+  primary = File.join(dir, "primary.json")
+  control = File.join(dir, "control.json")
+
+  out, _err, _code = probe("submission-probe", "--app-id", APP_ID, "--label", "primary", "--fixture", f409)
+  File.write(primary, out, encoding: "UTF-8")
+  out, _err, _code = probe("submission-probe", "--app-id", APP_ID, "--label", "control", "--fixture", f403)
+  File.write(control, out, encoding: "UTF-8")
+
+  out, err, code = probe("probe-compare", "--primary", primary, "--control", control)
+  assert_eq code, 0, "probe-compare: two different statuses exit 0 (stderr: #{err.strip})"
+  assert_eq out.include?("409"), true, "probe-compare: the primary status is named"
+  assert_eq out.include?("403"), true, "probe-compare: the control status is named"
+  assert_eq (out + err).include?("SUFFICIENT"), false,
+            "probe-compare: no sufficiency verdict is rendered — the reading is A1's, not the tool's"
+  assert_eq (out + err).include?("DISCARDED"), false,
+            "probe-compare: a discriminating pair is not discarded"
+end
+
+# 55. THE INDETERMINATE OUTCOME. Both keys returned the same code, so the probe
+#     did not discriminate and MUST be discarded rather than reinterpreted
+#     (02-RESEARCH.md A1's mitigation; 02-VALIDATION.md ACCT-04's control column:
+#     "Same code from both ⇒ discard the probe, do not reinterpret it").
+#
+#     It gets its own exit code because a tool that can only say pass/fail cannot
+#     express the one answer that matters when the control fails.
+with_fixtures do |dir|
+  f403 = write_fixture(dir, "submit-403.json", review_error_body("m403"), status: 403)
+  primary = File.join(dir, "primary.json")
+  control = File.join(dir, "control.json")
+
+  out, _err, _code = probe("submission-probe", "--app-id", APP_ID, "--label", "primary", "--fixture", f403)
+  File.write(primary, out, encoding: "UTF-8")
+  out, _err, _code = probe("submission-probe", "--app-id", APP_ID, "--label", "control", "--fixture", f403)
+  File.write(control, out, encoding: "UTF-8")
+
+  out, err, code = probe("probe-compare", "--primary", primary, "--control", control)
+  assert_eq code, 3, "probe-compare: two identical statuses exit exactly 3, not 0 and not 1"
+  assert_eq (out + err).include?("PROBE DISCARDED"), true,
+            "probe-compare: the indeterminate outcome is named in full"
+  assert_eq (out + err).include?("SUFFICIENT"), false,
+            "probe-compare: a discarded probe yields no verdict of any kind"
+end
+
+# 56. probe-compare argv, and the observation files it refuses.
+with_fixtures do |dir|
+  f403 = write_fixture(dir, "submit-403.json", review_error_body("m403"), status: 403)
+  primary = File.join(dir, "primary.json")
+  out, _err, _code = probe("submission-probe", "--app-id", APP_ID, "--fixture", f403)
+  File.write(primary, out, encoding: "UTF-8")
+
+  _out, err, code = probe("probe-compare", "--primary", primary)
+  assert_eq code, 1, "probe-compare: omitting --control exits 1"
+  assert_eq err.include?("--control"), true, "probe-compare: stderr names the missing flag"
+
+  _out, err, code = probe("probe-compare", "--control", primary)
+  assert_eq code, 1, "probe-compare: omitting --primary exits 1"
+  assert_eq err.include?("--primary"), true, "probe-compare: stderr names the missing flag"
+
+  statusless = File.join(dir, "statusless.json")
+  File.write(statusless, JSON.generate("label" => "primary", "app_id" => APP_ID), encoding: "UTF-8")
+  _out, err, code = probe("probe-compare", "--primary", statusless, "--control", primary)
+  assert_eq code, 1, "probe-compare: an observation with no status exits 1"
+  assert_eq err.include?("status"), true, "probe-compare: stderr says which field was missing"
+
+  absent = File.join(dir, "nope.json")
+  _out, err, code = probe("probe-compare", "--primary", absent, "--control", primary)
+  assert_eq code, 1, "probe-compare: an observation file that does not exist exits 1"
+  assert_eq err.include?(absent), true, "probe-compare: stderr names the unreadable path"
+end
+
+# 57. Source assertions for the submission half. The endpoint choice is the
+#     entire design, and the comment recording why is load-bearing documentation
+#     that a future reader will otherwise undo.
+submit_source = File.read(SCRIPT, encoding: "UTF-8")
+submit_code = submit_source.lines.reject { |line| line.start_with?("#") }.join
+assert_eq submit_code.include?("/v1/reviewSubmissions"), true,
+          "source: the probe posts to the reviewSubmissions collection"
+assert_eq submit_code.include?("betaAppReviewSubmissions"), false,
+          "source: the TestFlight beta path is not used — it needs a build that does not exist"
+assert_eq submit_source.include?("betaAppReviewSubmissions"), true,
+          "source: the rejected beta endpoint is named in the comment, so the choice is not silent"
+assert_eq submit_source.include?("GET /v1/apps/{id}/reviewSubmissions"), true,
+          "source: the rejected read-based endpoint is named in the comment (Pitfall 1)"
+assert_eq submit_source.match?(/\bA1\b/), true,
+          "source: the comment names assumption A1 — the status mapping is not Apple's word"
+assert_eq submit_code.match?(/"?(IN)?SUFFICIENT"?/), false,
+          "source: the tool reports a status; it never encodes a sufficiency verdict"
+
 if @failures.zero?
   puts "\nAll #{@checks} asc-probe regression assertions passed."
   exit 0

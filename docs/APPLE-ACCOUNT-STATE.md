@@ -58,6 +58,21 @@ without a target fails CI rather than sitting here looking plausible.
 `indiagrams/apple-shipkit` instead — a different repository, whose answers would be
 wrong in a way that looks like an answer.
 
+**Any `tools/asc-probe.rb` row carries the pinned bundle in full.** `ruby tools/asc-probe.rb`
+cannot make a live call at all: spaceship is not loadable outside the bundle, and the probe
+refuses with a message naming the correct command rather than failing quietly. A bare
+`bundle exec` is the worse of the two — brew's unversioned Ruby is 4.0.x and resolves a
+`vendor/bundle/ruby/4.0.0` that does not exist, so it dies in `Bundler::GemNotFound` with
+nothing to say about why. Both were hit on 2026-09-01 while re-checking the App ID rows
+below, which is why those rows now spell out
+`/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb ...`.
+
+The six `pending 02-09` and `pending 02-10` rows still carry the short forms. They are
+placeholders for measurements that have not been taken, and the plan that takes each one
+writes its real re-check command then; correcting a command for a row whose value is an em
+dash would be tidying a cell nobody can run yet. Named here rather than left to be
+rediscovered.
+
 ## Apple Developer Program and account
 
 | Fact | Value | Measured (ISO-8601) | Against (team / key / record id) | Valid until | Re-check command |
@@ -88,7 +103,7 @@ convenient.
 | Key id | `SCH57C86HT` | 2026-09-01 | team `G5H628C6WR` | per phase | `grep ASC_API_KEY_ID .bootstrap.env` |
 | Key kind | `Team key` | 2026-09-01 | key `SCH57C86HT` | per phase | App Store Connect, Users and Access, Integrations, Team Keys |
 | Key expiry | `no expiry` — `Active until revoked` | 2026-09-01 | key `SCH57C86HT` | per phase | Apple key-management documentation, re-read per phase |
-| `POST /v1/bundleIds`, as exercised | Sufficient — two App IDs created, no refusal returned. Scoped to this one operation and claims nothing about certificates or submission (D-40) | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | `bundle exec fastlane register_app_id platform:ios` with `BUNDLE_ID` overridden |
+| `POST /v1/bundleIds`, as exercised | `App Manager` key `SCH57C86HT` sufficient for `POST /v1/bundleIds` — observed 2026-09-01 against team `G5H628C6WR`. The justification is Apple's own response: both creates returned a record with an Apple-assigned id and no refusal text. The role string is metadata and is never the proof (D-40). Claims nothing about certificates (02-10) or submission (02-09) | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec fastlane register_app_id platform:ios` with `BUNDLE_ID` overridden |
 | Access role, as exercised | — | pending 02-09 | — | — | `ruby tools/asc-probe.rb probe-compare --primary <f> --control <f>` |
 | Upload path exercised | — | pending 02-09 | — | — | `ruby tools/asc-probe.rb read-back app --bundle-id <id> --expect-platform <p>` |
 | Submission path exercised | — | pending 02-09 | — | — | `ruby tools/asc-probe.rb submission-probe --app-id <id> --platform IOS --label primary` |
@@ -120,9 +135,10 @@ twice. 02-09 exercises both paths and fills these rows with what it saw.
 
 | Fact | Value | Measured (ISO-8601) | Against (team / key / record id) | Valid until | Re-check command |
 |---|---|---|---|---|---|
-| `com.indiagram.shipkitpipes.ios` App ID | Registered — `id=9ZZGBGJBRQ`, name `Shipkit Pipes iOS`. Requested `platform: IOS`; **Apple stores `UNIVERSAL`** | 2026-09-01 | team `G5H628C6WR` | per phase | `ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.shipkitpipes.ios --expect-platform IOS` |
-| `com.indiagram.shipkitpipes.macos` App ID | Registered — `id=KPNQ2D3B8A`, name `Shipkit Pipes macOS`. Requested `platform: MAC_OS`; **Apple stores `UNIVERSAL`** | 2026-09-01 | team `G5H628C6WR` | per phase | `ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.shipkitpipes.macos --expect-platform MAC_OS` |
-| `com.indiagram.smokeapp` App ID (pre-existing) | Present, `id=TP38APY79P`, platform `UNIVERSAL`. Deliberately not deleted — Apple does not allow deleting an App ID that has ever been used | 2026-09-01 | team `G5H628C6WR` | per phase | `ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.smokeapp --expect-platform IOS` |
+| `com.indiagram.shipkitpipes.ios` App ID | Registered — `id=9ZZGBGJBRQ`, name `Shipkit Pipes iOS`. Requested `platform: IOS`; **Apple stores `UNIVERSAL`** | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.shipkitpipes.ios --expect-platform IOS` |
+| `com.indiagram.shipkitpipes.macos` App ID | Registered — `id=KPNQ2D3B8A`, name `Shipkit Pipes macOS`. Requested `platform: MAC_OS`; **Apple stores `UNIVERSAL`** | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.shipkitpipes.macos --expect-platform MAC_OS` |
+| `com.indiagram.smokeapp` App ID (pre-existing) | Present, `id=TP38APY79P`, platform `UNIVERSAL`. Deliberately not deleted — Apple does not allow deleting an App ID that has ever been used | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.smokeapp --expect-platform IOS` |
+| Both App IDs confirmed in the Developer portal | Seen by the account holder in Certificates, Identifiers and Profiles, Identifiers: `com.indiagram.shipkitpipes.ios` and `com.indiagram.shipkitpipes.macos` both present. Exactly the two intended identifiers were created by these runs — no third. `com.indiagram.smokeapp` still present and untouched | 2026-09-01 | team `G5H628C6WR` | per phase | Apple Developer portal, Certificates, Identifiers and Profiles, Identifiers |
 | Universal Purchase | Declined and executed — two App IDs registered as two independent records, so rejection blast radius stays independent (D-05) | 2026-09-01 | team `G5H628C6WR` | per phase | `grep -n 'Universal Purchase' docs/PRODUCT-IDENTITY.md` |
 
 ### Apple stores `UNIVERSAL` for every App ID in this team, whatever platform was requested

@@ -88,6 +88,7 @@ convenient.
 | Key id | `SCH57C86HT` | 2026-09-01 | team `G5H628C6WR` | per phase | `grep ASC_API_KEY_ID .bootstrap.env` |
 | Key kind | `Team key` | 2026-09-01 | key `SCH57C86HT` | per phase | App Store Connect, Users and Access, Integrations, Team Keys |
 | Key expiry | `no expiry` — `Active until revoked` | 2026-09-01 | key `SCH57C86HT` | per phase | Apple key-management documentation, re-read per phase |
+| `POST /v1/bundleIds`, as exercised | Sufficient — two App IDs created, no refusal returned. Scoped to this one operation and claims nothing about certificates or submission (D-40) | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | `bundle exec fastlane register_app_id platform:ios` with `BUNDLE_ID` overridden |
 | Access role, as exercised | — | pending 02-09 | — | — | `ruby tools/asc-probe.rb probe-compare --primary <f> --control <f>` |
 | Upload path exercised | — | pending 02-09 | — | — | `ruby tools/asc-probe.rb read-back app --bundle-id <id> --expect-platform <p>` |
 | Submission path exercised | — | pending 02-09 | — | — | `ruby tools/asc-probe.rb submission-probe --app-id <id> --platform IOS --label primary` |
@@ -114,6 +115,50 @@ never proof: D-40 and D-42 both turn on establishing sufficiency by exercising t
 path and the submission path and observing what Apple actually returns. Reading a role
 label and concluding sufficiency is the inference-from-a-name pattern that cost Phase 1
 twice. 02-09 exercises both paths and fills these rows with what it saw.
+
+## App IDs
+
+| Fact | Value | Measured (ISO-8601) | Against (team / key / record id) | Valid until | Re-check command |
+|---|---|---|---|---|---|
+| `com.indiagram.shipkitpipes.ios` App ID | Registered — `id=9ZZGBGJBRQ`, name `Shipkit Pipes iOS`. Requested `platform: IOS`; **Apple stores `UNIVERSAL`** | 2026-09-01 | team `G5H628C6WR` | per phase | `ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.shipkitpipes.ios --expect-platform IOS` |
+| `com.indiagram.shipkitpipes.macos` App ID | Registered — `id=KPNQ2D3B8A`, name `Shipkit Pipes macOS`. Requested `platform: MAC_OS`; **Apple stores `UNIVERSAL`** | 2026-09-01 | team `G5H628C6WR` | per phase | `ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.shipkitpipes.macos --expect-platform MAC_OS` |
+| `com.indiagram.smokeapp` App ID (pre-existing) | Present, `id=TP38APY79P`, platform `UNIVERSAL`. Deliberately not deleted — Apple does not allow deleting an App ID that has ever been used | 2026-09-01 | team `G5H628C6WR` | per phase | `ruby tools/asc-probe.rb read-back bundle-id --identifier com.indiagram.smokeapp --expect-platform IOS` |
+| Universal Purchase | Declined and executed — two App IDs registered as two independent records, so rejection blast radius stays independent (D-05) | 2026-09-01 | team `G5H628C6WR` | per phase | `grep -n 'Universal Purchase' docs/PRODUCT-IDENTITY.md` |
+
+### Apple stores `UNIVERSAL` for every App ID in this team, whatever platform was requested
+
+Both App IDs above were created on 2026-09-01 through `fastlane register_app_id`, one with
+`platform: ios` and one with `platform: macos`, which reach
+`Spaceship::ConnectAPI::BundleIdPlatform::IOS` and `::MAC_OS` respectively. Both create calls
+succeeded. **Both then read back from `GET /v1/bundleIds` with `platform` = `UNIVERSAL`**, and so
+does the pre-existing `com.indiagram.smokeapp`, which was registered long before this phase.
+
+This is a fact about Apple, not about the instrument, and it was checked as such before being
+written down. Two independent code paths agree: `tools/asc-probe.rb`, which parses the raw
+`GET /v1/bundleIds` JSON, and a direct `Spaceship::ConnectAPI::BundleId.all` call, which goes
+through fastlane's own object mapping. In the probe run, the `identifier` comparison passed while
+the `platform` comparison failed on the same record — so the right record was fetched and the
+comparator does discriminate between fields.
+
+Consequences, stated no more strongly than the observation supports:
+
+- **The read-back assertions in this table exit 1, by design, and have been left that way.** There
+  is no `--expect-platform UNIVERSAL`: `tools/asc-probe.rb` rejects it at argument validation
+  (C-02), because spaceship's enum exposes only `IOS` and `MAC_OS`. Widening that enum to make the
+  command exit 0 would be rewriting a correct assertion to match a surprising result, which
+  destroys the only evidence the assertion was ever carrying. Paste the command and read the
+  `got "UNIVERSAL"` line; that line is the measurement.
+- **`platform` is not a usable discriminator between these two App IDs.** What distinguishes them
+  is the identifier, which is what every downstream lane passes as `app_identifier` anyway.
+- This is consistent with F-10 — since Xcode 11.4 a single App ID can build iOS, macOS, tvOS and
+  watchOS apps — but F-10 is a statement about capability, and this is a statement about a stored
+  field. They are recorded as two separate things.
+- **Open question, deliberately not resolved by guessing:** whether Apple ignored the requested
+  `platform` at create time, or accepted it and normalised the record to `UNIVERSAL` afterwards,
+  cannot be told apart from a read-back. `register_app_id`'s success message interpolates the
+  *requested* value rather than the response, so it is not evidence either way. Settling it would
+  mean creating a third App ID purely to watch the create response, and an App ID that has ever
+  been used cannot be reclaimed (T-02-32), so it was not done.
 
 ## Certificate census
 

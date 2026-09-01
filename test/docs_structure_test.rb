@@ -118,6 +118,7 @@ ACCOUNT_STATE_COLUMNS = [
 ACCOUNT_STATE_FACT_SECTIONS = [
   /^## Apple Developer Program and account/,
   /^## ASC API key/,
+  /^## App IDs/,
   /^## Certificate census/
 ].freeze
 

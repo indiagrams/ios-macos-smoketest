@@ -225,8 +225,15 @@ end
 # Splits one Markdown table row into its cells. `"| a | b |".split("|")` yields
 # ["", " a ", " b "], so dropping the leading empty element gives the cells;
 # Ruby drops the trailing empty element for us.
+# Split on unescaped pipes only. GitHub renders a bare `|` inside a table cell as a
+# column break even within a code span, so a cell containing one is genuinely a broken
+# row and has to be written `\|`. Splitting naively on every `|` made this parser agree
+# with the defect rather than catch it: two rows carrying Ruby block parameters in their
+# re-check commands parsed as eight cells, the per-row assertions below only ever indexed
+# cells 0..3, and both sailed through while rendering with the command chopped into three
+# columns. Found 2026-09-01 by counting cells instead of trusting the header assertion.
 def cells(row)
-  row.split("|")[1..].to_a.map(&:strip)
+  row.split(/(?<!\\)\|/)[1..].to_a.map { |c| c.strip.gsub('\|', "|") }
 end
 
 # The table rows of a section: lines that begin with a pipe, with the
@@ -579,6 +586,18 @@ ACCOUNT_STATE_FACT_SECTIONS.each do |heading|
             "#{APPLE_ACCOUNT_STATE}: '#{label}' names all six columns in order"
 
   data_rows = rows.reject { |r| r.equal?(head) }
+# Header width is asserted above, but a header cannot vouch for the rows beneath it.
+# A row with one cell too many still renders, silently shifting every column after the
+# extra pipe — which is how a re-check command stops being runnable without anything
+# going red.
+ragged = data_rows.filter_map do |r|
+  c = cells(r)
+  "#{c.first} => #{c.length} cells" if c.length != ACCOUNT_STATE_COLUMNS.length
+end
+assert ragged.empty?,
+       "#{APPLE_ACCOUNT_STATE}: every '#{label}' row has exactly #{ACCOUNT_STATE_COLUMNS.length} cells" \
+       "#{ragged.empty? ? '' : " — offending: #{ragged.join('; ')}"}"
+
   assert !data_rows.empty?,
          "#{APPLE_ACCOUNT_STATE}: '#{label}' has at least one fact row (found #{data_rows.length})"
 

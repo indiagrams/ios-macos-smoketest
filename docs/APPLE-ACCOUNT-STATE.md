@@ -76,6 +76,19 @@ tidying a cell nobody can run yet. Named here rather than left to be rediscovere
 certificate-census rows were placeholders of the same kind until 02-10 measured them, and
 they now carry the pinned form.
 
+**A `|` inside a cell is written `\|`, and that is not cosmetic.** GitHub breaks a table
+cell on a bare pipe even inside a code span, so a re-check command containing a Ruby block
+parameter renders with its command chopped across three columns and the parameter eaten —
+the command in the rendered page is then not the command anyone can run. Two rows in the
+app-record table were in exactly that state until 2026-09-01. The structural guard did not
+catch them because it split rows on every pipe, which made its own parser agree with the
+defect: the rows parsed as eight cells, only cells 0..3 were ever asserted on, and the
+header assertion vouched for the header rather than for the rows beneath it. The guard now
+splits on unescaped pipes and asserts every fact row is exactly six cells wide; it was
+watched failing on both rows before they were fixed. **Copying a command out of the raw
+source needs the `\` dropped**; copying it out of the rendered page does not, and the
+rendered page is what these rows are for.
+
 ## Apple Developer Program and account
 
 | Fact | Value | Measured (ISO-8601) | Against (team / key / record id) | Valid until | Re-check command |
@@ -202,8 +215,8 @@ Consequences, stated no more strongly than the observation supports:
 | App record `sku` | `shipkitpipes-ios-001` — matches D-31 character for character. **Permanent**: cannot be changed, and cannot be reused in this organization even if the record is removed | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001 --expect-locale en-US --expect-name 'Shipkit Pipes'` |
 | App record `primaryLocale` | `en-US` — set explicitly per D-32 rather than relying on the documented default | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001 --expect-locale en-US --expect-name 'Shipkit Pipes'` |
 | App record `bundleId` | `com.indiagram.shipkitpipes.ios` — shared by both platforms under Universal Purchase | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.ios --expect-sku shipkitpipes-ios-001 --expect-locale en-US --expect-name 'Shipkit Pipes'` |
-| `appStoreVersions` on the record | Two: `platform=IOS state=PREPARE_FOR_SUBMISSION version=1.0` and `platform=MAC_OS state=PREPARE_FOR_SUBMISSION version=1.0`. Both platforms live on the one record, and each can be submitted independently | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby -e 'require "spaceship"; Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(key_id: ENV["ASC_API_KEY_ID"], issuer_id: ENV["ASC_API_KEY_ISSUER_ID"], key: Base64.decode64(ENV["ASC_API_KEY_P8_BASE64"])); Spaceship::ConnectAPI.get_app_store_versions(app_id: "6807393045").to_models.each { |v| puts "#{v.platform} #{v.app_store_state} #{v.version_string}" }'` |
-| App records named `Shipkit Pipes` on this team | Exactly one. Enumerated all five app records on the team; no second `Shipkit Pipes` and no record against `com.indiagram.shipkitpipes.macos` | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby -e 'require "spaceship"; Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(key_id: ENV["ASC_API_KEY_ID"], issuer_id: ENV["ASC_API_KEY_ISSUER_ID"], key: Base64.decode64(ENV["ASC_API_KEY_P8_BASE64"])); puts Spaceship::ConnectAPI::App.all.map { |a| "#{a.id} #{a.name}" }'` |
+| `appStoreVersions` on the record | Two: `platform=IOS state=PREPARE_FOR_SUBMISSION version=1.0` and `platform=MAC_OS state=PREPARE_FOR_SUBMISSION version=1.0`. Both platforms live on the one record, and each can be submitted independently | 2026-09-01 | record `6807393045` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby -e 'require "spaceship"; Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(key_id: ENV["ASC_API_KEY_ID"], issuer_id: ENV["ASC_API_KEY_ISSUER_ID"], key: Base64.decode64(ENV["ASC_API_KEY_P8_BASE64"])); Spaceship::ConnectAPI.get_app_store_versions(app_id: "6807393045").to_models.each { \|v\| puts "#{v.platform} #{v.app_store_state} #{v.version_string}" }'` |
+| App records named `Shipkit Pipes` on this team | Exactly one. Enumerated all five app records on the team; no second `Shipkit Pipes` and no record against `com.indiagram.shipkitpipes.macos` | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby -e 'require "spaceship"; Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(key_id: ENV["ASC_API_KEY_ID"], issuer_id: ENV["ASC_API_KEY_ISSUER_ID"], key: Base64.decode64(ENV["ASC_API_KEY_P8_BASE64"])); puts Spaceship::ConnectAPI::App.all.map { \|a\| "#{a.id} #{a.name}" }'` |
 | `com.indiagram.shipkitpipes.macos` app record | **None, permanently and by design.** The App ID `KPNQ2D3B8A` stays registered; no app record was ever created against it and none will be. A `read-back app` for this identifier exits `2` — that is the correct result under Universal Purchase, not a defect | 2026-09-01 | team `G5H628C6WR` | per phase | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb read-back app --bundle-id com.indiagram.shipkitpipes.macos --expect-sku shipkitpipes-macos-001` |
 | SKU `shipkitpipes-macos-001` | Never consumed. D-31 reserved it for the second record that was never created; it is not attached to anything at Apple | 2026-09-01 | team `G5H628C6WR` | per phase | Absent from the `App.all` enumeration above |
 | App Store name uniqueness scope | **Account-scoped, not merely store-wide.** Two app records in one account cannot carry the same name. Observed by Apple refusing the second record, not read from documentation | 2026-09-01 | team `G5H628C6WR` | per phase | Apple returns the refusal only at record creation; there is no query endpoint |
@@ -269,6 +282,12 @@ is not a control, so a string that has never existed and never will is used inst
 | ACCT-04b — key sufficiency on the **distribution** path | **UNPROVEN.** The mint reused a local certificate and never reached Apple's create endpoint, so the key's authority to create a distribution certificate was not exercised and remains unknown. Not a failure and not a pass — an untaken measurement | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | Only a mint that actually creates can settle this; see the reuse trap below |
 | Nothing was revoked (ACCT-05b) | Asserted, not assumed. `census-diff` over the before and after censuses exited `0`: three certificates before, three after, no id absent from the second | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census-diff --before <before> --after <after>` |
 | Post-mint occupancy | Unchanged from the rows above, re-measured rather than predicted: one certificate of each of the three release types, same three ids | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
+| Decision taken on that result (02-10 Task 3) | **`record-only`.** Nothing was minted, revoked, forced or removed. All three routes that would have compelled a real create were declined: passing `--force`, deleting the local identity so the reuse check finds nothing, and minting the two types not yet attempted. It is recorded as a decision with its reasoning, not as an omission — see [Why no mint still available can settle ACCT-04b](#why-no-mint-still-available-can-settle-acct-04b) | 2026-09-01 | team `G5H628C6WR` | per phase | Not a measurement and not re-runnable; the occupancy row below is what re-checks |
+| Whether any mint still available could settle ACCT-04b | **No.** For team `G5H628C6WR` the login keychain already holds a valid `Apple Distribution` identity and a `3rd Party Mac Developer Installer` certificate, so a mint of either distribution-family type reuses and never reaches Apple. It holds no `Apple Development` identity for this team, so that one type would genuinely create — but `DEVELOPMENT` is not the permission ACCT-04b asks about. Read-only reading; nothing was added to or removed from the keychain | 2026-09-01 | login keychain against team `G5H628C6WR` | 2026-09-08 | `security find-identity -v \| grep G5H628C6WR` and the same with `-p codesigning`; the two lists differ, and both matter |
+| Capacity, per type | **Unobserved for all three types**, `DISTRIBUTION` included — its mint reused rather than created, so no create attempt has ever been made against this team by this project. Nothing numeric is recorded here because nothing numeric was measured; the rows above carry occupancy, which is a different quantity | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | Only an attempted create can observe it, and attempting one consumes a slot on a team shared with another shipping product — a human decision, not a re-check |
+| Post-decision occupancy, re-measured rather than predicted | Unchanged: one certificate of each of the three release types, the same three ids. Taken at `2026-09-01T18:11:07Z`, after the decision rather than before it, and `census-diff` against the pre-mint baseline exited `0` — no id absent, none added | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json`, then `census-diff` against the previous census |
+| ACCT-05 — the certificate criterion as a whole | **Not met in full, and deliberately not marked complete.** Occupancy is measured and dated, nothing was revoked, and every unproven type is stated as such — but the criterion also asks for a mint attempted for the types the release lane needs, and only `DISTRIBUTION` was attempted. `DEVELOPMENT` and `MAC_INSTALLER_DISTRIBUTION` were never attempted at all | 2026-09-01 | team `G5H628C6WR` | per phase | Closing it means attempting those two mints, each of which consumes a slot on a shared team |
+| ACCT-04 — both halves | **OPEN.** The submission half was abandoned during 02-09 with no sufficiency verdict reached (ledger row UL-018), and the distribution half is unproven above. Neither half is closed, and neither may be read across to the other | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | Each half has its own verdict row; read both, and do not treat one as evidence about the other |
 
 **This section records occupancy, never a quota.** Apple publishes no numeric per-team
 certificate figure at all: the only quantitative sentence on its certificates overview
@@ -347,11 +366,57 @@ this.** Creating distribution certificates and submitting an app for review are 
 permissions in Apple's roles matrix, granted to different sets of roles. Two separate
 verdicts are kept for that reason, and neither may be read across to the other.
 
-**Forcing the question is a decision, not a fix.** The two ways to compel a real create —
-passing `--force`, or deleting the local identity so the reuse check finds nothing — both
-consume a certificate slot on a team shared with another shipping product, and the second
-also strands the existing certificate at Apple by discarding the private key that makes it
-usable. Neither is a step to be taken to tidy up an inconvenient result.
+### Why no mint still available can settle ACCT-04b
+
+**Forcing the question is a decision, not a fix**, and on 2026-09-01 it was decided not to
+force it. The decision was `record-only`: nothing minted, nothing revoked, no `--force`, no
+local identity removed. What follows is the reasoning, recorded because without it the close
+reads as giving up rather than as a measurement that could not be taken at an acceptable price.
+
+**Which types would reuse and which would create is knowable in advance, from the keychain.**
+Read on 2026-09-01, scoped to team `G5H628C6WR`:
+
+```
+Apple Distribution                        present locally  -> a mint REUSES
+3rd Party Mac Developer Installer         present locally  -> a mint REUSES
+Apple Development                         absent           -> a mint would CREATE
+```
+
+So both distribution-family types are already local and will reuse without reaching Apple.
+The only type that would produce a real `POST /v1/certificates` is `DEVELOPMENT` — and
+**`DEVELOPMENT` tests the wrong permission.** Apple gates *"Create and revoke distribution
+certificates"* as the conditional row on its roles matrix, which is what makes ACCT-04b a
+live question for an `App Manager` key at all. Development certificates are not on that row
+and are routinely creatable by Developer-role users. A successful `DEVELOPMENT` create would
+prove only that the key can write to the certificates endpoint at all; it would say nothing
+about the distribution permission actually in question, while consuming a slot on a shared
+team to say it. Recording it as evidence for ACCT-04b would be the same substitution one
+seam further along: a real observation of the wrong thing.
+
+**Read the two keychain listings, not one.** `find_existing_cert` decides reuse through
+`FastlaneCore::CertChecker.installed?`, which is the union of two different queries —
+`security find-identity -v -p codesigning` for signing identities, and
+`security find-certificate -c "3rd Party Mac Developer Installer"` (plus the `Developer ID
+Installer` equivalent) for installer certificates. Installer certificates do not appear under
+the code-signing policy, so anyone predicting a `mac_installer_distribution` mint from
+`find-identity -p codesigning` alone will see nothing, predict `CREATED`, and be wrong. Read
+from the pinned fastlane source rather than observed here, since that mint was not attempted.
+
+**There is a second reuse path that the keychain does not show at all.** If no matching
+identity is installed, `find_existing_cert` still reuses when a cached `<id>.p12` is sitting
+in the `cert` output directory — it imports the cached key and certificate and returns. So
+deleting the local identity does not reliably compel a create either, which is one more
+reason the option was not worth its cost. Also read from source, not observed.
+
+**The cost of the two routes that would have produced a real create.** Both `--force` and
+deleting the local identity consume a certificate slot on a team shared with another shipping
+product. Deleting the local identity is the worse of the two: it discards the private key,
+which leaves `6B8BWZ4B4X` registered at Apple but permanently unusable — a slot spent on
+nothing, on a team where slots are shared and capacity is unknown. That is trading a working
+production signing identity for a checkmark, and it was declined.
+
+**What that leaves, stated plainly.** ACCT-04b is unproven and stays unproven. Capacity is
+unobserved for all three types. Neither is a failure, and neither is rounded up.
 
 ## Staleness contract
 

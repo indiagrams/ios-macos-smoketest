@@ -16,6 +16,17 @@
 # ran only when somebody remembered to run it, which is the difference between
 # "we generate notes.txt" and "notes.txt cannot diverge".
 #
+# PRESENT IS NOT REQUIRED. This file existing, and even this job going red, does
+# not by itself block a merge. Blocking requires `review notes` to be listed as a
+# required status check on `main`, which is live GitHub state rather than
+# anything in this repository — and `bin/setup-github.sh` recomputes and PUTs
+# that list from scratch, silently dropping this check on its next run.
+# `make setup-github` and `bin/refork-smoketest.sh` therefore turn the gate off
+# without failing or warning. The hazard, the exact PATCH that restores it, the
+# verification command, and the expected context count of nine are in
+# docs/CONTRIBUTING-UPSTREAM.md §6 "Fork operations that `make setup-github`
+# reverts". Ledger row UL-003 proposes the upstream fix.
+#
 # The upstreaming shape for all of this — rename to `bin/gen-review-notes.rb`,
 # add a `ci/check-review-notes.sh` wrapper matching `ci/check-app-icon.sh`, and
 # add a job to upstream's own `pr.yml` — is written down in
@@ -53,7 +64,8 @@ jobs:
     # This string becomes the branch-protection status-check context, so it must
     # match the required check exactly, spaces included. Renaming the job
     # silently un-requires the check: protection keeps requiring the old context,
-    # which no longer reports, and every PR hangs.
+    # which no longer reports, and every PR hangs. See
+    # docs/CONTRIBUTING-UPSTREAM.md §6 for the restore and verification commands.
     name: review notes
     runs-on: ubuntu-latest
     timeout-minutes: 5

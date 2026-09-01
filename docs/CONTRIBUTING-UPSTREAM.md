@@ -173,3 +173,96 @@ When the upstream PR opens, come back and move the row's verdict from `Pending` 
 `Submitted [#N]`. When it merges or is declined, move it to a terminal verdict. The
 ledger's own header explains why that matters: closing this project out is defined as a
 grep over that column.
+
+## 6. Fork operations that `make setup-github` reverts
+
+One fork-owned guarantee lives in GitHub state rather than in a file, and one
+template-owned script destroys it without saying so. This section exists so that
+recovery is a paste rather than an investigation.
+
+### The hazard
+
+`.github/workflows/review-notes.yml` defines a job named **`review notes`**, and
+that string is a required status check on `main`. Requiring it is what makes a
+red drift check block a merge; without the requirement the workflow still runs
+and still goes red, and the merge button still works.
+
+`bin/setup-github.sh` recomputes that requirement from scratch every time it
+runs. It builds a `CHECKS` array from the platform matrix — one `app (...)` cell
+per platform and generator — then unconditionally appends `swiftlint` and
+`swiftformat`, and **PUTs the whole array** as `required_status_checks`. It has
+no notion of a fork-added check and no way to learn about one. It is
+template-owned, so this fork cannot patch it.
+
+Consequently, running any of these silently drops the `review notes`
+requirement:
+
+- `make setup-github`
+- `bin/setup-github.sh` directly
+- `bin/refork-smoketest.sh`, which recreates the repository from the template
+
+The symptom is quiet by design: nothing fails, no warning is printed, and the
+workflow keeps running and reporting. Protection simply lists **eight** contexts
+where nine were expected, and a pull request with a red drift check becomes
+mergeable again. **The check that stops gating looks exactly like the check that
+is gating.** Verify by count, not by looking at the Actions tab.
+
+### Restore it
+
+Additive by construction: it writes back the eight checks it just read, and
+appends the ninth. It cannot drop a required build check, and it is idempotent —
+running it when the check is already required leaves the array unchanged.
+
+```bash
+REPO=indiagrams/ios-macos-smoketest
+
+gh api "repos/$REPO/branches/main/protection/required_status_checks" \
+  | jq '{strict: .strict,
+         checks: ((.checks | map(select(.context != "review notes")))
+                  + [{context: "review notes"}])}' \
+  | gh api -X PATCH "repos/$REPO/branches/main/protection/required_status_checks" --input -
+```
+
+**PATCH the `required_status_checks` sub-resource. Never PUT `/protection`.**
+This is a security property, not a style preference: a PUT rebuilds the entire
+protection object from whatever the caller supplies, so a caller who omits
+`enforce_admins`, `required_linear_history`, or the approving-review count
+silently weakens the branch while appearing to add a check. Never weaken
+protection in order to make a check land. That is precisely the bug this section
+documents, and reproducing it by hand would be worse than leaving the gate off.
+
+### Verify it
+
+```bash
+REPO=indiagrams/ios-macos-smoketest
+
+gh api "repos/$REPO/branches/main/protection/required_status_checks" \
+  --jq '.checks[].context' | sort
+
+gh api "repos/$REPO/branches/main/protection" \
+  --jq '{enforce_admins: .enforce_admins.enabled,
+         strict: .required_status_checks.strict}'
+```
+
+**The expected count is nine.** The first command must print exactly nine lines:
+the eight template checks — `app (iOS device)`, `app (iOS Simulator)`,
+`app (Tuist iOS device)`, `app (Tuist iOS Simulator)`, `app (macOS)`,
+`app (Tuist macOS)`, `swiftlint`, `swiftformat` — plus `review notes`. Eight
+lines means the requirement was dropped and the gate is off. The second command
+must report `true` for both; if either has become `false`, something PUT the
+whole protection object and more than this check was lost.
+
+The job name in the workflow and the required context here are the same string,
+spaces included. Renaming the job breaks the link in the more dangerous
+direction: protection keeps requiring a context that no longer reports, and
+every pull request hangs unmergeable rather than merging unchecked.
+
+### The real fix
+
+This section is a workaround, and workarounds that are not linked to their fix
+become permanent. The fix belongs upstream:
+[UPSTREAM-LEDGER.md](UPSTREAM-LEDGER.md) row **UL-003** proposes that
+`bin/setup-github.sh` preserve unknown checks, or read an extra-checks list from
+configuration, rather than assuming it is the only writer of that array. When
+that row reaches a terminal verdict, revisit this section. Until then, treat
+"re-add the required check" as a standing step after any `setup-github` run.

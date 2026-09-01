@@ -552,10 +552,18 @@ end
 
 # Two DISTRIBUTION and one DEVELOPMENT, so the grouping assertion has two
 # distinct counts to get wrong.
+#
+# Display names are organization strings and Apple's own "Created via API"
+# literal, never an individual's name. This fixture carried a real person's
+# given name from 2026-09-01 until the Phase 2 close-out found it: certificate
+# displayName is a field Apple populates from whoever generated the certificate,
+# so copying a live census into a fixture copies a name in with it. The
+# fork-owned-document sweep in test/docs_structure_test.rb did not catch it
+# because that sweep covers documents, and this is a test file.
 CERT_ENTRIES = [
   ["CERTDIST1", "DISTRIBUTION", "Apple Distribution: Indiagram", "2027-05-01T12:00:00.000+0000"],
   ["CERTDIST2", "DISTRIBUTION", "Apple Distribution: Indiagram (2)", "2027-06-01T12:00:00.000+0000"],
-  ["CERTDEV1",  "DEVELOPMENT",  "Apple Development: Prakash", "2027-07-01T12:00:00.000+0000"]
+  ["CERTDEV1",  "DEVELOPMENT",  "Created via API", "2027-07-01T12:00:00.000+0000"]
 ].freeze
 
 # A census document built INDEPENDENTLY of the probe, so the diff cases are not

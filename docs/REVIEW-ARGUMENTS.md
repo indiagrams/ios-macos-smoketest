@@ -301,10 +301,21 @@ launched by the user and does nothing when it is not running.
 
 **Two later phases verify this rather than assuming it.** Phase 9 installs the
 macOS build from TestFlight on a second Mac and checks it launches and behaves
-correctly on a machine that never built it. Phase 11 submits macOS as its own
-App Store record, after iOS has been approved — the two records are independent
-by D-05, so a macOS-specific 2.4.5 finding cannot take the iOS submission with
-it.
+correctly on a machine that never built it. Phase 11 submits macOS after iOS has
+been approved, so a macOS-specific 2.4.5 finding cannot take the iOS submission
+with it.
+
+*Corrected 2026-09-01 at the Phase 2 close-out.* This paragraph used to say
+Phase 11 submits macOS "as its own App Store record — the two records are
+independent by D-05". There is one record, not two: D-44 reversed D-05 during
+02-07 after Apple refused a second record on the grounds that app names are
+unique within an account, and record `6807393045` now carries an `IOS` and a
+`MAC_OS` `appStoreVersion` on the shared bundle ID. The **conclusion** survives
+the correction — both versions were read back on 2026-09-01 in
+`PREPARE_FOR_SUBMISSION`, and each is submitted independently — but it now rests
+on independent *versions* rather than independent *records*, which is a different
+fact. The paragraph was left stale for four plans because the change that
+reversed the decision updated the two documents it touched and not this one.
 
 ## Hostile read (pre-mortem, run 2026-08-31)
 
@@ -488,14 +499,24 @@ behaves identically in airplane mode.
   NOTE FOR A LATER READER: the id=macos block below has NO generation
   destination in Phase 1, and that is deliberate rather than an oversight.
   fastlane/metadata/ currently holds exactly one review_information/ directory,
-  while D-04 and D-05 create two independent App Store records that each need
-  their own review notes. Phase 8 splits the metadata tree per app record and
-  adds a second generator invocation - `ruby tools/gen-review-notes.rb --id
-  macos --dest fastlane/metadata/<macos-tree>/review_information/notes.txt` -
-  at which point this block becomes live. Until then it is intentionally
-  unwired. Do not delete it as dead text; the generator's block-isolation
-  behaviour is already pinned by test/gen_review_notes_test.rb case 3 precisely
-  so that this block can be wired later without changing the tool.
+  while iOS and macOS each need their own review notes. Phase 8 adds a second
+  generator invocation - `ruby tools/gen-review-notes.rb --id macos --dest
+  fastlane/metadata/<macos-tree>/review_information/notes.txt` - at which point
+  this block becomes live. Until then it is intentionally unwired. Do not delete
+  it as dead text; the generator's block-isolation behaviour is already pinned by
+  test/gen_review_notes_test.rb case 3 precisely so that this block can be wired
+  later without changing the tool.
+
+  CORRECTED 2026-09-01 at the Phase 2 close-out. This note used to say "D-04 and
+  D-05 create two independent App Store records that each need their own review
+  notes". D-44 reversed D-05 during 02-07: there is one record, 6807393045, with
+  an IOS and a MAC_OS appStoreVersion. The premise was wrong and is removed. The
+  consequence - that a second notes destination is still needed - is retained but
+  is NOT yet evidenced: whether App Store Connect keeps review notes per platform
+  version under Universal Purchase has not been measured by this project, and
+  Phase 8 must measure it rather than inherit it from here. Stated as unverified
+  on purpose; substituting a plausible answer for an unmeasured one is the exact
+  failure Phase 2 spent ten plans catching.
 -->
 
 <!-- BEGIN:REVIEW-NOTES id=macos -->

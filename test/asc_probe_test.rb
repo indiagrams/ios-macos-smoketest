@@ -1154,6 +1154,27 @@ assert_eq submit_source.match?(/\bA1\b/), true,
 assert_eq submit_code.match?(/"?(IN)?SUFFICIENT"?/), false,
           "source: the tool reports a status; it never encodes a sufficiency verdict"
 
+# 58. The live paths fail with a message, never a stack trace — under BOTH the
+#     ambient ruby and the pinned one.
+#
+#     This case exists because the first draft of certificate_records_live put
+#     `require "spaceship"` above the credential guard. Under ruby 4.0.6 the gem
+#     happens to be loadable, so the guard still ran and the suite was green;
+#     under the pinned ruby 3.3 with no bundle the require blew up first and the
+#     probe printed a rubygems stack trace naming kernel_require.rb. A suite run
+#     on one interpreter cannot see that, which is why 02-VALIDATION.md's full
+#     run is on both.
+[["census"], ["submission-probe", "--app-id", "6749152233"]].each do |argv|
+  _out, err, code = probe(*argv)
+  label = argv.first
+  assert_eq code, 1, "#{label}: a live call with no credentials exits 1"
+  assert_eq err.include?("ASC_API_KEY_ID"), true,
+            "#{label}: the credential guard runs before anything that needs the bundle"
+  assert_eq err.include?("LoadError") || err.include?("NameError") ||
+            err.include?("uninitialized constant"), false,
+            "#{label}: the failure is a message, not a stack trace"
+end
+
 if @failures.zero?
   puts "\nAll #{@checks} asc-probe regression assertions passed."
   exit 0

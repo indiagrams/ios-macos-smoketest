@@ -236,7 +236,21 @@ def asc_token
         "invocation must export the base64 itself."
   end
 
-  require "spaceship"
+  # Narrow on purpose, and not a departure from the no-broad-rescue rule: a
+  # LoadError here means one specific thing -- this is not running under the
+  # pinned bundle -- and it has one specific remedy. Left to raise, it prints a
+  # rubygems stack trace naming kernel_require.rb, which tells the reader
+  # nothing about Makefile:45-53 (Pitfall 6).
+  begin
+    require "spaceship"
+  rescue LoadError
+    die "spaceship is not loadable. A live App Store Connect call has to run " \
+        "under the pinned bundle:\n" \
+        "  /opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb ...\n" \
+        "Never a bare `bundle`: brew's unversioned ruby is 4.0.x and resolves " \
+        "vendor/bundle/ruby/4.0.0, which does not exist (Makefile:45-53). " \
+        "Everything except token acquisition runs offline with --fixture."
+  end
 
   # The key material is passed EXPLICITLY. Spaceship's Token.create resolves it
   # from its own arguments or from SPACESHIP_CONNECT_API_KEY /
@@ -597,9 +611,18 @@ end
 # The live half. Never reached by the offline suite, by design (no plan before
 # 02-09/02-10 makes an Apple call).
 def certificate_records_live
-  require "spaceship"
-
-  Spaceship::ConnectAPI.token = asc_token
+  # asc_token first, and only then anything that touches spaceship: it carries
+  # the credential guard AND the "you are not running under the pinned bundle"
+  # message, and both are worth more than the LoadError or the KeyError that
+  # would otherwise arrive instead. Reversing these two lines is how this
+  # function was first written; the pinned ruby 3.3 run caught it, because
+  # `require "spaceship"` succeeds under the ambient ruby and fails under the
+  # pinned one with no bundle. It has to be its own statement: Ruby resolves the
+  # constant on the left of an assignment before evaluating the right, so
+  # `Spaceship::ConnectAPI.token = asc_token` raises NameError on the constant
+  # before asc_token ever runs.
+  token = asc_token
+  Spaceship::ConnectAPI.token = token
   Spaceship::ConnectAPI::Certificate.all.map do |certificate|
     certificate_record(certificate.id, certificate.certificate_type,
                        certificate.display_name, certificate.expiration_date)

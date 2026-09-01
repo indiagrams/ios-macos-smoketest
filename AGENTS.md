@@ -5,7 +5,7 @@
 
 ## What this project is
 
-This is a fork of [`apple-shipkit`](https://github.com/indiagrams/ios-macos-smoketest) — release-engineering scaffolding for shipping iOS + macOS apps. The template handles signing, GitHub Actions CI for PRs, mint-fresh certificates per CI release, TestFlight upload, and App Store submission. **Your job is to build the actual app on top of this scaffolding.**
+This repository was created from [`apple-shipkit`](https://github.com/indiagrams/apple-shipkit) with `gh repo create --template` — release-engineering scaffolding for shipping iOS + macOS apps. It is **not** a GitHub fork: the two repositories are not in the same fork network and share no commit ancestry, which changes what you can do with `upstream` (see "Updating from upstream apple-shipkit" below). The template handles signing, GitHub Actions CI for PRs, mint-fresh certificates per CI release, TestFlight upload, and App Store submission. **Your job is to build the actual app on top of this scaffolding.**
 
 The template is deliberately framework-agnostic. It doesn't pick a UI architecture (MVVM/MVC/Clean), networking stack, or persistence layer. Those choices live in the app code you write.
 
@@ -184,24 +184,76 @@ Reading order in code:
 
 ## Updating from upstream apple-shipkit
 
-When `indiagrams/ios-macos-smoketest` ships a new version, sync via:
+**The remote-add / fetch / merge sync path this section used to document cannot work here.**
+This repository was materialised with `gh repo create --template`, not by forking. Measured
+rather than assumed, 2026-08-31: both repositories report `isFork: false` with a null parent,
+`git merge-base HEAD upstream/main` returns nothing, the root commits are `e773cfc` here and
+`f9cd5a8` upstream, upstream has 272 commits and this repository 16 with **zero in common**,
+and the two trees already differ by 67 files — a number that only grows.
+
+Three operations are therefore prohibited, each with a specific consequence:
+
+| Never run | What actually happens |
+|---|---|
+| `git merge upstream/main` | Fails with `fatal: refusing to merge unrelated histories`. Forcing it with `--allow-unrelated-histories` produces a conflict in essentially every file. |
+| `git rebase upstream/main` | The same unrelated-history problem, replayed commit by commit. There is no common base to rebase onto. |
+| `git push upstream <anything>` | Would upload this repository's entire independent history into the public template, producing an unreadable diff and polluting upstream with commits that have nothing to do with it. |
+
+What the `upstream` remote **is** good for is fetching and comparing:
 
 ```bash
-git remote add upstream https://github.com/indiagrams/ios-macos-smoketest.git  # one-time
 git fetch upstream
-git merge upstream/main                                                   # or rebase, your call
+git diff upstream/main -- docs/      # what has this fork diverged on?
+git diff upstream/main --stat        # how far apart are the trees?
+git log upstream/main --oneline -20  # what landed upstream recently?
 ```
 
-If you've followed the invariants above, expect **zero merge conflicts**:
-- Fastfile is byte-equivalent across template + your fork (env-driven)
-- Workflow files are byte-equivalent (vars-driven)
-- Your custom logic lives in `Fastfile.local`, which upstream never touches
-- Your app code lives under `app/`, which the template never touches (except `app/Shared/SmokeApp.swift` if you haven't renamed; rename handles that)
+The push prohibition is guarded mechanically rather than by discipline: the remote's push
+URL is set to the literal string `no-push`, so an accidental push dies immediately on an
+unresolvable remote instead of reaching GitHub. Remotes do not survive a fresh clone —
+restore the guard with `git remote set-url --push upstream no-push`.
 
-If you DO see conflicts, you broke an invariant. The conflict points to which one.
+**The outbound direction — getting a fix from here into apple-shipkit — is
+`docs/CONTRIBUTING-UPSTREAM.md`.** Short version: `git format-patch` here, `git am` in a
+separate clone of apple-shipkit, and the pull request opened inside that repository. Read it
+before proposing anything upstream; it owns the `SCOPE.md` gate and the ledger step, and this
+file deliberately does not restate them.
+
+### The template-owned boundary still holds, for a stronger reason
+
+The invariants table above justifies "do not edit `fastlane/Fastfile`, `bin/`, `ci/`,
+`.github/workflows/`, `Makefile`" by the conflicts they would cause on every upstream sync.
+There is no sync, so that rationale is void — and an agent who notices this may conclude
+the boundary is optional. It is not, and the real reason is worse: `bin/refork-smoketest.sh`
+**deletes this repository and recreates it from the template**. Template-owned files are not
+merely conflict-prone, they are not yours, and they will be replaced wholesale along with
+anything you added to them. Extend a template-owned surface by adding a new fork-owned file
+— `fastlane/Fastfile.local`, a new workflow, something under `tools/` — never by
+editing the existing one.
 
 ## Your fork's conventions
 
 > Forks should append fork-specific notes below this line. Examples: architecture choice (MVVM/Clean/etc.), preferred dependencies, internal API endpoints, your CHANGELOG style if different, your team's PR review process.
 
 <!-- Add fork-specific conventions here. -->
+
+- **Product identity lives in `docs/PRODUCT-IDENTITY.md`** — the App Store display name
+  and both platform bundle IDs, with the reasoning behind them. They are recorded there and
+  implemented in Phase 3; nothing is hardcoded in any build file yet, so do not sed them in.
+- **Review arguments live in `docs/REVIEW-ARGUMENTS.md`** — the source of truth for the
+  text App Review reads, plus the hostile-read reasoning behind it.
+- **`fastlane/metadata/review_information/notes.txt` is generated** by
+  `tools/gen-review-notes.rb` from a delimited block in `docs/REVIEW-ARGUMENTS.md`. **Never
+  hand-edit it.** A hand edit fails the required `review notes` check on every pull request.
+  Edit the block, then regenerate with `ruby tools/gen-review-notes.rb`.
+- **Leave `APP_REVIEW_NOTES` empty in `.bootstrap.env`** and unset in your shell, even though
+  `.bootstrap.env.example` recommends it. `read_review_field` in the Fastfile resolves the env
+  var ahead of the file, so setting it would send Apple text nobody reviewed while every
+  file-level check still passed. `ruby tools/gen-review-notes.rb --check` fails loudly if it
+  is ever set.
+- **Fork-owned tooling goes in `tools/`**, never in `bin/` or `ci/`, which are template-owned.
+  Fork-owned tests go in `test/`.
+- **Every generic learning gets a row in `docs/UPSTREAM-LEDGER.md`** in the same change that
+  produced it, with a verdict from that file's closed vocabulary — including learnings
+  that will never go upstream. The outbound contribution flow is
+  `docs/CONTRIBUTING-UPSTREAM.md`.

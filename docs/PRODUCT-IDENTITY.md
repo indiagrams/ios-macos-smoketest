@@ -169,6 +169,106 @@ Three consequences follow from that, and downstream work depends on all three:
   tokens, keys, payloads — into tools like this one. Nothing persisted means nothing to
   leak, and it means that property is structural rather than a promise.
 
+## European Union trader status
+
+**This app ships as a declared trader in the European Union, and that is recorded here
+at both of the surfaces Apple keeps it on (D-38).** Under the Digital Services Act an app
+whose developer has not made the declaration is withdrawn from the EU App Store, so this
+is availability state rather than paperwork. It lives in this tracked file rather than
+only in this project's planning notes because those notes are gitignored and do not
+survive a fresh clone — the same reasoning that produced D-23.
+
+**There are two surfaces, and the second one is the one that goes unchecked.** A shipping-
+guidance file this project inherited states that trader status is an account-level setting
+only. It is not: Apple carries an account-level declaration under Business and a separate
+per-app declaration under App Information, and a check that reads only the first would
+report green while an individual app sat undeclared (R-05, C-08). Both were read on the
+same day by the account holder, and both are below. Every string is quoted as it appeared
+on screen; nothing here is a normalised or expected value.
+
+| Surface | Observed string | Observed (ISO-8601) | Against |
+|---|---|---|---|
+| Business, Agreements, Compliance, Digital Services Act — the status | `Active`, shown alongside `Digital Services Act`, `27 Countries or Regions`, a `View` link, and `May 17, 2026` | 2026-09-01 | account, team `G5H628C6WR` |
+| The `Digital Services Act Compliance` dialog — the selected option | `I'm a trader under the DSA`, its radio filled | 2026-09-01 | account, team `G5H628C6WR` |
+| The `Digital Services Act Compliance` dialog — the unselected option | `I'm not a trader under the DSA or I don't plan to distribute in the EU` | 2026-09-01 | account, team `G5H628C6WR` |
+| App Information, App Store Regulations and Permits, Digital Services Act | `This developer has identified itself as a trader for this app` | 2026-09-01 | record `6807393045`, bundle ID `com.indiagram.shipkitpipes.ios` |
+| App Information, App Store Regulations and Permits — the platform selector | `There is no platform selector.` One Digital Services Act block serves the whole record | 2026-09-01 | record `6807393045`, covering both its `IOS` and `MAC_OS` versions |
+
+**The account-level declaration was read, never touched.** The dialog was opened, both of
+its options were read, and it was dismissed. `Next` was not clicked, no selection was
+changed, and nothing was submitted. Changing that selection removes published apps from
+the EU App Store until re-verified, and team `G5H628C6WR` is shared with another shipping
+product, so the blast radius of a stray click there is not this project's alone.
+
+**Declaring as a trader publishes contact details on the public product page.** The
+selected option's own sub-text says so: a trader provides an address, a phone number and
+an email address "for the purpose of posting on your App Store product page in accordance
+with the DSA", and the same sentence adds that this is display-only and does not change
+the contact details on any Apple account or membership. The unselected option's sub-text
+is the complement — no contact information to be displayed. This is recorded because it is
+a consequence of trader status that nothing in this project had written down, and because
+it sits next to a standing rule without contradicting it: **Apple publishes those details
+by regulation, and this repository still does not commit them.** No address, phone number
+or email value appears anywhere in this file, and `test/docs_structure_test.rb` sweeps for
+the shapes of them.
+
+**Under Universal Purchase the per-app declaration is one surface, not two, and that was
+observed rather than assumed.** Record `6807393045` carries two `appStoreVersions`, `IOS`
+and `MAC_OS` (D-44). The obvious hazard was that App Store Regulations and Permits might
+expose the declaration per platform, in which case reading the iOS half would say nothing
+about the macOS half — the same substitution R-05 forbids, one seam further in. The
+surface was checked for a platform selector and has none, so the single block above covers
+both versions. That is a row in the table, and it is a measurement, not a note.
+
+**Apple publishes no verification state labels and no turnaround commitment.** That is a
+verified negative claim, not an omission: the help page, the four dated developer news
+posts, and the App Store Connect API specification were all read on 2026-09-01 and none
+of the five names a state vocabulary or a service-level target (T-10). There is therefore
+no such thing as waiting for a particular word to appear. What exists is the status string
+above, on the date above.
+
+**No label in the table above was predicted, and every prediction about these strings has
+now failed.** The pair this project was told to check the account-level status for —
+`Verified` and `Pending` — appears in no first-party Apple source, and neither is what the
+screen says; the screen says `Active` (R-06). Apple's own documentation describes the
+dialog's choice as being between "This is a trader account" and "This is not a trader
+account"; **both** real labels differ from both documented ones, and the real first option
+is a contraction, `I'm`, which is the kind of difference a paraphrase erases without
+anybody noticing. That makes three documented-strings-versus-reality failures inside one
+phase: the status vocabulary, the dialog's option labels, and `UNIVERSAL` being stored for
+every App ID whatever platform was requested (R-10). The rule that survives all three is
+the one this section is built on — a string is recorded because someone read it, or it is
+not recorded.
+
+> [!IMPORTANT]
+> Trader status is enforced by Apple **at submission time**. This section is evidence that
+> the declaration was in place on 2026-09-01 against the record named — not a standing
+> guarantee. The staleness window for it in
+> [APPLE-ACCOUNT-STATE.md](APPLE-ACCOUNT-STATE.md) is `per submission`, and Phases 10 and
+> 11 re-read both surfaces rather than trusting this file's date.
+
+**The D-37 exit condition, written from what was read.** D-37 requires Apple to have
+confirmed trader status before Phase 2 exits, and R-06 forbids naming the confirming string
+in advance — so the condition could only be written afterwards, from the terminal state
+that actually exists. It is this: the account-level Digital Services Act row reads `Active`
+on a recorded date against team `G5H628C6WR`, **and** the Digital Services Act block on
+record `6807393045`'s own App Information page states that this developer has identified
+itself as a trader for this app, on a recorded date, read at the app's surface rather than
+inferred from the account. Both halves held on 2026-09-01 and both are rows in the table
+above, so the condition is met. An account-level reading on its own does not meet it —
+that substitution is precisely what R-05 exists to prevent — and there is nothing stronger
+available to ask Apple for.
+
+**What could not be checked, stated rather than papered over.** The strongest evidence a
+state is real is watching it change: a per-app surface read before and after a declaration
+is made shows two different strings, where one string read once shows only that something
+was displayed. That control could not run here. Record `6807393045` was already declared
+when it was first looked at, there was no action to take, and no before-and-after pair
+exists. What stands in its place, labelled as a substitute and not as a control, is the
+pair of option labels in the dialog: the surface demonstrably expresses both a trader and
+a non-trader state, and the one selected is the trader state. A fabricated pair would have
+been worse than this admission.
+
 ## Not in v1
 
 Deliberately out of scope for the first release:

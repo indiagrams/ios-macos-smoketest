@@ -10,9 +10,11 @@ read — lives in this project's planning notes, which are gitignored and do not
 fresh clone, a new checkout, or a refork. This file does survive, and it is what the
 pre-submission checklist in Phase 9 and Phase 10 reads before anything is sent to Apple.
 
-**This file is account operations state, not product identity.** Trader status lives in
-[PRODUCT-IDENTITY.md](PRODUCT-IDENTITY.md) per D-38, because it is a fact about who ships
-the app and it appears on the public product page. Everything recorded here moves on a
+**This file is account operations state, not product identity.** The trader-status
+*evidence* lives in [PRODUCT-IDENTITY.md](PRODUCT-IDENTITY.md) per D-38, because it is a
+fact about who ships the app and it appears on the public product page; what this file
+carries is the account-level declaration as three dated fact rows, read off the same
+Business page as the agreements beside it. Everything recorded here moves on a
 different cadence (R-08): identity changes approximately never, while certificate
 occupancy changes on every release run and is mutated weekly by the Saturday canary.
 Splitting them keeps a fast-moving measurement out of a document whose whole value is
@@ -82,6 +84,20 @@ rediscovered.
 | Account holder access | `Account Holder + Admin` | 2026-09-01 | team `G5H628C6WR` | per phase | App Store Connect, Users and Access, People |
 | Paid Apps Agreement | `Active` — `May 17, 2026 – May 16, 2027` | 2026-09-01 | team `G5H628C6WR` | 2027-05-16 | `ruby bin/verify-asc-agreements.rb` |
 | Free Apps Agreement | `Active` — `Aug 26, 2026 – May 16, 2027` | 2026-09-01 | team `G5H628C6WR` | 2027-05-16 | `ruby bin/verify-asc-agreements.rb` |
+| EU DSA trader declaration, account level | `Active` — displayed with `Digital Services Act`, `27 Countries or Regions`, a `View` link, and `May 17, 2026`. The literal status string is `Active`; neither of the two state labels the inherited guidance predicted was on screen, and neither has a first-party source (R-06) | 2026-09-01 | team `G5H628C6WR` | per submission | App Store Connect, Business, Agreements, Compliance, Digital Services Act |
+| EU DSA trader dialog options | Both read verbatim off the `Digital Services Act Compliance` dialog: `I'm a trader under the DSA`, radio filled, and `I'm not a trader under the DSA or I don't plan to distribute in the EU`. Apple's documented wording for this choice matches neither. Read only — `Next` was not clicked and no selection was changed | 2026-09-01 | team `G5H628C6WR` | per submission | App Store Connect, Business, Agreements, Compliance, Digital Services Act, Edit |
+| EU DSA trader contact publication | Declaring as a trader publishes an address, a phone number and an email address on the App Store product page, display-only and without altering any Apple account's own contact details — stated by the selected option's sub-text. **No such value is recorded in this repository**, and this row records only that the publication happens | 2026-09-01 | team `G5H628C6WR` | per submission | App Store Connect, Business, Agreements, Compliance, Digital Services Act, Edit |
+
+**Three trader-status rows live here, and the rest lives in PRODUCT-IDENTITY.md.** D-38
+puts the trader-status evidence — the per-app declaration on record `6807393045`, the
+Universal Purchase seam, and the D-37 exit condition — in
+[PRODUCT-IDENTITY.md](PRODUCT-IDENTITY.md), because it is a fact about who ships the app.
+What belongs *here* is the account-level half: it is read off the same Business, Agreements,
+Compliance page as the two agreement rows above it, on the same visit, and it is what the
+pre-submission checklist needs in the file it already opens. The [Staleness
+contract](#staleness-contract) has named `per submission` as trader status's window since
+this file was created, and until now that window governed no row in it. It governs these
+three.
 
 **Both agreements end on the same day: `May 16, 2027`.** ACCT-04 as amended (R-09, D-41)
 asks for the expiries that genuinely exist rather than an invented one for the API key,

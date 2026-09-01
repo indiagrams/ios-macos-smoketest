@@ -30,7 +30,14 @@
 #                           duplicating it (D-21), documents a flow that can
 #                           actually work (`format-patch`), reaches the ledger,
 #                           and never suggests the impossible cross-repo PR.
-#   - PRODUCT-IDENTITY.md   the three identity strings are actually recorded.
+#   - PRODUCT-IDENTITY.md   the three identity strings are actually recorded, and
+#                           the EU trader-status table holds the same dated-triple
+#                           contract: every observation carries an ISO-8601 date and
+#                           names the account or record it was read against, with a
+#                           row required for BOTH surfaces, because the account-level
+#                           declaration does not evidence the per-app one (C-08/R-05).
+#                           No cell may assert a status label that has no first-party
+#                           Apple source (R-06).
 #   - APPLE-ACCOUNT-STATE.md    the six-column dated-triple contract holds: every
 #                           fact row carries a measurement date (or an explicit
 #                           `pending NN-NN` marker naming the plan that will
@@ -128,6 +135,33 @@ ACCOUNT_STATE_FACT_SECTIONS = [
 # count on a date, and a cell that phrases one as a cap is asserting something
 # nobody measured.
 ACCOUNT_STATE_CAP = /\b(caps?|quotas?|maximum|max|limits?)\b[^\S\n]*(?:of|=|is|:)?[^\S\n]*\d/i
+
+# The four columns of PRODUCT-IDENTITY.md's trader-status table, in order.
+# Same reason as ACCOUNT_STATE_COLUMNS for being duplicated here rather than read
+# out of the document: a test that took its column names from the file under test
+# would accept whatever that file happened to say.
+TRADER_COLUMNS = ["Surface", "Observed string", "Observed (ISO-8601)", "Against"].freeze
+
+# The one record this project owns, and the account it lives on. Trader status has
+# two independent surfaces -- an account-level declaration and a per-app one -- and
+# `.planning/research/PITFALLS.md` asserts it is account-level only (C-08/R-05). A
+# verification that read only the account level would report green while an app sat
+# undeclared, so the table is required to carry a row measured against each. Naming
+# the record id specifically is what stops "the account is Active" from being
+# quietly resubmitted as evidence about the app.
+TRADER_RECORD_ID  = "6807393045"
+TRADER_ACCOUNT_RE = /\baccount\b/i
+
+# Neither of these strings appears in any first-party Apple source, and the
+# account-level status was observed reading `Active` on 2026-09-01. They are here
+# because a repo file predicted them and a gate that encoded one could never have
+# fired correctly (R-06). Asserted against the OBSERVED STRING CELLS ONLY, never the
+# whole section: the section's prose has to be free to explain why these two words
+# are absent, and a whole-file grep would match that explanation and fail for the
+# opposite of the right reason. That is the UL-010 shape, recorded three times in
+# Phase 1.
+UNSOURCED_TRADER_LABELS = %w[Verified Pending].freeze
+
 
 @failures = 0
 @checks   = 0
@@ -436,6 +470,85 @@ identity = read_doc(PRODUCT_IDENTITY)
   "the registered but unused App ID"     => "com.indiagram.shipkitpipes.macos"
 }.each do |what, value|
   assert identity.include?(value), "#{PRODUCT_IDENTITY}: records #{what} (#{value})"
+end
+
+puts
+puts "#{PRODUCT_IDENTITY} — the trader-status observations are dated and targeted:"
+
+# D-38 puts EU trader status here rather than in APPLE-ACCOUNT-STATE.md, and an
+# unguarded fact table is decorative: prose rots silently, which is what this whole
+# file exists to prevent. Section-extracted, never whole-file — see UNSOURCED_TRADER_LABELS.
+trader = section(identity, /^## European Union trader status/)
+
+assert !trader.nil?,
+       "#{PRODUCT_IDENTITY}: the 'European Union trader status' section exists — D-38"
+
+unless trader.nil?
+  trader_rows = table_rows(trader)
+  trader_head = trader_rows.find { |r| cells(r).first == "Surface" }
+
+  assert !trader_head.nil?,
+         "#{PRODUCT_IDENTITY}: the trader-status table has a header row beginning with a Surface column"
+
+  if trader_head
+    assert_eq cells(trader_head), TRADER_COLUMNS,
+              "#{PRODUCT_IDENTITY}: the trader-status table names all four columns in order"
+
+    surface_i, observed_i, date_i, against_i = 0, 1, 2, 3
+    trader_data = trader_rows.reject { |r| r.equal?(trader_head) }
+
+    # Five observations were made on 2026-09-01: the account-level status, EACH of the
+    # two option labels in the Digital Services Act Compliance dialog, the per-app
+    # declaration on the record, and whether that per-app surface carries a platform
+    # selector. The floor is five rather than the four 02-08-PLAN.md asked for, and
+    # the difference is not cosmetic: the plan's floor was written for a four-surface
+    # shape, five surfaces were actually read, and a floor of four would let one of
+    # the five be deleted with the suite still green. Observed doing exactly that —
+    # the plan's own prescribed control, "delete one of the rows and confirm the
+    # count assertion fails", PASSED against a floor of four. Second time in this
+    # phase a prescribed control was itself the broken instrument (see 02-05).
+    # A floor only ever moves up: a plan that adds a sixth observation raises it.
+    assert trader_data.length >= 5,
+           "#{PRODUCT_IDENTITY}: the trader-status table has at least 5 observation rows " \
+           "(found #{trader_data.length})"
+
+    # The date half of the triple. An observation without a day is not a measurement,
+    # and trader status is enforced per submission, so the date is what a later phase
+    # reads to decide the row needs re-reading.
+    undated = trader_data.filter_map do |r|
+      c = cells(r)
+      "#{c[surface_i]} => #{c[date_i].to_s.inspect}" unless c[date_i].to_s =~ /\A\d{4}-\d{2}-\d{2}\z/
+    end
+    assert undated.empty?,
+           "#{PRODUCT_IDENTITY}: every trader-status row carries an ISO-8601 Observed date" \
+           "#{undated.empty? ? '' : " — offending: #{undated.join('; ')}"}"
+
+    # The target half. Which account, or which record.
+    targetless = trader_data.filter_map { |r| cells(r)[surface_i] if cells(r)[against_i].to_s.empty? }
+    assert targetless.empty?,
+           "#{PRODUCT_IDENTITY}: every trader-status row names what it was observed against" \
+           "#{targetless.empty? ? '' : " — missing: #{targetless.join(', ')}"}"
+
+    # C-08/R-05 made mechanical: both surfaces, or this is not a trader-status check.
+    assert trader_data.any? { |r| cells(r)[against_i].to_s.include?(TRADER_RECORD_ID) },
+           "#{PRODUCT_IDENTITY}: at least one trader-status row is observed against record " \
+           "#{TRADER_RECORD_ID} — the per-app surface, which the account-level one does not evidence"
+    assert trader_data.any? { |r| cells(r)[against_i].to_s =~ TRADER_ACCOUNT_RE },
+           "#{PRODUCT_IDENTITY}: at least one trader-status row is observed against the account"
+
+    # Pitfall 2. Scoped to the Observed string cells so the prose explaining the
+    # absence stays legal.
+    unsourced = trader_data.flat_map do |r|
+      c = cells(r)
+      UNSOURCED_TRADER_LABELS.filter_map do |label|
+        "#{c[surface_i]} => #{label}" if c[observed_i].to_s =~ /\b#{Regexp.escape(label)}\b/
+      end
+    end
+    assert unsourced.empty?,
+           "#{PRODUCT_IDENTITY}: no trader-status Observed string cell asserts a label with no " \
+           "first-party source (#{UNSOURCED_TRADER_LABELS.join(' | ')})" \
+           "#{unsourced.empty? ? '' : " — offending: #{unsourced.join('; ')}"}"
+  end
 end
 
 # ─── docs/APPLE-ACCOUNT-STATE.md ─────────────────────────────────────────────

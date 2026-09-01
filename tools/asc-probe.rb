@@ -39,9 +39,12 @@
 #   ruby tools/asc-probe.rb read-back bundle-id --identifier com.example.app
 #   ruby tools/asc-probe.rb read-back bundle-id --identifier com.example.app \
 #        --fixture test/fixtures/response.json      # offline; no credentials
+#   ruby tools/asc-probe.rb census --out /tmp/census-before.json
+#   ruby tools/asc-probe.rb census-diff --before /tmp/before.json \
+#        --after /tmp/after.json
 #
 # Secrets: this file never prints the bearer token, the .p8, or
-# ASC_API_KEY_P8_BASE64. Token acquisition is isolated in bearer_token, no
+# ASC_API_KEY_P8_BASE64. Token acquisition is isolated in asc_token, no
 # request headers are ever echoed, and every response body reaching stderr is
 # truncated to BODY_PREVIEW characters. Anything this tool prints may be pasted
 # into a tracked SUMMARY, so nothing secret may reach stdout or stderr.
@@ -70,6 +73,16 @@ EXPECTED_TEAM = "G5H628C6WR"
 # validating -- and so the probe runs without the bundle.
 BUNDLE_ID_PLATFORMS = %w[IOS MAC_OS].freeze
 
+# The closed set of certificate types the release lane mints (C-06,
+# .github/workflows/release.yml:7, .github/workflows/canary-local-mode.yml:24).
+# Duplicated here deliberately rather than derived from the census this tool
+# just produced, for the reason test/docs_structure_test.rb:63-67 gives about
+# its own verdict vocabulary: a check that reads its vocabulary out of the
+# artifact under test accepts whatever that artifact happens to say, which is
+# not a check. The census reports these three even at zero occupancy, so an
+# empty type is visibly zero rather than silently absent.
+RELEASE_CERT_TYPES = %w[DISTRIBUTION DEVELOPMENT MAC_INSTALLER_DISTRIBUTION].freeze
+
 # Bundle identifiers and app bundle ids are the only argv values interpolated
 # into an outbound request path, so they are constrained to a shape carrying no
 # path, query or regex metacharacters.
@@ -95,16 +108,24 @@ USAGE = <<~TXT
     read-back app       --bundle-id <id> [--expect-sku <sku>]
                                          [--expect-locale <locale>]
                                          [--expect-name <name>]
+    census              [--out <path>]
+    census-diff         --before <path> --after <path>
 
   common options:
     --fixture <path>  read a saved response envelope from disk instead of
                       calling #{API_HOST}. Offline; needs no credentials.
     -h, --help        print this message
 
-  exit codes:
+  exit codes, read-back:
     0  the resource was found AND every --expect-* assertion held
     1  a usage error, a transport failure, or an assertion that did not hold
     2  the resource was not found (App Store Connect returned an empty "data")
+
+  exit codes, census-diff:
+    0  the id set is unchanged or grew
+    1  an id present in --before is absent from --after (a removal)
+    2  a malformed census: no team, no measured_at, or a team that is not
+       this one. This tool only ever reports; it revokes nothing (D-39).
 
   Live calls need the pinned bundle:
     /opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb ...
@@ -178,7 +199,12 @@ end
 # offline with --fixture. Guarded rather than left to raise: an opaque KeyError
 # out of a fetch tells the reader nothing about which of three variables in two
 # files is missing.
-def bearer_token
+#
+# Returns the Token object rather than only its text, because the census needs
+# spaceship's own client authenticated (Spaceship::ConnectAPI.token = ...) while
+# asc_request needs nothing but the JWT string. bearer_token below is the thin
+# wrapper for the second case, and it remains the only thing asc_request sees.
+def asc_token
   missing = TOKEN_ENV_VARS.select { |name| ENV[name].to_s.strip.empty? }
   unless missing.empty?
     die "#{missing.join(' and ')} #{missing.length == 1 ? 'is' : 'are'} not set. " \
@@ -195,13 +221,35 @@ def bearer_token
 
   require "spaceship"
 
-  token = Spaceship::ConnectAPI::Token.create(
-    key_id: ENV.fetch("ASC_API_KEY_ID"),
-    issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID")
-  )
-  # Only the JWT's text leaves this function, and it goes straight into a
-  # request header. It is never logged, printed, or interpolated into a message.
-  token.text
+  # The key material is passed EXPLICITLY. Spaceship's Token.create resolves it
+  # from its own arguments or from SPACESHIP_CONNECT_API_KEY /
+  # SPACESHIP_CONNECT_API_KEY_FILEPATH, and then does an unconditional
+  # `key ||= File.binread(filepath)` (spaceship/connect_api/token.rb:63 in the
+  # locked fastlane 2.238.0). With neither supplied that is File.binread(nil),
+  # which raises `TypeError: no implicit conversion of nil into String` --
+  # naming none of the four variables the caller actually has to set. This
+  # probe's whole reason for guarding the environment above is to never produce
+  # that class of message, so it hands the material over rather than hoping
+  # some other process exported spaceship's own variable names.
+  key_id = ENV.fetch("ASC_API_KEY_ID")
+  issuer_id = ENV.fetch("ASC_API_KEY_ISSUER_ID")
+  base64_key = ENV["ASC_API_KEY_P8_BASE64"].to_s.strip
+
+  if base64_key.empty?
+    Spaceship::ConnectAPI::Token.create(
+      key_id: key_id, issuer_id: issuer_id, filepath: ENV.fetch("ASC_API_KEY_P8_PATH")
+    )
+  else
+    Spaceship::ConnectAPI::Token.create(
+      key_id: key_id, issuer_id: issuer_id, key: base64_key, is_key_content_base64: true
+    )
+  end
+end
+
+# Only the JWT's text leaves here, and it goes straight into a request header.
+# It is never logged, printed, or interpolated into a message.
+def bearer_token
+  asc_token.text
 end
 
 # The request construction below is copied from bin/lib/bootstrap.rb:951-962.
@@ -491,6 +539,289 @@ def run_read_back(argv)
   end
 end
 
+# ---------------------------------------------------------------------------
+# census — ACCT-05's instrument
+# ---------------------------------------------------------------------------
+
+# Enumeration chosen: Spaceship::ConnectAPI::Certificate.all, the identical call
+# fastlane/Fastfile:862-870's list_certs lane already makes. Enumeration rejected:
+# a hand-rolled paginated walker over the certificates collection. Why the
+# rejected one is worse: 02-RESEARCH.md §"Don't Hand-Roll" names list_certs as
+# ACCT-05's instrument -- id, certificate_type, display_name and expiration_date
+# are exactly its four fields -- so the only thing missing was the dated JSON
+# envelope, and a second enumeration would be a second thing to keep correct
+# against Apple's pagination for no gain.
+#
+# The single mapping point for both halves of the census: the live path passes
+# spaceship's attribute readers, the --fixture path passes App Store Connect's
+# raw JSON keys, and both land here. Keeping it one function keeps the offline
+# suite honest about what it covers -- only the four field accessors differ
+# between live and fixture, and nothing else about the census is unexercised.
+#
+# Three fields, deliberately. The certificate payload attribute Apple also
+# returns is NOT read: this file is summarised into the tracked
+# docs/APPLE-ACCOUNT-STATE.md, and a certificate body has no business there
+# (T-02-14). There is likewise no creation-date field to read -- ASC API 4.4.1's
+# Certificate schema has no such attribute (C-E), and R-04 records that the
+# repo's "revokes the oldest cert by creation date" claim is false partly
+# because of that. expiration_date is the only ordering proxy that exists.
+def certificate_record(id, certificate_type, display_name, expiration_date)
+  type = certificate_type.to_s
+  die "certificate #{id.inspect} has no certificate type — a census entry that " \
+      "cannot be attributed to a type is not a measurement." if type.strip.empty?
+
+  [type, {
+    "id" => id,
+    "display_name" => display_name,
+    "expiration_date" => expiration_date
+  }]
+end
+
+# The live half. Never reached by the offline suite, by design (no plan before
+# 02-09/02-10 makes an Apple call).
+def certificate_records_live
+  require "spaceship"
+
+  Spaceship::ConnectAPI.token = asc_token
+  Spaceship::ConnectAPI::Certificate.all.map do |certificate|
+    certificate_record(certificate.id, certificate.certificate_type,
+                       certificate.display_name, certificate.expiration_date)
+  end
+end
+
+# The offline half, reading the same envelope every other --fixture path reads.
+# A non-2xx dies rather than producing an empty census: a census file written
+# out of a 403 would be a fabricated measurement, and it would then be diffed
+# and summarised as though it were an observation.
+def certificate_records_fixture(path)
+  status, body = fixture_response(path)
+  unless status.between?(200, 299)
+    die "--fixture #{path} carries HTTP #{status} — #{preview(body)}. No census " \
+        "is written from a response that never listed anything."
+  end
+
+  parsed = parse_json(body, "--fixture #{path}")
+  data = parsed.is_a?(Hash) ? parsed["data"] : nil
+  die "--fixture #{path} has no \"data\" array — #{preview(body)}" unless data.is_a?(Array)
+
+  data.map do |entry|
+    attributes = entry.is_a?(Hash) ? (entry["attributes"] || {}) : {}
+    certificate_record(entry.is_a?(Hash) ? entry["id"] : nil,
+                       attributes["certificateType"],
+                       attributes["displayName"],
+                       attributes["expirationDate"])
+  end
+end
+
+# Groups by type, and always emits the three types the release lane mints even
+# when the team holds none of one. An absent key reads as "not measured"; an
+# empty array reads as "measured, and there are zero" -- and zero occupancy is
+# precisely a thing ACCT-05 may need to record.
+#
+# Types outside RELEASE_CERT_TYPES are reported too. They occupy the same team
+# and a census that hid them would understate what is there.
+def build_census(records)
+  census = {}
+  RELEASE_CERT_TYPES.each { |type| census[type] = [] }
+  records.each { |type, entry| (census[type] ||= []) << entry }
+  census
+end
+
+def parse_census_args(argv)
+  options = { fixture: nil, out: nil }
+
+  index = 0
+  while index < argv.length
+    case argv[index]
+    when "--fixture"
+      index += 1
+      die "--fixture requires a value\n#{USAGE}" if argv[index].nil?
+      options[:fixture] = utf8_arg(argv[index])
+    when "--out"
+      index += 1
+      die "--out requires a value\n#{USAGE}" if argv[index].nil?
+      options[:out] = utf8_arg(argv[index])
+    when "-h", "--help"
+      puts USAGE
+      exit 0
+    else
+      die "unknown argument #{argv[index].inspect}\n#{USAGE}"
+    end
+    index += 1
+  end
+
+  options
+end
+
+# The envelope is the product. team and measured_at are stamped in rather than
+# left to the caller because a bare occupancy number is a future defect: the
+# caps at .github/workflows/release.yml:35-37 were measured 2026-05-08 against
+# team A1B2C3D4E5 and nothing in that file says so (C-05).
+#
+# No quota, cap or maximum appears anywhere in this file. Apple publishes no
+# numeric per-team certificate limit (C-A), so there is no authority to encode.
+# The census reports occupancy; capacity is an empirical outcome of an actual
+# create attempt and belongs to the human-gated plan that makes one.
+def run_census(argv)
+  options = parse_census_args(argv)
+
+  records = options[:fixture].nil? ? certificate_records_live
+                                   : certificate_records_fixture(options[:fixture])
+  census = build_census(records)
+  document = {
+    "team" => EXPECTED_TEAM,
+    "measured_at" => Time.now.utc.iso8601,
+    "census" => census
+  }
+  json = JSON.pretty_generate(document)
+
+  if options[:out].nil?
+    puts json
+    return
+  end
+
+  File.write(options[:out], "#{json}\n", encoding: "UTF-8")
+  counts = census.map { |type, entries| "#{type}=#{entries.length}" }.join(" ")
+  puts "census written to #{options[:out]} — team=#{document['team']} " \
+       "measured_at=#{document['measured_at']} #{counts}"
+end
+
+# ---------------------------------------------------------------------------
+# census-diff — ACCT-05b's "nothing was revoked" proof
+# ---------------------------------------------------------------------------
+
+# A census that cannot be trusted is worse than no census, so a malformed one
+# gets its own exit code rather than being folded into the general failure or,
+# worse, diffed anyway. Exit 2 here is "this file is not a measurement of this
+# team", which is a different thing from "a certificate disappeared" (exit 1).
+def malformed_census(message)
+  warn "asc-probe: malformed census: #{message}"
+  exit 2
+end
+
+def load_census(path, flag)
+  die "#{flag} #{path}: no such file — nothing to diff." unless File.file?(path)
+
+  document = parse_json(read_utf8(path), "#{flag} #{path}")
+  unless document.is_a?(Hash)
+    die "#{flag} #{path}: expected a census object, got #{document.class}"
+  end
+
+  team = document["team"]
+  if team.nil?
+    malformed_census "#{flag} #{path} carries no \"team\". A census that does " \
+                     "not say which team it was measured against cannot be " \
+                     "diffed against one that does — that is C-05 repeating."
+  end
+  unless team == EXPECTED_TEAM
+    malformed_census "#{flag} #{path} was measured against team #{team.inspect}, " \
+                     "not #{EXPECTED_TEAM}. Diffing another team's occupancy " \
+                     "against ours would produce a removal report about " \
+                     "certificates that were never here."
+  end
+  if document["measured_at"].to_s.strip.empty?
+    malformed_census "#{flag} #{path} carries no \"measured_at\". An undated " \
+                     "measurement cannot go stale, so it can never be known to " \
+                     "be wrong."
+  end
+  unless document["census"].is_a?(Hash)
+    malformed_census "#{flag} #{path} carries no \"census\" object."
+  end
+
+  document
+end
+
+# id => the type and display name it was recorded under, so a removal report can
+# name the certificate a human would have to go looking for.
+def census_index(document)
+  index = {}
+  document["census"].each do |type, entries|
+    next unless entries.is_a?(Array)
+
+    entries.each do |entry|
+      next unless entry.is_a?(Hash)
+
+      id = entry["id"]
+      next if id.nil?
+
+      index[id] = { "certificate_type" => type, "display_name" => entry["display_name"] }
+    end
+  end
+  index
+end
+
+def parse_census_diff_args(argv)
+  options = { before: nil, after: nil }
+
+  index = 0
+  while index < argv.length
+    case argv[index]
+    when "--before"
+      index += 1
+      die "--before requires a value\n#{USAGE}" if argv[index].nil?
+      options[:before] = utf8_arg(argv[index])
+    when "--after"
+      index += 1
+      die "--after requires a value\n#{USAGE}" if argv[index].nil?
+      options[:after] = utf8_arg(argv[index])
+    when "-h", "--help"
+      puts USAGE
+      exit 0
+    else
+      die "unknown argument #{argv[index].inspect}\n#{USAGE}"
+    end
+    index += 1
+  end
+
+  options
+end
+
+# Pure offline logic on two files, which is what makes it fully fixture-testable
+# and is why ACCT-05b can be proven without touching a real certificate.
+#
+# This subcommand reports; it never acts. There is no code path in this file
+# that revokes anything, and that absence is the mitigation for T-02-13: the API
+# does expose a certificate-removal endpoint (C-G), so D-39's "never revoke
+# without asking" has to be enforced by the shape of the tool rather than by
+# Apple. A removal detected here is a finding for a human, not a trigger.
+def run_census_diff(argv)
+  options = parse_census_diff_args(argv)
+  before_path = require_flag!(options[:before], "--before", "census-diff")
+  after_path = require_flag!(options[:after], "--after", "census-diff")
+
+  before = load_census(before_path, "--before")
+  after = load_census(after_path, "--after")
+
+  before_index = census_index(before)
+  after_index = census_index(after)
+
+  removed = before_index.keys - after_index.keys
+  added = after_index.keys - before_index.keys
+
+  added.each do |id|
+    entry = after_index[id]
+    puts "added: #{id} type=#{entry['certificate_type']} " \
+         "display_name=#{entry['display_name'].inspect}"
+  end
+
+  unless removed.empty?
+    removed.each do |id|
+      entry = before_index[id]
+      warn "asc-probe: removed: #{id} type=#{entry['certificate_type']} " \
+           "display_name=#{entry['display_name'].inspect}"
+    end
+    warn "asc-probe: census-diff FAILED — #{removed.length} certificate " \
+         "id(s) present in #{before_path} (measured #{before['measured_at']}) " \
+         "are absent from #{after_path} (measured #{after['measured_at']}). " \
+         "Team #{EXPECTED_TEAM} is shared; investigate before doing anything else."
+    exit 1
+  end
+
+  puts "census-diff: #{before_index.length} certificate(s) before, " \
+       "#{after_index.length} after; no id disappeared " \
+       "(#{before['measured_at']} → #{after['measured_at']})"
+end
+
 # Flat entrypoint at the bottom of the file, with no __FILE__ == $0 guard --
 # this script is only ever run, never required (tools/gen-review-notes.rb:243-254).
 verb = ARGV[0]
@@ -502,6 +833,10 @@ when "-h", "--help"
   exit 0
 when "read-back"
   run_read_back(ARGV[1..] || [])
+when "census"
+  run_census(ARGV[1..] || [])
+when "census-diff"
+  run_census_diff(ARGV[1..] || [])
 else
   die "unknown subcommand #{verb.inspect}\n#{USAGE}"
 end

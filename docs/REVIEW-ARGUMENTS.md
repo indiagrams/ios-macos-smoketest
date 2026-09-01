@@ -162,13 +162,147 @@ of an app this scan missed.
 changes weekly. Whatever is decided must be re-verified before the review notes
 are finalised in Phase 8.
 
----
+## Guideline 4.2 — lasting utility
 
-<!--
-  This file is intentionally incomplete. This plan writes only the top matter
-  and the competitive scan. Still to be appended, by a later plan in this phase:
-  the 4.2 lasting-utility argument, the 4.3(b) differentiation argument, the
-  macOS 2.4.5 addendum, the hostile-read pre-mortem, the pre-drafted Resolution
-  Center reply, and the delimited verbatim block that the notes generator reads.
-  Do not treat the absence of those sections as a bug.
--->
+> Your app should include features, content, and UI that elevate it beyond a repackaged website. If your app is not particularly useful, unique, or 'app-like,' it doesn't belong on the App Store. If your App doesn't provide some sort of lasting entertainment value or adequate utility, it may not be accepted.
+
+*Apple, App Store Review Guidelines, section 4.2 Minimum Functionality. Fetched
+verbatim from `developer.apple.com/app-store/review/guidelines/` on 2026-08-30.
+That page carries no amendment or last-updated date of any kind, so none is
+cited here; the fetch date is the only honest provenance available for it, and
+inventing a version number for a living page would be worse than having none.*
+
+Three things follow, and each of them is checkable against the shipped build
+rather than asserted.
+
+**There is nothing here to repackage.** Shipkit Pipes performs every operation
+on-device. It has no network capability and no networking entitlement on either
+platform — the macOS build is sandboxed without `com.apple.security.network.client`
+and the iOS build makes no outbound request — so there is no website behind it
+that a reviewer could find the app to be a wrapper around. The absence is
+structural rather than a policy: with no network code path, an offline device
+and an online one behave identically.
+
+**It is not a single-view utility.** The app presents five distinct surfaces,
+each recorded with its tool set in `docs/PRODUCT-IDENTITY.md`: **Encode/decode**
+(Base64, URL percent-encoding, HTML entities), **Hashing** (MD5, SHA-1, SHA-256,
+SHA-512), **Timestamps** (Unix epoch to ISO 8601 and to local time and back,
+with a timezone picker), the **Pipeline canvas**, and **History**. The pipeline
+canvas is the primary work surface, not an advanced mode reached from a menu.
+
+**The utility is recurring, not novelty.** Decoding a Base64 payload, checking a
+digest against one somebody else published, and reading a Unix timestamp out of
+a log line are daily work for the audience this is built for, not a thing done
+once and then uninstalled. The pipeline surface is what makes that work
+accumulate instead of repeat: a multi-step conversion is assembled once, its
+intermediate values stay visible, and steps can be removed and reordered rather
+than the whole sequence being retyped through single-purpose screens.
+
+## Guideline 4.3(b) — differentiation
+
+> Don't submit apps that are indistinguishable from what's already widely available. Opportunistically creating variants of existing app categories or popular apps degrades App Store discovery, reduces overall app quality, and harms both users and developers. Certain kinds of apps, such as dating, flashlight, sound effects, wallpaper, simple timers, and fortune telling, are well established on the App Store and we will not accept new submissions unless they offer a meaningfully different or improved experience. We may remove these apps from the App Store going forward if they are not updated, improved, or do not attract customers.
+
+*Apple, App Store Review Guidelines, section 4.3(b) Spam. Fetched verbatim from
+`developer.apple.com/app-store/review/guidelines/` on 2026-08-30. As above, the
+page carries no amendment or last-updated date and none is cited.*
+
+### The asymmetry that matters
+
+The refusal list in that text is complete as quoted. It names dating, flashlight,
+sound effects, wallpaper, simple timers, and fortune telling — six categories,
+and no others. It does **not** name converters, encoders, decoders, or hashing
+tools. That distinction is load-bearing for this project's history: an earlier
+concept for this fork was a focus timer, and "simple timers" is on that list by
+name, which is a categorical bar rather than a judgement.
+
+The exposure that remains is the general clause — "indistinguishable from what's
+already widely available" — which is a judgement-based hook, applied per
+submission by a reviewer, rather than a category the guideline has closed in
+advance. That lowers the risk. It does not eliminate it, and nothing below
+should be read as though it did: a judgement call can go against a submission
+that has a good answer, and the pre-mortem further down assumes exactly that.
+
+### The claim, stated once and narrowly
+
+**The encode, hash, and timestamp tools already exist on both stores. The
+chained pipeline — where one tool's output becomes the next tool's input, with
+every intermediate step visible, removable, and reorderable — does not, and in
+Shipkit Pipes it is the primary work surface rather than a secondary feature.**
+
+Every clause in that sentence is checkable rather than rhetorical. "Already
+exist" is the incumbents named in the scan below. "Output becomes the next
+tool's input" is a thing a reviewer can do in the app in under a minute, using
+the numbered walkthrough in the review notes. "Visible, removable, reorderable"
+describes the pipeline canvas as built. "Primary work surface" is what D-08
+decided and what D-09 implements: opening a tool screen yields a one-step
+pipeline that extends in place, so there is no separate mode a reviewer has to
+discover.
+
+Nothing broader than that sentence is claimed anywhere in this repository, and
+the drift is worth guarding against actively, because every broader version of
+it is easier to write and none of them is defensible.
+
+### The concession, stated in our own voice
+
+**Shipkit Pipes ships strictly fewer tools than the free incumbent toolkits, and
+tool count is not the claim.** A free 37-tool offline developer toolkit already
+ships on the iOS App Store and a roughly 47-tool one on the Mac App Store, and
+this app's v1 tool set is a strict subset of both. Anyone comparing catalogues
+should conclude that the incumbents win that comparison, because they do. The
+argument is about how the work surface is organised, not how much the app does —
+which is also why pulling additional tool families forward into v1 was
+considered during scoping and declined; see `docs/PRODUCT-IDENTITY.md`.
+
+Writing the concession down, rather than leaving it as something everyone
+happens to know, is what keeps the narrow framing from quietly widening in a
+later phase when somebody writes marketing copy under deadline.
+
+### The evidence
+
+The claim rests on the **Competitive scan (run 2026-08-31)** section above, and
+on nothing else. Five incumbent developer toolkits — `DevUtils: Dev Toolkit`,
+`DevUtils.app`, `Developer Tools - Tooly`, `Hex: Dev Tools`, and `DevToys` —
+were opened on a device on that date, and none offered a pipeline, recipe,
+chain, workflow, or "send output to…" affordance. No CyberChef derivative or
+port was found on either store.
+
+The scan states its own limits and they carry into the claim: four search terms
+across two stores is not a census, and App Store results are region-, device-,
+and account-specific. The claim is therefore *supported* by a dated
+observation, not proven, and it should be re-run before submission if the gap
+is long. It is written to survive a reviewer who knows of an app the scan
+missed — a counter-example would narrow the claim, and the honest response
+would be to narrow it rather than to defend the wider version.
+
+## macOS addendum — guideline 2.4.5
+
+The 4.2 and 4.3(b) arguments above do not change by platform (D-15). The app,
+the tools, and the pipeline are the same on both. What differs is that macOS
+review additionally judges Mac-nativeness under guideline 2.4.5, and an app
+that reads as a ported iOS build is a known rejection theme there, so that
+question gets its own short section rather than being assumed to travel with
+the shared argument.
+
+**The macOS build is not the iOS layout recompiled.** Per D-11, iOS uses
+`TabView` with `NavigationStack`, and macOS uses `NavigationSplitView` with a
+sidebar listing the five surfaces. The accepted cost of that decision is
+maintaining two navigation layouts instead of one; it was taken on review risk
+rather than on preference.
+
+**It is sandboxed, and it is offline.** The macOS target runs in the App
+Sandbox with no networking entitlement — the same structural offline property
+the 4.2 section describes, expressed in the entitlement file rather than in
+prose.
+
+**It embeds nothing that belongs outside the App Store distribution model.**
+There is no Sparkle or other non-App-Store update mechanism, no login item, no
+launch agent, no privileged helper tool, and no background daemon. The app is
+launched by the user and does nothing when it is not running.
+
+**Two later phases verify this rather than assuming it.** Phase 9 installs the
+macOS build from TestFlight on a second Mac and checks it launches and behaves
+correctly on a machine that never built it. Phase 11 submits macOS as its own
+App Store record, after iOS has been approved — the two records are independent
+by D-05, so a macOS-specific 2.4.5 finding cannot take the iOS submission with
+it.
+

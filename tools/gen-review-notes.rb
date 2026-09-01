@@ -134,6 +134,18 @@ end
 
 # Line-oriented on purpose: two literal sentinel comparisons are the whole job,
 # and a Markdown parser would be a dependency bought for nothing.
+# Every read below pins UTF-8 explicitly rather than inheriting the locale.
+# With LANG unset -- cron, launchd, a bare container, `env -i` -- Ruby defaults
+# Encoding.default_external to US-ASCII, and any non-ASCII byte then raises
+# ArgumentError out of a regex match instead of exiting 0 or 1. That is not
+# exotic input: an App Review contact named Mueller or Jose, or a curly
+# apostrophe anywhere in the notes prose, is enough. A drift gate that dies
+# with a stack trace instead of a verdict is worse than no gate, because the
+# caller cannot tell "in sync" from "crashed".
+def read_utf8(path)
+  File.read(path, encoding: "UTF-8")
+end
+
 def extract(path, id)
   die "#{path}: not found — run this from the repository root." unless File.file?(path)
 
@@ -144,7 +156,7 @@ def extract(path, id)
   keep      = false
   body      = []
 
-  File.foreach(path) do |line|
+  File.foreach(path, encoding: "UTF-8") do |line|
     if line.include?(begin_marker)
       saw_begin = true
       keep = true
@@ -190,7 +202,7 @@ end
 
 def run_check(text, dest, id)
   # 1. The file itself must match the block.
-  current = File.exist?(dest) ? normalize(File.read(dest)) : ""
+  current = File.exist?(dest) ? normalize(read_utf8(dest)) : ""
   if current != text
     warn "gen-review-notes: DRIFT: #{dest} does not match block id=#{id} in #{SRC}"
     warn "  first differing line: #{first_diff_line(text, current)}"
@@ -208,7 +220,7 @@ def run_check(text, dest, id)
   end
 
   if File.exist?(BOOTSTRAP_ENV) &&
-     File.read(BOOTSTRAP_ENV).match?(/^[ \t]*#{ENV_NAME}[ \t]*=[ \t]*\S/)
+     read_utf8(BOOTSTRAP_ENV).match?(/^[ \t]*#{ENV_NAME}[ \t]*=[ \t]*\S/)
     die "#{ENV_NAME} is assigned a non-empty value in #{BOOTSTRAP_ENV}. " \
         "read_review_field in fastlane/Fastfile prefers the env var over " \
         "#{dest}, so a matching file is not what Apple would receive. Leave " \
@@ -224,7 +236,7 @@ def run_write(text, dest, id)
     die "#{directory}: directory does not exist — create it before generating #{dest}."
   end
 
-  File.write(dest, text)
+  File.write(dest, text, encoding: "UTF-8")
   puts "wrote #{dest} (#{text.length} chars, id=#{id})"
 end
 

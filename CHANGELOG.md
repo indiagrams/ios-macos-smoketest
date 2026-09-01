@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `tools/gen-review-notes.rb` now pins UTF-8 on every file read and write rather
+  than inheriting `Encoding.default_external`. With `LANG` unset the default is
+  US-ASCII, and a non-ASCII byte in `docs/REVIEW-ARGUMENTS.md`, `notes.txt`, or
+  `.bootstrap.env` raised out of the drift check instead of returning a verdict --
+  an App Review contact with a diacritic was enough to trigger it.
+
 ### Added
 
 - `bin/verify-asc-agreements.rb` + a "Verify ASC agreements are in effect" preflight step in `release.yml` and `canary-local-mode.yml` — probe App Store Connect up front and, if a required Apple agreement is missing/expired, fail fast with an actionable runbook (which ASC screens the Account Holder must accept) instead of surfacing cryptically deep in `compute-release-tag.rb` / mid-cert-mint / at upload. Surfaced 2026-07-11 when the Saturday canary went red across **all** cells (both generators, CI-mode and local-mode) with `A required agreement is missing or has expired` — Apple gates the entire ASC API behind an in-effect agreement, so the failure was account-wide (even the xcodegen cell, unrelated to the concurrent tuist work, failed). Mirrors `canary-trigger.yml`'s PAT-expiry preflight (#248). Implementation: `Bootstrap::AscAgreementError` (detects Apple's agreement-gate message and carries the runbook), `Bootstrap.verify_asc_agreements!` (minimal account-wide `App.all` probe), and `Bootstrap.setup_asc_token_from_env!` (shared ASC-token-from-env setup for the CI path). `bin/lib/version_resolver.rb`'s `next_build_number` now also translates the agreement error to the same actionable message, so a human running `make ship` gets it too — not just the CI preflight step.

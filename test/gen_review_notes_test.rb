@@ -225,6 +225,40 @@ with_tree(doc_with("Body.")) do |root|
   assert_eq code, 1, "argv handling: an unrecognised flag exits 1 instead of running silently"
 end
 
+# 15. Non-ASCII survives a locale-less environment.
+#
+# With LANG unset, Ruby sets Encoding.default_external to US-ASCII, and a
+# regex match against a file holding any non-ASCII byte raises ArgumentError
+# out of run_check rather than exiting 0 or 1. This is reachable input: an
+# App Review contact named Müller or José in .bootstrap.env, or a curly
+# apostrophe in the notes prose. Both paths are pinned below -- the source
+# document and .bootstrap.env are read through different call sites.
+#
+# The fixtures below MUST contain real non-ASCII bytes. An earlier draft used
+# the transliterations "Jose Mueller", which are pure ASCII, so the case
+# passed against the unfixed generator and asserted nothing.
+#
+# The env hash clears LC_ALL/LANG/LC_CTYPE so the case fails against a build
+# that inherits the locale, which is what makes it a regression test rather
+# than a restatement of the fix.
+NO_LOCALE = { "LC_ALL" => nil, "LANG" => nil, "LC_CTYPE" => nil }.freeze
+
+with_tree(doc_with("Contact: José Müller — don’t drop the apostrophe.")) do |root|
+  _out, _err, code = gen(root, env: NO_LOCALE)
+  assert_eq code, 0, "encoding: non-ASCII source document generates under an unset locale"
+
+  _out, err, code = gen(root, "--check", env: NO_LOCALE)
+  assert_eq code, 0, "encoding: --check on non-ASCII notes exits 0 under an unset locale (stderr: #{err.strip})"
+end
+
+with_tree(doc_with("Body.")) do |root|
+  File.write(File.join(root, ".bootstrap.env"), "APP_NAME=Whatever\n# contact: José Müller\n")
+  gen(root, env: NO_LOCALE)
+  _out, err, code = gen(root, "--check", env: NO_LOCALE)
+  assert_eq code, 0, "encoding: a non-ASCII .bootstrap.env does not crash --check (stderr: #{err.strip})"
+  assert_eq err.include?("ArgumentError"), false, "encoding: --check exits with a verdict, never a stack trace"
+end
+
 if @failures.zero?
   puts "\nAll gen-review-notes regression tests passed."
   exit 0

@@ -69,11 +69,12 @@ nothing to say about why. Both were hit on 2026-09-01 while re-checking the App 
 below, which is why those rows now spell out
 `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb ...`.
 
-The six `pending 02-09` and `pending 02-10` rows still carry the short forms. They are
-placeholders for measurements that have not been taken, and the plan that takes each one
-writes its real re-check command then; correcting a command for a row whose value is an em
-dash would be tidying a cell nobody can run yet. Named here rather than left to be
-rediscovered.
+The remaining `pending 02-09` rows still carry the short forms. They are placeholders for
+measurements that have not been taken, and the plan that takes each one writes its real
+re-check command then; correcting a command for a row whose value is an em dash would be
+tidying a cell nobody can run yet. Named here rather than left to be rediscovered. The
+certificate-census rows were placeholders of the same kind until 02-10 measured them, and
+they now carry the pinned form.
 
 ## Apple Developer Program and account
 
@@ -259,9 +260,10 @@ is not a control, so a string that has never existed and never will is used inst
 
 | Fact | Value | Measured (ISO-8601) | Against (team / key / record id) | Valid until | Re-check command |
 |---|---|---|---|---|---|
-| `DEVELOPMENT` occupancy | — | pending 02-10 | — | — | `bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
-| `DISTRIBUTION` occupancy | — | pending 02-10 | — | — | `bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
-| `MAC_INSTALLER_DISTRIBUTION` occupancy | — | pending 02-10 | — | — | `bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
+| `DEVELOPMENT` occupancy | One certificate. `id=2VJC2RHG62`, display name `Created via API`, expires `2027-05-24T05:30:41Z` | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
+| `DISTRIBUTION` occupancy | One certificate. `id=6B8BWZ4B4X`, display name `Indiagram LLC`, expires `2027-05-24T05:14:35Z` | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
+| `MAC_INSTALLER_DISTRIBUTION` occupancy | One certificate. `id=BRDTBXL68H`, display name `Indiagram LLC`, expires `2027-08-27T16:21:36Z` | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
+| Certificate types beyond those three | **None.** The census enumerates every certificate on the team, not only the release types, and nothing outside `DEVELOPMENT`, `DISTRIBUTION` and `MAC_INSTALLER_DISTRIBUTION` came back. Total occupancy across all types therefore equals the sum of the rows above | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
 
 **This section records occupancy, never a quota.** Apple publishes no numeric per-team
 certificate figure at all: the only quantitative sentence on its certificates overview
@@ -287,6 +289,26 @@ API could not support the ordering even if it did (R-04). The operational rule i
 unchanged and independent of the reasoning behind it — nothing is revoked without a human
 looking at the list first (D-39), and team `G5H628C6WR` is shared with another shipping
 app, so a wrong revocation destroys someone else's production certificate.
+
+**The census instrument was checked in both directions before its output was believed.**
+A measurement is only as good as the instrument's ability to fail, so on 2026-09-01 the
+`census-diff` comparator was run against three inputs. A byte-identical copy of the real
+census exited `0` — the pass direction, which proves the failures below are not a constant.
+A copy differing only in its `team` field, carrying the team that
+`.github/workflows/release.yml` measured against, exited `2` and named the mismatch; that
+is the C-05 failure mode being caught rather than diffed. And a copy derived from the real
+census with one genuinely-present certificate id removed exited `1` and named that id. The
+removal fixture was built from the real file rather than hand-written, so the id it deletes
+was actually in the before set — a fixture whose removed id was never present would exit
+`1` for the wrong reason and assert nothing.
+
+**Per-certificate expiry is part of what this project has to track, and it is the only
+expiry on this page that moves.** The App Store Connect API key carries no expiry at all
+(see the ASC API key section above), so the dates that genuinely exist are the Developer
+Program agreement dates recorded further up and the three certificate `expirationDate`
+values in the table above. The earliest of them is 2027-05-24. Those dates come from Apple
+in each census run, so re-running the re-check command is what refreshes them; nothing here
+is computed from a stored assumption about certificate lifetime.
 
 ## Staleness contract
 

@@ -306,3 +306,100 @@ App Store record, after iOS has been approved — the two records are independen
 by D-05, so a macOS-specific 2.4.5 finding cannot take the iOS submission with
 it.
 
+## Hostile read (pre-mortem, run 2026-08-31)
+
+The method here is Gary Klein's pre-mortem, and it is stated literally rather
+than left implicit, because a later reader needs to know why the table reads the
+way it does: **it is eight weeks from now. Shipkit Pipes was rejected under
+4.3(b). The rejection letter said the app is indistinguishable from what is
+already widely available. Why were they right?**
+
+Assuming the failure already happened is the whole mechanism. Asked to list
+risks, people list the ones they have answers for; asked to explain a failure
+that has already occurred, they produce the reasons that actually bite. What
+follows is the output of that question, not a list of counterarguments
+brainstormed in the abstract.
+
+Four rules govern the table, and they are what make it worth having written.
+Each objection is stated in the reviewer's voice, at its strongest, with no
+hedging. Every rebuttal cites a dated checkable fact — the competitive scan by
+its date, the quoted guideline text, or a named property of the shipped app —
+rather than an assertion. Every row carries a residual risk, and "accepted" is a
+legitimate value there. And at least one row is not fully rebutted, because a
+pre-mortem in which every objection is answered has been run wrong.
+
+| # | Objection (stated at its strongest) | Force | Rebuttal | Evidence | Residual risk |
+|---|---|---|---|---|---|
+| H1 | A free 37-tool offline developer toolkit already ships on the iOS App Store, and a roughly 47-tool one on the Mac App Store. You ship three tool families and every one of them is already in those apps. This is a smaller version of something that is on the shelf for free. | High | Conceded on tool count, which is not the claim. The claim is that the chain is the primary work surface: one tool's output becomes the next tool's input in-app, with every intermediate value visible and every step removable and reorderable. The 2026-08-31 scan opened all five incumbent toolkits and found no pipeline, recipe, chain, or "send output to…" affordance in any of them. | Competitive scan run 2026-08-31, five toolkits opened on-device; the concession is stated in the app's own voice in §Guideline 4.3(b). | A reviewer who evaluates on catalogue size rather than on work surface finds for the incumbents, and nothing in the app changes that. Partly mitigated by D-08 putting the pipeline on the first screen and by the numbered walkthrough in the review notes; not eliminated. |
+| H2 | iOS and macOS already chain arbitrary tools. Shortcuts does it system-wide, and Developer Tools - Tooly already exposes its own tools as Shortcuts actions, so a user who wants to chain Base64 into SHA-256 can do it today without your app. | High | True, and not disputed. That chaining lives in Apple's Shortcuts app: it has to be built and maintained outside the tool, and it shows no intermediate value while it runs. The claim is about the chain being this app's own primary work surface, which is a different property from being reachable through a system automation layer. The 2026-08-31 scan recorded Tooly's Shortcuts actions explicitly rather than quietly treating them as absent. | Competitive scan run 2026-08-31, the `Developer Tools - Tooly` row and the A4 verdict note, both of which name the Shortcuts route. | Real and only partly answered. A reviewer who uses Shortcuts daily may judge the in-app version an incremental convenience, and the honest reply is that this is a difference of surface rather than of capability. |
+| H3 | CyberChef has chained roughly 300 operations as "recipes" for a decade. This is a small reimplementation of a well-known free tool, which is the definition of a variant of something already widely available. | Medium | The prior art is granted; the claim was never that chaining is a new idea, and saying so would be false. The claim is scoped to the native App Store shelf. CyberChef is a web app, and the 2026-08-31 scan searched both stores for it and for any derivative or port and found none. The single name match, `CyberChef Pro`, was opened and ruled out as an unrelated cooking app. | Competitive scan run 2026-08-31, the A3 verdict and the `CyberChef Pro` row with its listing text quoted. | A reviewer can point at the website and ask why this needs an app at all. The answer is the 4.2 one — no network path exists, so a pasted secret cannot leave the device — and that is an argument about the app rather than a fact about the shelf. |
+| H4 | "Shipkit" reads as release-engineering scaffolding. Searching the name finds a template repository for shipping apps, not a product, so this looks like a vehicle for exercising a release pipeline rather than an app anyone wants to use. | Low | No rebuttal is offered, deliberately. The framing weakness is real and was recorded as an accepted risk at scoping time rather than argued away. What was done instead is structural: the repository name, the Xcode target name, and the App Store display name are kept as three separate strings, and only the display name reaches review. | D-07, recorded at scoping; `docs/PRODUCT-IDENTITY.md` §"Three separate strings" and its accepted-risk note. | Accepted. This risk is accepted and logged rather than mitigated. If it costs a review cycle, the correct response is a different display name, not a better argument. |
+| H5 | Your evidence is four search terms run on a single day, by one person, on one account. App Store results are region-, device-, and account-specific. An app that does exactly this already exists and your scan simply did not surface it. | Medium | Granted as a limit, and stated as one in the scan section itself rather than left for a reviewer to discover. The claim is deliberately written as supported by a dated observation rather than proven, and the scan records its own protocol so the gap is visible. A counter-example would narrow the claim rather than collapse it, and the correct response would be to narrow it. | Competitive scan run 2026-08-31, §"Strength of the claim" and the scan protocol, both of which state the limit before any argument is built on the result. | Not mitigated, and this is the genuinely open row. One counter-example changes the argument. The standing action is to re-run the scan before submission if the gap since 2026-08-31 has grown long. |
+
+Two things about that table are worth stating outright. H1's objection is a hard
+fact, not a framing to be managed — the free incumbents really do ship more
+tool families, and the row reads that way on purpose. And H5 is the row that
+should worry a reader most, precisely because it is the one with no answer: the
+whole argument is one undiscovered app away from needing to be rewritten.
+
+## Pre-drafted Resolution Center reply (use only if rejected)
+
+Drafted in advance so it can be edited under time pressure rather than composed
+under it. It applies only after a rejection lands: pasted into App Store
+Connect's Resolution Center, edited to answer the specific letter received, and
+never sent proactively.
+
+Thank you for reviewing Shipkit Pipes, and for the specific note about guideline
+4.3(b). I would like to explain how the app differs from other developer
+utilities, because the difference is in how the work is organised rather than in
+the size of the tool list.
+
+Shipkit Pipes is built around a pipeline. One tool's output becomes the next
+tool's input inside the app, every intermediate value stays on screen, and steps
+can be reordered or removed without retyping the sequence. That pipeline is the
+screen the app opens on, not a feature behind a menu.
+
+It takes about a minute to see. Open the Pipeline tab, enter the text `hello`,
+and add a Base64 encode step, which produces `aGVsbG8=`. Add a SHA-256 step
+after it and the digest of that intermediate value appears beneath it. Both
+steps stay visible, and removing the first one updates the second.
+
+We are aware that other developer utilities on the App Store ship larger tool
+catalogues than ours, several of them free, and we are not claiming otherwise.
+Everything in our app runs offline, with no network access on either platform.
+
+I would be glad to answer any further questions.
+
+## Why the notes do not contain this argument
+
+Everything above stays in this file. None of it goes into
+`fastlane/metadata/review_information/notes.txt`. That is a decision (D-27), not
+an oversight, and it is recorded here because the natural instinct on reading a
+thin set of review notes next to a long argument is to "improve" the notes by
+pasting the argument in.
+
+Three reasons, in descending order of how well evidenced they are.
+
+**Guideline 2.3.1(a) asks for specificity about what the app does, not for a
+defence of it.** Its text — *"All new features, functionality, and product
+changes must be described with specificity in the Notes for Review section of
+App Store Connect (generic descriptions will be rejected) and accessible for
+review"* — is about making functionality legible and reachable. A guideline
+argument does not make anything more legible or more reachable.
+
+**Apple's own guidance on review notes asks for something else entirely.** It
+asks for the app's concept, its features, how to enable them, the audience it
+was designed for, and the questions a person using it might have. Guidelines are
+not among the things it asks for.
+
+**There is no reliable public evidence that a well-argued note reverses a 4.3(b)
+call.** The forum threads asking precisely that question are unanswered, and
+that absence is itself the finding rather than a gap to be filled with optimism.
+
+The reverse direction *is* evidenced, and that asymmetry is the whole decision:
+2.3.1(a) states plainly that generic descriptions will be rejected. A vague or
+absent note loses. A well-argued one is not known to win. So the notes carry a
+plain, specific description and a walkthrough that demonstrates chaining, and
+the guideline argument waits here for the one place a guideline citation is
+actually responsive — a Resolution Center reply to a rejection that raised it.
+

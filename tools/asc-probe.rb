@@ -42,6 +42,9 @@
 #   ruby tools/asc-probe.rb census --out /tmp/census-before.json
 #   ruby tools/asc-probe.rb census-diff --before /tmp/before.json \
 #        --after /tmp/after.json
+#   ruby tools/asc-probe.rb submission-probe --app-id 6749152233 --label primary
+#   ruby tools/asc-probe.rb probe-compare --primary /tmp/primary.json \
+#        --control /tmp/control.json
 #
 # Secrets: this file never prints the bearer token, the .p8, or
 # ASC_API_KEY_P8_BASE64. Token acquisition is isolated in asc_token, no
@@ -110,6 +113,9 @@ USAGE = <<~TXT
                                          [--expect-name <name>]
     census              [--out <path>]
     census-diff         --before <path> --after <path>
+    submission-probe    --app-id <asc app id> [--platform IOS|MAC_OS]
+                                              [--label <text>]
+    probe-compare       --primary <path> --control <path>
 
   common options:
     --fixture <path>  read a saved response envelope from disk instead of
@@ -126,6 +132,17 @@ USAGE = <<~TXT
     1  an id present in --before is absent from --after (a removal)
     2  a malformed census: no team, no measured_at, or a team that is not
        this one. This tool only ever reports; it revokes nothing (D-39).
+
+  exit codes, submission-probe:
+    0  the request completed and its status was printed. The verdict is the
+       caller's: one status code is an observation, not a conclusion.
+    1  a usage error, a transport failure, or a missing --app-id
+
+  exit codes, probe-compare:
+    0  the two observations carry different status codes
+    1  a usage error, or an observation carrying no status
+    3  both observations carry the SAME status code: PROBE DISCARDED. The
+       probe did not discriminate. Do not reinterpret it (A1).
 
   Live calls need the pinned bundle:
     /opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb ...
@@ -822,6 +839,234 @@ def run_census_diff(argv)
        "(#{before['measured_at']} → #{after['measured_at']})"
 end
 
+# ---------------------------------------------------------------------------
+# submission-probe — ACCT-04's write-path instrument
+# ---------------------------------------------------------------------------
+
+# Endpoint chosen: POST /v1/reviewSubmissions. It is a WRITE, and Apple's spec
+# declares 403 and 409/422 as distinct responses for this operation (ASC OpenAPI
+# 4.4.1, paths./v1/reviewSubmissions.post.responses: 201 | 400 | 401 | 403 | 409
+# | 422 | 429). Only data.relationships.app is required; attributes.platform is
+# nullable. Against a record with no build and no version the call cannot
+# succeed, so it creates no state -- what it yields is a status code.
+#
+# Endpoint rejected: GET /v1/apps/{id}/reviewSubmissions. Every role in Apple's
+# roles matrix can read it, so a read-based probe returns the same answer for a
+# key that may submit and a key that may not: a gate that cannot fail, which is
+# Pitfall 1 exactly. Also rejected: POST /v1/betaAppReviewSubmissions -- that is
+# the TestFlight beta path and it requires a build relationship, and no build
+# exists in this phase by construction.
+#
+# The two observations that discriminate: 403 means the key's role does not
+# permit `Submit apps`; 409/422 mean it does, and the request was refused on
+# business grounds (no build, no version).
+#
+# THAT MAPPING IS ASSUMPTION A1, NOT A FACT ASSERTED BY APPLE. The spec
+# enumerates which codes this operation *can* return; it says nothing about
+# which one applies in this scenario. That is precisely why the Developer-role
+# negative control in 02-09 is mandatory rather than decorative, and why this
+# tool renders no verdict: a status code from one key is an observation, and a
+# sufficiency reading needs two. If both keys answer the same code, the probe
+# did not discriminate and is discarded rather than reinterpreted -- see
+# probe-compare below, which is the only place the pair is ever looked at.
+SUBMISSION_PATH = "/v1/reviewSubmissions"
+
+# attributes.platform is nullable in the spec; this probe sends it anyway, so
+# the observation records which platform was asked about rather than leaving a
+# later reader to guess. IOS is the default because the iOS record is the one
+# 02-09 probes first.
+DEFAULT_SUBMISSION_PLATFORM = "IOS"
+
+# The exact prefix, with no truncation marker appended: a caller checking
+# `body_excerpt.length <= 400` must get an exact answer, and a suffix would push
+# the string past the bound it is there to satisfy. Bounded at all because a
+# response body reaching a terminal may be pasted into a tracked document, and
+# because request headers -- which carry the bearer token -- are never logged
+# anywhere in this file (T-02-15).
+def excerpt(body)
+  body.to_s[0, BODY_PREVIEW].to_s
+end
+
+def submission_request_body(app_id, platform)
+  {
+    "data" => {
+      "type" => "reviewSubmissions",
+      "attributes" => { "platform" => platform },
+      "relationships" => { "app" => { "data" => { "type" => "apps", "id" => app_id } } }
+    }
+  }
+end
+
+def parse_submission_args(argv)
+  options = { app_id: nil, platform: nil, label: nil, fixture: nil }
+
+  index = 0
+  while index < argv.length
+    case argv[index]
+    when "--app-id"
+      index += 1
+      die "--app-id requires a value\n#{USAGE}" if argv[index].nil?
+      options[:app_id] = utf8_arg(argv[index])
+    when "--platform"
+      index += 1
+      die "--platform requires a value\n#{USAGE}" if argv[index].nil?
+      options[:platform] = utf8_arg(argv[index])
+    when "--label"
+      index += 1
+      die "--label requires a value\n#{USAGE}" if argv[index].nil?
+      options[:label] = utf8_arg(argv[index])
+    when "--fixture"
+      index += 1
+      die "--fixture requires a value\n#{USAGE}" if argv[index].nil?
+      options[:fixture] = utf8_arg(argv[index])
+    when "-h", "--help"
+      puts USAGE
+      exit 0
+    else
+      die "unknown argument #{argv[index].inspect}\n#{USAGE}"
+    end
+    index += 1
+  end
+
+  options
+end
+
+# Issues the write and prints what came back. Exit 0 for every completed
+# request, whatever the status: the status IS the output, and deciding what it
+# means from one observation is the failure this design exists to prevent.
+def run_submission_probe(argv)
+  options = parse_submission_args(argv)
+
+  app_id = require_flag!(options[:app_id], "--app-id", "submission-probe")
+  validate_identifier!(app_id, "--app-id")
+
+  platform = options[:platform] || DEFAULT_SUBMISSION_PLATFORM
+  unless BUNDLE_ID_PLATFORMS.include?(platform)
+    die "invalid --platform #{platform.inspect}: must be one of " \
+        "#{BUNDLE_ID_PLATFORMS.join(', ')}. Apple's API enum also has " \
+        "UNIVERSAL, but spaceship does not expose it and D-05 declined the " \
+        "Universal Purchase model it implies (C-02)."
+  end
+
+  status, body = asc_request(:post, SUBMISSION_PATH,
+                             body: submission_request_body(app_id, platform),
+                             fixture: options[:fixture])
+
+  # --label exists so the two runs 02-09 makes (the real key and the
+  # Developer-role control) stay self-describing in whatever file they land in.
+  puts JSON.pretty_generate(
+    "label" => options[:label] || "unlabelled",
+    "app_id" => app_id,
+    "platform" => platform,
+    "team" => EXPECTED_TEAM,
+    "status" => status,
+    "body_excerpt" => excerpt(body),
+    "measured_at" => Time.now.utc.iso8601
+  )
+end
+
+# ---------------------------------------------------------------------------
+# probe-compare — the pair, and the outcome that says the pair proves nothing
+# ---------------------------------------------------------------------------
+
+# Reached only with TWO observation files, so no reading of any kind can be
+# produced from a single run. What it answers is one narrow question: did the
+# two runs come back with different status codes?
+#
+# It deliberately does NOT answer "is the key sufficient". That reading depends
+# on assumption A1 (see the comment above SUBMISSION_PATH) and on which key
+# signed which run, and it belongs in a human-gated SUMMARY, not in a tool.
+#
+# The outcome that matters is the third one. 02-VALIDATION.md's ACCT-04 control
+# column is explicit -- "Same code from both => discard the probe, do not
+# reinterpret it" -- and 02-RESEARCH.md's A1 row says the same. So identical
+# codes get their own exit code rather than being folded into either success or
+# failure: an instrument that can only report pass or fail cannot express the
+# one answer that matters when the control fails, and a caller forced to choose
+# between the two will choose the one that lets work continue.
+PROBE_DISCARDED_EXIT = 3
+
+def load_observation(path, flag)
+  die "#{flag} #{path}: no such file — nothing to compare." unless File.file?(path)
+
+  observation = parse_json(read_utf8(path), "#{flag} #{path}")
+  unless observation.is_a?(Hash)
+    die "#{flag} #{path}: expected one submission-probe observation object, " \
+        "got #{observation.class}"
+  end
+  unless observation["status"].is_a?(Integer)
+    die "#{flag} #{path} carries no integer \"status\" field. Only the output " \
+        "of `submission-probe` can be compared; a run that produced no status " \
+        "produced no observation."
+  end
+
+  observation
+end
+
+def parse_probe_compare_args(argv)
+  options = { primary: nil, control: nil }
+
+  index = 0
+  while index < argv.length
+    case argv[index]
+    when "--primary"
+      index += 1
+      die "--primary requires a value\n#{USAGE}" if argv[index].nil?
+      options[:primary] = utf8_arg(argv[index])
+    when "--control"
+      index += 1
+      die "--control requires a value\n#{USAGE}" if argv[index].nil?
+      options[:control] = utf8_arg(argv[index])
+    when "-h", "--help"
+      puts USAGE
+      exit 0
+    else
+      die "unknown argument #{argv[index].inspect}\n#{USAGE}"
+    end
+    index += 1
+  end
+
+  options
+end
+
+def observation_digest(observation)
+  {
+    "label" => observation["label"],
+    "app_id" => observation["app_id"],
+    "platform" => observation["platform"],
+    "status" => observation["status"],
+    "measured_at" => observation["measured_at"]
+  }
+end
+
+def run_probe_compare(argv)
+  options = parse_probe_compare_args(argv)
+  primary_path = require_flag!(options[:primary], "--primary", "probe-compare")
+  control_path = require_flag!(options[:control], "--control", "probe-compare")
+
+  primary = load_observation(primary_path, "--primary")
+  control = load_observation(control_path, "--control")
+
+  report = {
+    "team" => EXPECTED_TEAM,
+    "compared_at" => Time.now.utc.iso8601,
+    "primary" => observation_digest(primary),
+    "control" => observation_digest(control)
+  }
+
+  if primary["status"] == control["status"]
+    puts JSON.pretty_generate(report.merge("outcome" => "PROBE DISCARDED"))
+    warn "asc-probe: PROBE DISCARDED — both runs returned HTTP " \
+         "#{primary['status']}, so the pair does not discriminate. Do not " \
+         "reinterpret it and do not record a verdict from it: with one code " \
+         "answering both keys, the observation is identical whether or not the " \
+         "key can do the job."
+    exit PROBE_DISCARDED_EXIT
+  end
+
+  puts JSON.pretty_generate(report.merge("outcome" => "OBSERVATIONS DIFFER"))
+end
+
 # Flat entrypoint at the bottom of the file, with no __FILE__ == $0 guard --
 # this script is only ever run, never required (tools/gen-review-notes.rb:243-254).
 verb = ARGV[0]
@@ -837,6 +1082,10 @@ when "census"
   run_census(ARGV[1..] || [])
 when "census-diff"
   run_census_diff(ARGV[1..] || [])
+when "submission-probe"
+  run_submission_probe(ARGV[1..] || [])
+when "probe-compare"
+  run_probe_compare(ARGV[1..] || [])
 else
   die "unknown subcommand #{verb.inspect}\n#{USAGE}"
 end

@@ -264,6 +264,11 @@ is not a control, so a string that has never existed and never will is used inst
 | `DISTRIBUTION` occupancy | One certificate. `id=6B8BWZ4B4X`, display name `Indiagram LLC`, expires `2027-05-24T05:14:35Z` | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
 | `MAC_INSTALLER_DISTRIBUTION` occupancy | One certificate. `id=BRDTBXL68H`, display name `Indiagram LLC`, expires `2027-08-27T16:21:36Z` | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
 | Certificate types beyond those three | **None.** The census enumerates every certificate on the team, not only the release types, and nothing outside `DEVELOPMENT`, `DISTRIBUTION` and `MAC_INSTALLER_DISTRIBUTION` came back. Total occupancy across all types therefore equals the sum of the rows above | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
+| `DISTRIBUTION` mint attempted | One, on the safe default. Command: `/opt/homebrew/opt/ruby@3.3/bin/bundle exec fastlane mint_local_certs types:apple_distribution`. No `--force`; the action's own summary table printed its `force` value as `false`, and `CERT_FORCE` was unset in the environment | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | Re-running mints again — do not re-run to re-check; read the census rows instead |
+| Outcome of that mint | **`REUSED`, not `CREATED`.** The lane exited `0`, but the before and after censuses carry an identical id set, so no `POST /v1/certificates` was made. fastlane said, verbatim: *"Found the certificate 6B8BWZ4B4X (Indiagram LLC) which is installed on the local machine. Using this one."* | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` before and after, then `census-diff` |
+| ACCT-04b — key sufficiency on the **distribution** path | **UNPROVEN.** The mint reused a local certificate and never reached Apple's create endpoint, so the key's authority to create a distribution certificate was not exercised and remains unknown. Not a failure and not a pass — an untaken measurement | 2026-09-01 | key `SCH57C86HT` against team `G5H628C6WR` | per phase | Only a mint that actually creates can settle this; see the reuse trap below |
+| Nothing was revoked (ACCT-05b) | Asserted, not assumed. `census-diff` over the before and after censuses exited `0`: three certificates before, three after, no id absent from the second | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census-diff --before <before> --after <after>` |
+| Post-mint occupancy | Unchanged from the rows above, re-measured rather than predicted: one certificate of each of the three release types, same three ids | 2026-09-01 | team `G5H628C6WR` | 2026-09-08 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby tools/asc-probe.rb census --out /tmp/census.json` |
 
 **This section records occupancy, never a quota.** Apple publishes no numeric per-team
 certificate figure at all: the only quantitative sentence on its certificates overview
@@ -309,6 +314,44 @@ Program agreement dates recorded further up and the three certificate `expiratio
 values in the table above. The earliest of them is 2027-05-24. Those dates come from Apple
 in each census run, so re-running the re-check command is what refreshes them; nothing here
 is computed from a stored assumption about certificate lifetime.
+
+### A green mint is not evidence the key may create certificates
+
+This is the finding worth carrying forward, and it is recorded because the lane looked like
+a pass. `fastlane cert` with its default `force: false` first asks Apple for the
+certificates of the type requested and then checks whether any of them is already installed
+in the local login keychain. If one is, it **uses that certificate and never calls the
+create endpoint at all**. The run still exits `0`, still prints a success banner, still sets
+`CER_CERTIFICATE_ID`, and still ends with *"Local-mode signing identities ready in login
+keychain"* — and a key with no authority to create a distribution certificate whatsoever
+would produce that same output, character for character. Every surface-level signal is
+identical between "the key is sufficient" and "the question was never asked".
+
+That is what happened here on 2026-09-01. A valid `Apple Distribution` identity for this
+team was already in the login keychain before the mint, the mint found it, and the
+authorization layer was never touched. **The only thing that distinguishes the two cases is
+the certificate census taken before and after:** a real create adds an id, a reuse does not.
+The id set was identical, so the outcome is `REUSED` and ACCT-04b is **unproven**.
+
+Unproven is recorded as unproven. It is not rounded up to a pass because the lane was
+green, and it is not recorded as a failure either — nothing failed; a measurement simply was
+not taken. The reason this matters beyond bookkeeping is that the question ACCT-04b asks is
+whether this key can create a distribution certificate at the moment a release actually
+needs one, on a machine where no such certificate is sitting in the keychain — which is
+precisely the situation in which the reuse path is unavailable and the answer starts to
+matter. Anyone re-running the mint locally to "confirm" it will get the same reuse and the
+same green log.
+
+**This says nothing about the submission path, and the submission path says nothing about
+this.** Creating distribution certificates and submitting an app for review are separate
+permissions in Apple's roles matrix, granted to different sets of roles. Two separate
+verdicts are kept for that reason, and neither may be read across to the other.
+
+**Forcing the question is a decision, not a fix.** The two ways to compel a real create —
+passing `--force`, or deleting the local identity so the reuse check finds nothing — both
+consume a certificate slot on a team shared with another shipping product, and the second
+also strands the existing certificate at Apple by discarding the private key that makes it
+usable. Neither is a step to be taken to tidy up an inconvenient result.
 
 ## Staleness contract
 

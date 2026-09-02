@@ -58,7 +58,26 @@ manifests); the GitHub repository variable `APP_NAME` reads `App` (`gh variable 
 is `Shipkit Pipes`. Three different values behind one label were decided rather than
 drifted. `.bootstrap.env`'s `APP_NAME` is the product handle the template-owned
 `fastlane/Fastfile` and `bin/` bootstrap scripts read; neither generator manifest reads
-it, and its scheme-name fallback in the Fastfile is Phase 4's `IDENT-05`. The repository
+it. **That disagreement breaks the fork's documented ship command today, and the working
+invocation is `APP_NAME=App make ship`.** This fork's copy of the Fastfile still derives
+`IOS_SCHEME`, `MACOS_SCHEME`, `IPA_NAME_PATTERN` and `PKG_NAME_PATTERN` from `APP_NAME`
+(`fastlane/Fastfile` lines 90-93), so with `APP_NAME=ShipkitPipes` the release lane looks
+for `build/ShipkitPipes-<version>.ipa` while `ci/local-release-check.sh` writes the constant
+`build/App-<version>.ipa` (D-47, `UL-024`): a local `make ship` would perform the full signed
+archive and export and then stop at the lane's `IPA missing at …` check. The environment
+variable wins over the file (`Fastfile` line 88), `bin/ship.rb` passes the shell environment
+through to fastlane, and `App` is what the schemes and artefacts are actually named, so
+`APP_NAME=App make ship` resolves every derived name to a thing that exists. Measured
+2026-09-02 by evaluating the Fastfile's own resolution block outside fastlane: it yields
+`build/ShipkitPipes-0.1.0.ipa` from the file and `build/App-0.1.0.ipa` with the variable set.
+Do not "fix" this by writing `APP_NAME=App` into `.bootstrap.env`: `bundle_name` in the
+Fastfile's App-ID registration lane and `bin/lib/bootstrap.rb`'s config loader read the same
+key, and the repository-variable hazard below applies to whatever the file says. The durable
+fix is the Fastfile itself — upstream's copy at `c6c324f` (apple-shipkit #281) already spells
+the constants `App-iOS`, `App-macOS`, `App-%s.ipa` and `App-%s.pkg` and uses `APP_NAME` only
+for `bundle_name` — and carrying that into this fork's template-owned Fastfile, with the
+fallback reading shared config, is Phase 4's `IDENT-05`, whose scope names the artefact name
+as well as the scheme fallback. The repository
 variable exists only because the template's pull-request workflow resolves the project
 path from it, and the project's constant name is the only value that workflow can use.
 The display name is the one string App Review sees. The hazard is recorded as `UL-026`

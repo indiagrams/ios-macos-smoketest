@@ -57,6 +57,16 @@
 #   reads nothing" and "the key is not there" are different defects and get
 #   different messages. Callers that only need a gate must treat BOTH as failure.
 #
+#   Xcconfig.own(path)         ->  Hash    { "KEY" => raw }, this file's OWN
+#                                          assignments, no `#include` followed
+#                                          and no `$(VAR)` expanded
+#
+#   `own` is a different QUESTION, not a different parser: "what does this file
+#   say" rather than "what would Xcode resolve here". It exists because
+#   app/Identity.xcconfig `#include?`s the gitignored app/Local.xcconfig, so a
+#   leak check asking `value` for DEVELOPMENT_TEAM gets the LOCAL team and
+#   reports a tracked-file leak that is not there. See the method's own comment.
+#
 #   CLI: ruby bin/lib/xcconfig.rb <file> <KEY>
 #
 #   Exit | Meaning                                     | Message names
@@ -133,7 +143,11 @@ module Xcconfig
   # absolute, and an include is resolved relative to the file that includes it —
   # never to the process CWD, which differs between XcodeGen's preGenCommand
   # (app/), fastlane (fastlane/) and CI (the repository root).
-  def self.load(path, seen = [])
+  #
+  # `follow_includes: false` (see `own` below) recognises an include line — so
+  # it can never be mistaken for an assignment — and does not read it. A hard
+  # miss is then not an error, because nothing was asked of the included file.
+  def self.load(path, seen = [], follow_includes: true)
     path = File.expand_path(path)
     raise MissingInclude, "include cycle at #{path} (via #{seen.join(' -> ')})" if seen.include?(path)
 
@@ -142,11 +156,13 @@ module Xcconfig
       line = line.chomp
 
       if (m = INCLUDE.match(line))
-        inc = File.expand_path(m[2], File.dirname(path))
-        if File.file?(inc)
-          values.merge!(load(inc, seen + [path]))
-        elsif m[1].nil?
-          raise MissingInclude, %(#{path}: #include "#{m[2]}" not found at #{inc})
+        if follow_includes
+          inc = File.expand_path(m[2], File.dirname(path))
+          if File.file?(inc)
+            values.merge!(load(inc, seen + [path]))
+          elsif m[1].nil?
+            raise MissingInclude, %(#{path}: #include "#{m[2]}" not found at #{inc})
+          end
         end
         next
       end
@@ -184,6 +200,28 @@ module Xcconfig
       name = Regexp.last_match(1)
       name == "inherited" ? "" : expand(values, values.fetch(name, ""), depth + 1)
     end
+  end
+
+  # What this file's OWN text assigns, `{ "KEY" => raw_string }`, with no
+  # `#include` followed and no `$(VAR)` expansion. The same `//` cut and strip
+  # as `load`, because it IS `load` — one body, one set of semantics.
+  #
+  # This is a DIFFERENT QUESTION from `value`, and the difference is the reason
+  # the method exists. `value` answers "what would Xcode resolve here", which
+  # follows `#include?`. bin/preflight-identity.rb's IDENT-08 warning asks "is a
+  # Team ID sitting in a file that is in git", which is about one file's text.
+  # app/Identity.xcconfig ends with `#include? "Local.xcconfig"` (the gitignored
+  # one, D-50), so `value(identity, "DEVELOPMENT_TEAM")` returns the LOCAL team
+  # on every machine that has one — measured 2026-09-02 on a fixture pair whose
+  # main file assigns no team and which resolved to `LOCALONLY9`. A leak check
+  # asking `value` would fire on every developer machine about a value that is
+  # not tracked, and a warning that is wrong every time is a warning nobody
+  # reads the day it is right.
+  #
+  # Not for build questions. If you want to know what a target will actually
+  # see, you want `value`, or `xcodebuild -showBuildSettings`.
+  def self.own(path)
+    load(path, [], follow_includes: false)
   end
 
   # The resolved value of `key` in `path`, as Xcode would read it.

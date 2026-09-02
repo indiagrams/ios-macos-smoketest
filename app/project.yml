@@ -17,6 +17,15 @@
 name: App
 
 options:
+  # Inert, and kept on purpose. XcodeGen applies bundleIdPrefix only to a
+  # target that sets no PRODUCT_BUNDLE_IDENTIFIER of its own, and all six
+  # targets below set one from $(BUNDLE_ID) — measured, not inferred:
+  # project.pbxproj is byte-identical with this line removed and contains no
+  # `com.example`. It stays because the template's manifest (apple-shipkit
+  # c6c324f, #281) carries the same line and this file is kept converging
+  # with it; it is the template's placeholder, not a fork value. Tuist has no
+  # project-level prefix (bundleId: is per target), so app/Project.swift
+  # rightly has no counterpart (03-REVIEW IN-02).
   bundleIdPrefix: com.example
   deploymentTarget:
     iOS: "17.0"

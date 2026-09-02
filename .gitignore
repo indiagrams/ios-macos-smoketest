@@ -15,10 +15,17 @@ app/macOS/Generated-Info.plist
 
 # XcodeGen-generated project (regenerated from project.yml)
 # Tuist-generated project + workspace + cache (regenerated from app/Project.swift)
-app/SmokeApp.xcodeproj
-app/SmokeApp.xcworkspace
+app/App.xcodeproj
+app/App.xcworkspace
 app/Derived/
 .tuist/
+
+# Per-clone signing identity — never tracked (IDENT-08). The Apple Team ID lives
+# here and nowhere in tracked build or signing config. app/Identity.xcconfig
+# includes it optionally (`#include? "Local.xcconfig"`): on a fresh clone the
+# include is silent and DEVELOPMENT_TEAM is undefined, and it is
+# tools/preflight-identity.rb --require-team that names the missing file.
+app/Local.xcconfig
 
 # Editor
 .vscode/

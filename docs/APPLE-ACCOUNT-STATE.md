@@ -96,7 +96,7 @@ rendered page is what these rows are for.
 
 | Fact | Value | Measured (ISO-8601) | Against (team / key / record id) | Valid until | Re-check command |
 |---|---|---|---|---|---|
-| Team id | `G5H628C6WR` | 2026-09-01 | team `G5H628C6WR` | per phase | `grep FASTLANE_TEAM_ID .bootstrap.env` |
+| Team id | `G5H628C6WR` — the same value in both consumers: `FASTLANE_TEAM_ID` in the gitignored `.bootstrap.env` (the fastlane path) and `DEVELOPMENT_TEAM` in the gitignored `app/Local.xcconfig` (the build path; absent from every tracked build or signing file by design, IDENT-08) | 2026-09-02 | team `G5H628C6WR` | per phase | `grep FASTLANE_TEAM_ID .bootstrap.env; grep DEVELOPMENT_TEAM app/Local.xcconfig` |
 | Enrollment type | `organization` — `Indiagram LLC` | 2026-09-01 | team `G5H628C6WR` | per phase | App Store Connect, Business, Account Information |
 | Account holder access | `Account Holder + Admin` | 2026-09-01 | team `G5H628C6WR` | per phase | App Store Connect, Users and Access, People |
 | Paid Apps Agreement | `Active` — `May 17, 2026 – May 16, 2027` | 2026-09-01 | team `G5H628C6WR` | 2027-05-16 | `/opt/homebrew/opt/ruby@3.3/bin/bundle exec ruby bin/verify-asc-agreements.rb` |

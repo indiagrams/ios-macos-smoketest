@@ -101,3 +101,23 @@ jobs:
           # context, which branch protection does not require, so it would run and
           # report and block nothing.
           ruby test/asc_probe_test.rb
+          # Identity gate and identity guard (Phase 3, IDENT-07 / IDENT-09). The
+          # preflight is criterion 5's gate: every required variable in
+          # app/Identity.xcconfig present and non-empty, exit 3 naming the missing one.
+          # Running it here is the ONLY coverage the Tuist path has — Tuist has no
+          # pre-generation hook, and a guard embedded in Project.swift is skipped
+          # whenever the manifest cache is warm — whereas XcodeGen runs it itself via
+          # options.preGenCommand. test/identity_test.rb is criterion 1's and
+          # criterion 4's durable guard: the five named files carry no SmokeApp
+          # literal, the Team ID is in no tracked build config, preGenCommand is wired
+          # and cache-proof, and Local.xcconfig is gitignored while Identity.xcconfig
+          # is not. Both are Ruby core with zero require lines, which is what keeps
+          # bundler-cache: false above honest. WHAT THIS STEP CANNOT DO: this runner
+          # is ubuntu-latest with no Xcode, so it runs the preflight's text checks and
+          # the Ruby assertions but cannot run the -showBuildSettings parity diff
+          # (tools/identity-parity.rb). Criterion 3's gate is a local command whose
+          # output is recorded as dated evidence, because all three macos-15 jobs live
+          # in template-owned pr.yml and this repository has no fork-owned macOS CI
+          # surface. A green badge here says nothing about generator parity.
+          ruby tools/preflight-identity.rb
+          ruby test/identity_test.rb

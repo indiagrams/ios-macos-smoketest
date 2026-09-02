@@ -67,8 +67,11 @@
 #        | scheme, or a configuration was absent; a generator exited non-zero
 #        | (a signal-killed one reports 128+N); Tuist exited 0 but left
 #        | XcodeGen's project.pbxproj byte-identical, so there was nothing
-#        | to compare; the settings dump was ambiguous; or --skip-generate
-#        | was given
+#        | to compare; the settings dump was ambiguous; --skip-generate was
+#        | given; OR the final `xcodegen generate` that restores the tree
+#        | failed — a parity verdict may have been printed above, but exit 0
+#        | also vouches for the on-disk project being XcodeGen's, and after
+#        | a failed restore it is Tuist's
 #
 # Exit 2 is the tools/asc-probe.rb:159-171 idiom. A query that matches nothing
 # and an assertion that therefore never executes is the classic vacuous-truth
@@ -146,7 +149,8 @@ USAGE = <<~TXT
     -h, --help             print this and exit 0
   exit 0 = every scheme x configuration pair identical across XcodeGen and Tuist
   exit 1 = at least one pair differed (diff printed), or bad argv
-  exit 2 = no verdict: absent tool/project/scheme/configuration, generator failure, or --skip-generate
+  exit 2 = no verdict: absent tool/project/scheme/configuration, generator failure, a failed final
+           xcodegen restore (the tree is Tuist's), or --skip-generate
 TXT
 
 # Every failure path is explicit and loud, on stderr, prefixed.
@@ -203,10 +207,19 @@ end
 # Run an argv array, capturing stdout and stderr separately. No shell.
 # stderr is drained on its own thread so a chatty generator cannot deadlock
 # the pipe while stdout is being read.
+#
+# The command is passed as [cmd, argv0] rather than splatted: Process.spawn
+# with a single string argument is the STRING form, which Ruby hands to
+# /bin/sh whenever the string carries a metacharacter, so `Process.spawn(*argv)`
+# on a one-element argv would have been a shell string after all — latent, as
+# every caller here passes two or more elements, but contradicting the header's
+# unconditional promise (03-REVIEW IN-04, demonstrated: the splat ran
+# `true; echo INJECTED` through the shell, this form raises ENOENT on it). The
+# two-element array form is never shell-interpreted, whatever argv holds.
 def capture(argv, chdir: ROOT)
   out_r, out_w = IO.pipe
   err_r, err_w = IO.pipe
-  pid = Process.spawn(*argv, chdir: chdir, in: File::NULL, out: out_w, err: err_w)
+  pid = Process.spawn([argv[0], argv[0]], *argv[1..], chdir: chdir, in: File::NULL, out: out_w, err: err_w)
   out_w.close
   err_w.close
   err_thread = Thread.new { err_r.read }
@@ -406,8 +419,13 @@ def main(argv)
   end
 
   tuist_ran = false
+  restore_status = nil
   xcodegen_argv = %w[xcodegen generate]
-  begin
+  # The parity verdict (0 or 1) is the value of this begin block; a no_verdict
+  # inside it exits 2 through the ensure. The restore's own status is kept
+  # separately and judged after the block, because exit 0 must vouch for the
+  # tree as well as for parity — see the check below the ensure.
+  verdict = begin
     run_generator("xcodegen", xcodegen_argv)
     project = assert_project_present(opts[:project_name])
     xcodegen_store = extract_all(project, opts[:schemes], opts[:configurations])
@@ -468,16 +486,33 @@ def main(argv)
     # already in the XcodeGen state (or in whatever state an earlier no_verdict
     # left it, which is at most an XcodeGen project).
     if tuist_ran
-      out, err, status = capture(xcodegen_argv, chdir: APP_DIR)
-      if status.zero?
+      out, err, restore_status = capture(xcodegen_argv, chdir: APP_DIR)
+      if restore_status.zero?
         puts "identity-parity: tree left in the XcodeGen state (xcodegen generate re-run, exit 0); " \
              "Tuist's app/#{opts[:project_name]}.xcworkspace and app/Derived/ remain, gitignored"
       else
-        warn "identity-parity: final xcodegen generate exited #{status}; the on-disk project is Tuist's\n" \
+        warn "identity-parity: final xcodegen generate exited #{restore_status}; the on-disk project is Tuist's\n" \
              "#{(out + err).strip}"
       end
     end
   end
+
+  # A failed restore is not a parity verdict of either kind: the diff above
+  # still stands, but exit 0 would tell ci/local-check.sh and the pre-push
+  # hook that the project on disk is XcodeGen's when it is Tuist's, and a
+  # green exit that leaves the wrong project behind is the stale-project
+  # false green from the other direction (03-REVIEW IN-06). So the run ends
+  # in the "I don't know" code, naming the tree state and the verdict that
+  # was reached. Unreachable when tuist never ran (restore_status stays nil)
+  # or when the block exited through no_verdict (already 2).
+  unless restore_status.nil? || restore_status.zero?
+    warn "identity-parity: no verdict: the final xcodegen generate exited #{restore_status}, so " \
+         "app/#{opts[:project_name]}.xcodeproj on disk is Tuist's, not XcodeGen's; the parity verdict " \
+         "printed above (#{verdict.zero? ? 'PARITY OK' : 'PARITY FAILED'}) stands, but the tree does not — " \
+         "run `cd app && xcodegen generate` before trusting ci/local-check.sh or the pre-push hook"
+    return 2
+  end
+  verdict
 end
 
 exit main(ARGV)

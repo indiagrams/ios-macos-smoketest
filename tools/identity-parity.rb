@@ -64,8 +64,11 @@
 #   1    | at least one pair differed (the unified diff is printed), or the
 #        | argv was rejected (usage printed)
 #   2    | no parity verdict was reached: a generator binary, the project, a
-#        | scheme, or a configuration was absent; a generator exited non-zero;
-#        | the settings dump was ambiguous; or --skip-generate was given
+#        | scheme, or a configuration was absent; a generator exited non-zero
+#        | (a signal-killed one reports 128+N); Tuist exited 0 but left
+#        | XcodeGen's project.pbxproj byte-identical, so there was nothing
+#        | to compare; the settings dump was ambiguous; or --skip-generate
+#        | was given
 #
 # Exit 2 is the tools/asc-probe.rb:159-171 idiom. A query that matches nothing
 # and an assertion that therefore never executes is the classic vacuous-truth
@@ -80,7 +83,9 @@
 # inspect-only: it prints the resolved identity block of the project on disk
 # and exits 2, stating that no cross-generator comparison was made. Use it to
 # read resolved settings, or to observe the absent-project path without
-# generating; never as a gate.
+# generating; never as a gate. The main path guards the same shape from the
+# other side: it fingerprints project.pbxproj after XcodeGen and refuses, exit
+# 2, if Tuist exited 0 without changing a byte of it.
 #
 # Every run prints the installed xcodegen / tuist / xcodebuild versions beside
 # the pins read from .tool-versions. A recorded fact without the tool version
@@ -407,9 +412,25 @@ def main(argv)
     project = assert_project_present(opts[:project_name])
     xcodegen_store = extract_all(project, opts[:schemes], opts[:configurations])
 
+    # Fingerprint XcodeGen's pbxproj before Tuist runs. The comparison below
+    # is "the project on disk after each generator", so a `tuist generate`
+    # that exits 0 without rewriting the file — a Tuist/Config.swift or
+    # Workspace.swift redirecting output, a wrong --project-name, a future
+    # cache skip — would make the second extraction read XcodeGen's project
+    # again and the verdict a false PARITY OK: the stale-project false green
+    # the header says this tool exists to eliminate, closed for --skip-generate
+    # and, until this check, open on the main path (03-REVIEW WR-04). XcodeGen
+    # and Tuist never emit identical pbxproj bytes (their object ids differ),
+    # so an unchanged file can only mean nothing was regenerated.
+    pbxproj_after_xcodegen = File.binread(File.join(project, "project.pbxproj"))
+
     tuist_ran = true
     run_generator("tuist", %w[tuist generate --no-open])
     project = assert_project_present(opts[:project_name])
+    if File.binread(File.join(project, "project.pbxproj")) == pbxproj_after_xcodegen
+      no_verdict "tuist generate exited 0 but #{project}/project.pbxproj is byte-identical to XcodeGen's " \
+                 "output; nothing was regenerated, so a comparison would read the same project twice"
+    end
     tuist_store = extract_all(project, opts[:schemes], opts[:configurations])
 
     differing = 0

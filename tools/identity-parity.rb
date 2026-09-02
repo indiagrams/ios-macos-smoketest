@@ -955,11 +955,11 @@ def run_parity(opts, rows, build_root, reuse)
     pairs = opts[:schemes].length * opts[:configurations].length
     bundles = rows.length
     covered = "#{pairs} scheme x configuration pair(s) across XcodeGen and Tuist; " \
-              "#{bundles * 2} unit-test bundle(s) at #{ARTEFACT_CONFIGURATION} " \
+              "#{bundles} unit-test bundle(s) per generator at #{ARTEFACT_CONFIGURATION} " \
               "(TEST_HOST vs the host target's resolved path, BUNDLE_LOADER vs TEST_HOST, " \
               "and TEST_HOST across generators)"
     covered += if build_root
-                 "; #{bundles * 2} built Info.plist(s) vs app/Identity.xcconfig on " \
+                 "; #{bundles} built Info.plist(s) per generator vs app/Identity.xcconfig on " \
                  "#{PLIST_EXPECTATIONS.length} keys each"
                else
                  "; the built Info.plist was NOT read"

@@ -39,7 +39,7 @@
 #
 #     FAIL <group> <path>: <message>
 #
-# where <group> is G1..G5 and <path> is the file the assertion is about, or a
+# where <group> is G1..G6 and <path> is the file the assertion is about, or a
 # single `-` when the assertion is not file-scoped (the G4 cache-flag sweep and
 # the G3 path-scoped git-grep sweep).
 #
@@ -92,6 +92,15 @@ FORBIDDEN_LITERAL = "SmokeApp"
 IDENTITY_XCCONFIG = "app/Identity.xcconfig"
 LOCAL_XCCONFIG    = "app/Local.xcconfig"
 REQUIRED_VARS     = %w[BUNDLE_ID APP_PRODUCT_NAME DISPLAY_NAME COPYRIGHT].freeze
+
+# ─── G6 vocabulary — the one identity value held in TWO tracked files ────────
+# COPYRIGHT reaches the built plists from Identity.xcconfig; the App Store
+# listing's copyright is what `deliver` reads from this file (Fastfile
+# `copyright:`; overridable by ASC_COPYRIGHT). Nothing generates one from the
+# other, so the two are asserted equal here (D-51: the organisation name must
+# match Apple's enrollment record character for character — in the binary AND
+# on the listing).
+COPYRIGHT_TXT     = "fastlane/metadata/copyright.txt"
 
 # ─── G3 vocabulary — the Team ID and where it must never appear ──────────────
 # TEAM_ID is the literal VALUE. The assertions below use the value, never the
@@ -179,6 +188,19 @@ def defines_non_empty?(text, key)
     value = line[/\A[ \t]*#{Regexp.escape(key)}[ \t]*=(.*)/, 1]
     !value.nil? && !value.sub(%r{//.*}, "").strip.empty?
   end
+end
+
+# The resolved value of `key` as Xcode would read it: the LAST assignment wins
+# (xcconfig semantics), the `//` comment is cut off, surrounding whitespace is
+# stripped. nil when the key is never assigned. Same cut as defines_non_empty?
+# on purpose — the two must agree on what "the value" is.
+def xcconfig_value(text, key)
+  value = nil
+  text.each_line do |line|
+    raw = line[/\A[ \t]*#{Regexp.escape(key)}[ \t]*=(.*)/, 1]
+    value = raw.sub(%r{//.*}, "").strip unless raw.nil?
+  end
+  value
 end
 
 # ─── G1: app/Identity.xcconfig exists, is tracked, defines four variables ────
@@ -321,6 +343,25 @@ assert local_ignored.zero?, "G5", LOCAL_XCCONFIG,
 _, identity_ignored = run(%w[git check-ignore -q --] + [IDENTITY_XCCONFIG])
 assert identity_ignored == 1, "G5", IDENTITY_XCCONFIG,
        "is NOT gitignored (git check-ignore -q must exit 1; observed #{identity_ignored})"
+
+# ─── G6: the store-facing copyright equals the build-facing one (D-51) ───────
+
+puts
+puts "G6 — #{COPYRIGHT_TXT} carries the same string as COPYRIGHT in #{IDENTITY_XCCONFIG}:"
+
+# Two tracked copies of one value and no generator between them (03-REVIEW
+# WR-07): an edit to either one would silently make the App Store listing and
+# the binary's About box disagree, and D-51's character-for-character match
+# with the enrollment name is only as good as the copy nobody re-checked.
+copyright_txt_exists = File.exist?(File.join(ROOT, COPYRIGHT_TXT))
+assert copyright_txt_exists, "G6", COPYRIGHT_TXT, "exists"
+
+xcconfig_copyright = xcconfig_value(identity_text, "COPYRIGHT")
+listing_copyright  = copyright_txt_exists ? read_utf8(COPYRIGHT_TXT).strip : nil
+assert !xcconfig_copyright.nil? && xcconfig_copyright == listing_copyright,
+       "G6", COPYRIGHT_TXT,
+       "equals COPYRIGHT in #{IDENTITY_XCCONFIG} after its // comment is cut off " \
+       "(xcconfig=#{xcconfig_copyright.inspect}, file=#{listing_copyright.inspect})"
 
 # ─── verdict ─────────────────────────────────────────────────────────────────
 

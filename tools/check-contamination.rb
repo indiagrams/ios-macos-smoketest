@@ -62,20 +62,23 @@
 #
 # ─── CONTRACT ────────────────────────────────────────────────────────────────────────
 #
-#   Usage: ruby tools/check-contamination.rb [--root DIR] [--allowlist PATH] [--quiet]
+#   Usage: ruby tools/check-contamination.rb [--root DIR] [--allowlist PATH]
+#                                            [--domain-allowlist PATH] [--quiet]
 #
-#   --root / --allowlist are FIXTURE KNOBS for test/contamination_test.rb. When either is
-#   given the gate says so out loud on stdout, so no CI log can show a green run that was
-#   secretly taken against a throwaway tree (the shape bin/preflight-identity.rb's
-#   --config banner established).
-#   --quiet suppresses the summary line only; FAIL lines and the override banner always print.
+#   --root / --allowlist / --domain-allowlist are FIXTURE KNOBS for
+#   test/contamination_test.rb. When any is given the gate says so out loud on stdout, so no
+#   CI log can show a green run that was secretly taken against a throwaway tree (the shape
+#   bin/preflight-identity.rb's --config banner established). In that override mode a
+#   missing --domain-allowlist means NO domain rows rather than the tracked ones — see the
+#   note beside the argument parsing.
+#   --quiet suppresses the summary lines only; FAIL lines and the override banner always print.
 #
 #   | Exit | Meaning                                                                     |
 #   |------|-----------------------------------------------------------------------------|
 #   | 0    | every occurrence is covered by a valid row; no allowlist row is broken       |
 #   | 1    | at least one FAIL line was printed                                          |
 #   | 2    | NO VERDICT — `CANNOT RUN: …` on stderr. git ls-files failed or listed        |
-#   |      | nothing, or the allowlist could not be read. "The tree was never scanned"    |
+#   |      | nothing, or either allowlist could not be read. "The tree was never scanned" |
 #   |      | must never be readable as "the tree was checked".                            |
 #
 #   Failure lines — one line each, no leading whitespace (five Phase 3 negative controls
@@ -87,9 +90,63 @@
 #     FAIL allowlist <path>: undated or malformed row
 #     FAIL allowlist <path>: duplicate row
 #     FAIL allowlist <path>: path-level row not permitted (only CHANGELOG.md)
+#     FAIL pii <path>:<line>: <address> — domain <domain> not allowlisted
+#     FAIL pii <path>:<line>: <address> — local part <lp> not permitted for <domain>
+#     FAIL allowlist <domain>: domain row malformed (wildcard or not a hostname)
+#     FAIL allowlist <domain>: undated or malformed row
+#     FAIL allowlist <domain>: entry matches nothing (no address on this domain in the tree)
+#     FAIL allowlist <domain>: duplicate row for local part <lp>
+#     FAIL vars <path>:<line>: reads vars.* outside the allowlist
+#     FAIL vars <path>: expected <N> vars.* line(s), found <M>
 #
 #   Summary: contamination: <F> files scanned, <A> allowlisted, <U> unallowed,
 #            <S> allowlist failures, <B> skipped-binary
+#            pii: <P> addresses seen, <U> unallowed; vars: <V> reads, <U> unallowed
+#
+# ─── PERSONAL INFORMATION, FAIL-CLOSED BY DOMAIN (D-67) ──────────────────────────────
+# The second rule this file carries. Any address-shaped string in any tracked file FAILS
+# unless its domain has a dated, reasoned row in tools/domain-allowlist.txt, and the row
+# may pin the local part. That direction is the whole point: a deny-list of known-bad
+# values catches only what someone already thought of and is green for every address
+# nobody has thought about yet, which is precisely the case this gate exists for.
+#
+# The address regex is test/docs_structure_test.rb:671's, verbatim. That sweep covers five
+# fork-owned documents; this one covers the tree, and tree-wide the same regex matches the
+# macOS icon filenames under app/macOS/Assets.xcassets — `icon_<size>@2x.png` is
+# `local-part @ domain . tld` to a regex and is not an address to anyone else. Measured
+# 2026-09-02: twelve such matches across five sizes in four files.
+#
+# So NOT_AN_ADDRESS removes that class from a line BEFORE the address regex runs. It is
+# ONE anchored expression, not a path exemption and not a domain row, because:
+#
+#   * a path exemption would blind the gate to a real address in the same file;
+#   * a `2x.png` DOMAIN row would admit `anything@2x.png` and read as if `.png` were a TLD;
+#   * and the rule has to be provably load-bearing rather than decorative — remove it and
+#     the twelve icon filenames go red, which is a recorded control in this plan's
+#     evidence, while a `@2x.io` lookalike is STILL reported, which is a test case.
+#
+# WHAT IS DELIBERATELY NOT A ROW. The org domain is admitted through exactly one local
+# part, the published contact used by SECURITY.md and CODE_OF_CONDUCT.md. The two other
+# org addresses this fork had grown — a bootstrap contact and a throwaway git author, both
+# spelled with the repository's own name — are NOT rows: they were replaced with
+# `.invalid` addresses (RFC 2606) at their source on 2026-09-02, and the absence of a row
+# is what makes IDENT-06's removal enforced rather than remembered. Adding a second row on
+# the org domain would silently re-admit them; test/contamination_test.rb asserts there is
+# exactly one, and asserts which local part it names.
+#
+# ─── NO WORKFLOW READS vars.* OUTSIDE ONE FILE (D-68) ────────────────────────────────
+# ROADMAP Phase 4 criterion 2 says a fork's pull request behaves identically to an internal
+# one. D-56 deleted the APP_NAME / BUNDLE_ID repository variables, which is what made that
+# true; VARS_ALLOW is what keeps it true. Exactly three lines of
+# .github/workflows/dependabot-automerge.yml may read `vars.`, and every other read under
+# .github/workflows/ fails. The count is frozen here, so a fourth read cannot be added
+# under cover of the one allowlisted file either.
+#
+# Scope is `.github/workflows/` ONLY. `vars.` in a doc or a script is prose about
+# workflows, not a workflow-context read, and a gate that flagged prose would be trained
+# away within a phase. The one thing this cannot see is a workflow deleted outright, so the
+# count check applies whenever the tree has any tracked workflow at all: a tree with
+# workflows but without the allowlisted one reports `found 0` rather than `0 reads`.
 #
 # ─── WHAT THIS CHECK CANNOT SEE ──────────────────────────────────────────────────────
 #   * Untracked files. The subject is what is IN the repository; `git ls-files` defines it.
@@ -122,7 +179,28 @@ PATH_LEVEL_ALLOWED = %w[CHANGELOG.md].freeze
 DEFAULT_ALLOWLIST  = "tools/identity-allowlist.txt"
 BINARY_PROBE_BYTES = 8000
 ISO_DATE           = /\A\d{4}-\d{2}-\d{2}\z/
-USAGE              = "Usage: ruby tools/check-contamination.rb [--root DIR] [--allowlist PATH] [--quiet]"
+
+# D-67. EMAIL is test/docs_structure_test.rb:671's expression, character for character —
+# one regex for the tree, not a second opinion about what an address looks like.
+EMAIL                     = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/
+# The one non-address class: macOS icon filenames. Anchored on `@<digit>x.png` so a
+# lookalike on any real TLD is still reported. Removing this entry must turn the icon
+# filenames red — that is the proof it is load-bearing, and it is a recorded control.
+NOT_AN_ADDRESS            = [/[A-Za-z0-9_]+@\dx\.png\b/].freeze
+DEFAULT_DOMAIN_ALLOWLIST  = "tools/domain-allowlist.txt"
+# A lower-case hostname with a TLD. No `*`, no bare label: a catch-all row is the one edit
+# that would turn a fail-closed list into a blanket exemption.
+DOMAIN_RE                 = /\A[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}\z/
+LOCAL_RE                  = /\A(\*|[A-Za-z0-9._%+-]+)\z/
+
+# D-68. Frozen, never derived from the tree: the only workflow permitted to read `vars.`,
+# and exactly how many lines of it may.
+VARS                      = /vars\./
+VARS_ALLOW                = { ".github/workflows/dependabot-automerge.yml" => 3 }.freeze
+VARS_SCOPE                = ".github/workflows/"
+
+USAGE              = "Usage: ruby tools/check-contamination.rb [--root DIR] [--allowlist PATH] " \
+                     "[--domain-allowlist PATH] [--quiet]"
 
 def no_verdict(message)
   warn "CANNOT RUN: #{message}"
@@ -131,31 +209,49 @@ end
 
 # ─── arguments ───────────────────────────────────────────────────────────────────────
 
-root      = nil
-allowlist = nil
-quiet     = false
-argv      = ARGV.dup
+root       = nil
+allowlist  = nil
+domain_arg = nil
+quiet      = false
+argv       = ARGV.dup
 
 until argv.empty?
   arg = argv.shift
   case arg
-  when "--root"      then root      = argv.shift or no_verdict("--root needs a directory")
-  when "--allowlist" then allowlist = argv.shift or no_verdict("--allowlist needs a path")
-  when "--quiet"     then quiet     = true
+  when "--root"       then root       = argv.shift or no_verdict("--root needs a directory")
+  when "--allowlist"  then allowlist  = argv.shift or no_verdict("--allowlist needs a path")
+  when "--domain-allowlist"
+    domain_arg = argv.shift or no_verdict("--domain-allowlist needs a path")
+  when "--quiet"      then quiet      = true
   when "-h", "--help" then puts USAGE
                            exit 0
   else no_verdict("unknown argument #{arg.inspect}. #{USAGE}")
   end
 end
 
-override  = !root.nil? || !allowlist.nil?
+override  = !root.nil? || !allowlist.nil? || !domain_arg.nil?
 repo_root = File.expand_path("..", __dir__)
 root      = root.nil? ? repo_root : File.expand_path(root)
 allowlist = allowlist.nil? ? File.join(repo_root, DEFAULT_ALLOWLIST) : File.expand_path(allowlist)
 
+# The two fixture knobs go together. In override mode a missing --domain-allowlist means
+# NO domain rows, not the tracked ones: judging a throwaway tree against the real rows
+# would report every one of them stale and would say nothing about either file. Outside
+# override mode the tracked list is the only list.
+domain_allowlist = if !domain_arg.nil?
+                     File.expand_path(domain_arg)
+                   elsif override
+                     nil
+                   else
+                     File.join(repo_root, DEFAULT_DOMAIN_ALLOWLIST)
+                   end
+
 # Out loud, on stdout, before anything else: a green line in a CI log must never be
 # ambiguous about which tree produced it.
-puts "! contamination: scanning #{root} with #{allowlist} (override) — not the tracked tree" if override
+if override
+  puts "! contamination: scanning #{root} with #{allowlist} and " \
+       "#{domain_allowlist || 'no domain rows'} (override) — not the tracked tree"
+end
 
 # ─── the tracked file list ───────────────────────────────────────────────────────────
 # Argv array, never a shell string. `git ls-files -z` is what defines "in the repository";
@@ -175,9 +271,13 @@ no_verdict("git ls-files listed no tracked files in #{root}") if files.empty?
 
 # ─── the sweep ───────────────────────────────────────────────────────────────────────
 
-scanned        = 0
-skipped_binary = 0
-hits           = {} # rel => [count, first_line]
+scanned           = 0
+skipped_binary    = 0
+hits              = {} # rel => [count, first_line]
+addresses         = [] # [rel, line_number, address] — every occurrence, D-67
+vars_seen         = Hash.new(0) # rel => how many lines under .github/workflows/ read vars.
+vars_lines        = [] # [rel, line_number]
+workflows_present = false
 
 files.each do |rel|
   path = File.join(root, rel)
@@ -211,12 +311,29 @@ files.each do |rel|
   # .scrub("?") on each line is what keeps an almost-text tracked file from raising.
   count = 0
   first = nil
-  File.read(path, encoding: "UTF-8").each_line.with_index(1) do |line, number|
-    down = line.scrub("?").downcase
-    next unless LITERALS.any? { |literal| down.include?(literal) }
+  in_vars_scope = rel.start_with?(VARS_SCOPE)
+  workflows_present ||= in_vars_scope
 
-    count += 1
-    first ||= number
+  File.read(path, encoding: "UTF-8").each_line.with_index(1) do |line, number|
+    text = line.scrub("?")
+    down = text.downcase
+
+    # D-67. The non-address class is removed from the line BEFORE the address regex sees
+    # it, so an icon filename is never even counted as an address seen. The substitution
+    # is a space, not the empty string, so it cannot splice two neighbours into one match.
+    scrubbed = NOT_AN_ADDRESS.inject(text) { |acc, re| acc.gsub(re, " ") }
+    scrubbed.scan(EMAIL) { |match| addresses << [rel, number, match] }
+
+    # D-68. Workflows only: `vars.` anywhere else is prose about workflows.
+    if in_vars_scope && text.match?(VARS)
+      vars_seen[rel] += 1
+      vars_lines << [rel, number]
+    end
+
+    if LITERALS.any? { |literal| down.include?(literal) }
+      count += 1
+      first ||= number
+    end
   end
 
   hits[rel] = [count, first] if count.positive?
@@ -289,6 +406,111 @@ end
 
 unallowed = hits.reject { |rel, _| covered.key?(rel) }
 
+# ─── the domain allowlist, parsed and judged (D-67) ──────────────────────────────────
+# Grammar: domain<TAB>local-part<TAB>YYYY-MM-DD<TAB>reason. The domain must be a lower-case
+# hostname with a TLD and no `*`; the local part is `*` (any) or one exact local part.
+# Domains are compared case-insensitively and local parts EXACTLY: RFC 5321 §2.4 leaves
+# local-part case-sensitivity to the receiving host, so two spellings are two addresses.
+
+domain_rows     = []
+domain_failures = [] # [label, message]
+
+unless domain_allowlist.nil?
+  unless File.file?(domain_allowlist) && File.readable?(domain_allowlist)
+    no_verdict("domain allowlist is not a readable file: #{domain_allowlist}")
+  end
+
+  domain_text = begin
+    File.read(domain_allowlist, encoding: "UTF-8")
+  rescue SystemCallError => e
+    no_verdict("domain allowlist could not be read: #{domain_allowlist} (#{e.message})")
+  end
+
+  domain_seen = {}
+  domain_text.each_line.with_index(1) do |line, number|
+    raw = line.chomp
+    next if raw.strip.empty? || raw.lstrip.start_with?("#")
+
+    cells  = raw.split("\t", -1)
+    domain = cells[0].to_s.strip
+    local  = cells[1].to_s.strip
+    label  = domain.empty? ? "line #{number}" : domain
+
+    if cells.length != 4 || cells.any? { |cell| cell.strip.empty? } ||
+       cells[2].strip !~ ISO_DATE || local !~ LOCAL_RE
+      domain_failures << [label, "undated or malformed row"]
+      next
+    end
+
+    # Checked after the structural rules so that a catch-all row gets the message that
+    # names what is actually wrong with it, rather than a generic one.
+    unless domain =~ DOMAIN_RE
+      domain_failures << [label, "domain row malformed (wildcard or not a hostname)"]
+      next
+    end
+
+    if domain_seen.key?([domain, local])
+      domain_failures << [label, "duplicate row for local part #{local}"]
+      next
+    end
+    domain_seen[[domain, local]] = true
+
+    domain_rows << { domain: domain, local: local, date: cells[2].strip, reason: cells[3].strip }
+  end
+end
+
+# Every occurrence is judged, not every distinct address: two spellings on one line and the
+# same address in two files are two things a reader has to look at.
+pii_failures  = [] # [rel, line, message]
+domains_found = {}
+
+addresses.each do |rel, number, address|
+  local, _, domain = address.rpartition("@")
+  down             = domain.downcase
+  domains_found[down] = true
+
+  matching = domain_rows.select { |r| r[:domain] == down }
+  if matching.empty?
+    pii_failures << [rel, number, "#{address} — domain #{down} not allowlisted"]
+    next
+  end
+  next if matching.any? { |r| r[:local] == "*" || r[:local] == local }
+
+  pii_failures << [rel, number, "#{address} — local part #{local} not permitted for #{down}"]
+end
+
+# A row that matches nothing is the shape an exemption rots into, so it fails here exactly
+# as a stale identity row does. Staleness is judged on the DOMAIN alone, which is what the
+# message says: a row restricting a local part is doing its job even when every address on
+# that domain is currently refused.
+domain_rows.each do |r|
+  next if domains_found.key?(r[:domain])
+
+  domain_failures << [r[:domain], "entry matches nothing (no address on this domain in the tree)"]
+end
+
+# ─── the vars.* assertion (D-68) ─────────────────────────────────────────────────────
+
+vars_failures = [] # [label, message]
+
+vars_lines.each do |rel, number|
+  next if VARS_ALLOW.key?(rel)
+
+  vars_failures << ["#{rel}:#{number}", "reads vars.* outside the allowlist"]
+end
+
+# The count is checked only once the tree has workflows at all — a fixture repository with
+# none is not a repository that lost its dependabot configuration. Given workflows, a
+# missing allowlisted file reports `found 0` rather than passing silently.
+if workflows_present
+  VARS_ALLOW.each do |rel, expected|
+    found = vars_seen[rel]
+    next if found == expected
+
+    vars_failures << [rel, "expected #{expected} vars.* line(s), found #{found}"]
+  end
+end
+
 # ─── report ──────────────────────────────────────────────────────────────────────────
 
 unallowed.sort.each do |rel, (count, first)|
@@ -297,11 +519,23 @@ end
 failures.each do |path, message|
   puts "FAIL allowlist #{path}: #{message}"
 end
+domain_failures.each do |label, message|
+  puts "FAIL allowlist #{label}: #{message}"
+end
+pii_failures.each do |rel, number, message|
+  puts "FAIL pii #{rel}:#{number}: #{message}"
+end
+vars_failures.each do |label, message|
+  puts "FAIL vars #{label}: #{message}"
+end
 
 unless quiet
   puts "contamination: #{scanned} files scanned, #{allowlisted} allowlisted, " \
-       "#{unallowed.size} unallowed, #{failures.size} allowlist failures, " \
+       "#{unallowed.size} unallowed, #{failures.size + domain_failures.size} allowlist failures, " \
        "#{skipped_binary} skipped-binary"
+  puts "pii: #{addresses.size} addresses seen, #{pii_failures.size} unallowed; " \
+       "vars: #{vars_lines.size} reads, #{vars_failures.size} unallowed"
 end
 
-exit(unallowed.empty? && failures.empty? ? 0 : 1)
+exit(unallowed.empty? && failures.empty? && domain_failures.empty? &&
+     pii_failures.empty? && vars_failures.empty? ? 0 : 1)

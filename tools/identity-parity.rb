@@ -210,7 +210,14 @@ def capture(argv, chdir: ROOT)
   out_r.close
   err_r.close
   Process.wait(pid)
-  [utf8(out), utf8(err), $?.exitstatus]
+  # A child killed by a signal (a timeout, an OOM kill, an operator's `kill`)
+  # has exitstatus nil, and every caller's `status.zero?` would then raise
+  # NoMethodError — Ruby's exit 1, which the contract reserves for "a pair
+  # differed" (03-REVIEW WR-05, observed with SIGTERM). Report it as the
+  # shell's conventional 128+N instead, so the caller's non-zero branch fires
+  # and the run ends in the documented exit 2 naming the generator.
+  status = $?.exitstatus || (128 + $?.termsig.to_i)
+  [utf8(out), utf8(err), status]
 end
 
 # Pin UTF-8 explicitly rather than inheriting the locale (the fork's idiom

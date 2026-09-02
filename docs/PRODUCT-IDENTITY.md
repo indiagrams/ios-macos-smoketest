@@ -205,6 +205,40 @@ unresolved `$(COPYRIGHT)` reference, so it is not evidence of anything.
 | iOS `NSHumanReadableCopyright` | `Copyright © 2026 Indiagram LLC. All rights reserved.` — bytes `c2 a9` in the built plist, from both the XcodeGen and the Tuist project. Earlier the same day the key was **absent** (`PlistBuddy` reported `Does Not Exist`): the iOS target carried the copyright only as the `INFOPLIST_KEY_NSHumanReadableCopyright` build setting, which resolved in `-showBuildSettings` but is written into the plist only under `GENERATE_INFOPLIST_FILE = YES`, and the app targets have it `NO`. The `fix(03-05)` commit set `NSHumanReadableCopyright` as a plist key in both manifests' iOS blocks, as the macOS blocks already did, and dropped the inert setting; removing the key again reproduced `Does Not Exist`, restoring it brought the string back (UL-030) | 2026-09-02, after the fix | same, plus the Tuist-generated project for the same unsigned Simulator build |
 | Both platforms, the edit control | `DISPLAY_NAME` in `app/Identity.xcconfig` set to `Negative Control`: the rebuilt macOS and iOS apps both read `Negative Control`; reverted, both read `Shipkit Pipes` again. Six unsigned builds, six `PlistBuddy` reads | 2026-09-02 | the claim "editing the one tracked file changes the built app on both platforms", demonstrated in both directions |
 
+### Identity on a pull request from a fork
+
+**The word "fork" is doing two jobs on this page, and they are not the same job.** Everywhere
+above, "fork" means this repository's relationship to the `apple-shipkit` template — the
+fork-owned / template-owned file split. Here it means a GitHub *fork pull request*: a pull
+request whose head branch lives in a copy of this repository under a different account. That is
+the case where the identity mechanism could plausibly behave differently, because a fork pull
+request runs with an empty `secrets` context and a read-only token, so anything the build
+resolved from repository-level configuration rather than from tracked files would come back
+empty. Since the identity variables `APP_NAME` and `BUNDLE_ID` were deleted (D-56), nothing
+should. The row below is the run that checked, rather than the argument that it must be so.
+
+| Fact | Value | Measured (ISO-8601) | Against | Valid until | Re-check |
+|---|---|---|---|---|---|
+| A fork pull request passes all nine required contexts with no repository variable set | PR [#7](https://github.com/indiagrams/ios-macos-smoketest/pull/7), nine of nine `success`: `app (iOS device)`, `app (iOS Simulator)`, `app (Tuist iOS device)`, `app (Tuist iOS Simulator)`, `app (macOS)`, `app (Tuist macOS)`, `swiftlint` and `swiftformat` from run [33687882131](https://github.com/indiagrams/ios-macos-smoketest/actions/runs/33687882131), and `review notes` from run [33687882019](https://github.com/indiagrams/ios-macos-smoketest/actions/runs/33687882019). No run was held for workflow approval. Closed unmerged the same minute, `merged: false` | 2026-09-02 | base `indiagrams/ios-macos-smoketest` at `main` = `48427a7`, head `prakashrj/ios-macos-smoketest` at `b8eefb1` — a public fork created 21:56:11Z and deleted 22:07:14Z, eleven minutes, with `forks_count` 0 both before and after. The only repository variable on either side was `DEPENDABOT_AUTOMERGE`, which no required workflow reads | the next change to `.github/workflows/`, or to how identity is resolved | repeat the procedure: fork to a personal account, open one draft do-not-merge pull request against `main`, read all nine contexts, close it, delete the fork, and diff the repository listing before against after |
+
+**What this row does not say.** It is one run on one day, which is why the durable half of the
+same property is a gate rather than this table: `tools/check-contamination.rb` and the
+`review notes` job assert that no workflow resolves identity from the `vars` context at all, on
+every pull request. The measurement is what makes the gate's premise observed once; the gate is
+what keeps it true.
+
+**One CI fact this measurement corrected.** `.github/workflows/pr.yml` is triggered by
+`pull_request` with `branches: [main, master]`, and on a `pull_request` event a `branches:`
+filter matches the **base** branch, not the head. A pull request based on anything other than
+`main` or `master` therefore never dispatches the `PR` workflow, and eight of the nine required
+contexts never report — not red, absent. Every pull request this repository has ever had was
+based on `main`, so the filter had never been exercised the other way and its behaviour had
+never been observed here. `.github/workflows/review-notes.yml` deliberately carries no
+`branches:` filter, so `review notes` alone would still run. The related fact, also measured
+rather than read out of documentation: a `pull_request` event runs the workflow file from the
+merge ref, so it is the pull request's own copy of `pr.yml` that executes, not the base
+branch's.
+
 ### What is not gated, and what covers it
 
 With a required key removed from `app/Identity.xcconfig`, `xcodegen generate` exits 3 naming

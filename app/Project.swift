@@ -1,4 +1,4 @@
-// app/Project.swift — Tuist 4 manifest for the SmokeApp template stub.
+// app/Project.swift — Tuist 4 manifest for App, the generic-constant structure (D-47).
 //
 // 1:1 equivalent of app/project.yml. Both ship on `main`; bin/rename.sh's
 // `--generator=tuist|xcodegen` flag (see #38) selects which one a fresh
@@ -7,7 +7,15 @@
 //
 // When editing this file, also update app/project.yml (and vice versa).
 // The CI matrix is the source of truth — both must produce a
-// build-green SmokeApp.xcodeproj.
+// build-green App.xcodeproj, and `ruby tools/identity-parity.rb` must
+// report their resolved identity settings identical.
+//
+// Identity — bundle id, product name, display name, copyright — is NOT in
+// this file. Every identity setting below is a $(VAR) reference into
+// Identity.xcconfig, attached per configuration in `Project(settings:)`.
+// An xcconfig value is overridden by anything a manifest writes into the
+// .pbxproj, so a value here would silently win over the tracked source of
+// truth (IDENT-03, criterion 3).
 
 import ProjectDescription
 
@@ -19,9 +27,13 @@ let baseSettings: SettingsDictionary = [
     "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
     "MARKETING_VERSION": "0.0.1",
     "CURRENT_PROJECT_VERSION": "1",
-    // DEVELOPMENT_TEAM is auto-substituted by bin/rename.sh --team-id
-    // (auto-passed by bin/bootstrap-fork.rb from .bootstrap.env FASTLANE_TEAM_ID).
-    "DEVELOPMENT_TEAM": "TEAM_ID_PLACEHOLDER",
+    // DEVELOPMENT_TEAM is deliberately absent. The Apple Team ID resolves from
+    // the gitignored app/Local.xcconfig through Identity.xcconfig's optional
+    // include, and appears in no tracked build or signing configuration
+    // (IDENT-08, ROADMAP criterion 4). Setting it here would put the value in
+    // git and override the include. A clone without Local.xcconfig gets a
+    // named failure from `tools/preflight-identity.rb --require-team`, not
+    // from Xcode.
     "CODE_SIGN_STYLE": "Automatic",
     "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO",
     "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
@@ -30,7 +42,7 @@ let baseSettings: SettingsDictionary = [
 // MARK: - iOS app
 
 let iosInfoPlist: [String: Plist.Value] = [
-    "CFBundleDisplayName": "Indiagram Smoke App",
+    "CFBundleDisplayName": "$(DISPLAY_NAME)",
     "CFBundleShortVersionString": "$(MARKETING_VERSION)",
     "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
     "UILaunchScreen": .dictionary([:]),
@@ -51,11 +63,19 @@ let iosInfoPlist: [String: Plist.Value] = [
     "ITSAppUsesNonExemptEncryption": false,
 ]
 
+// The productName argument is not optional and must precede bundleId (Tuist
+// enforces the argument order). Tuist writes a per-target PRODUCT_NAME equal to the
+// target name when it is omitted, which would override the xcconfig and make
+// the two generators disagree (IDENT-04, D-49). Tuist prints a cosmetic
+// "Invalid product name '$(APP_PRODUCT_NAME)'" warning because it validates
+// the string before it knows it is a build-setting reference; generation
+// succeeds and PRODUCT_NAME resolves from Identity.xcconfig regardless.
 let iosTarget = Target.target(
-    name: "SmokeApp-iOS",
+    name: "App-iOS",
     destinations: [.iPhone, .iPad],
     product: .app,
-    bundleId: "com.indiagram.smokeapp",
+    productName: "$(APP_PRODUCT_NAME)",
+    bundleId: "$(BUNDLE_ID)",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .extendingDefault(with: iosInfoPlist),
     sources: ["Shared/**", "iOS/**"],
@@ -64,25 +84,25 @@ let iosTarget = Target.target(
         "Shared/PrivacyInfo.xcprivacy",
         "Shared/Localizable.xcstrings",
     ],
-    entitlements: .file(path: "iOS/SmokeApp.entitlements"),
+    entitlements: .file(path: "iOS/App.entitlements"),
     settings: .settings(base: [
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.indiagram.smokeapp",
+        "PRODUCT_BUNDLE_IDENTIFIER": "$(BUNDLE_ID)",
         "TARGETED_DEVICE_FAMILY": "1,2",
         "SUPPORTS_MACCATALYST": "NO",
         "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
-        "INFOPLIST_KEY_NSHumanReadableCopyright": "TODO Copyright © 2026 <Your Org>. All rights reserved.",
+        "INFOPLIST_KEY_NSHumanReadableCopyright": "$(COPYRIGHT)",
     ])
 )
 
 // MARK: - macOS app
 
 let macInfoPlist: [String: Plist.Value] = [
-    "CFBundleDisplayName": "Indiagram Smoke App",
+    "CFBundleDisplayName": "$(DISPLAY_NAME)",
     "CFBundleShortVersionString": "$(MARKETING_VERSION)",
     "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
     "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
     "LSApplicationCategoryType": "public.app-category.utilities",
-    "NSHumanReadableCopyright": "TODO Copyright © 2026 <Your Org>. All rights reserved.",
+    "NSHumanReadableCopyright": "$(COPYRIGHT)",
     "NSPrincipalClass": "NSApplication",
     // CFBundleIconName intentionally NOT set — its presence makes Sonoma+
     // prefer Assets.car AppIcon (which has actool's broken 4-size set).
@@ -108,10 +128,11 @@ let macIconScript: TargetScript = .post(
 )
 
 let macTarget = Target.target(
-    name: "SmokeApp-macOS",
+    name: "App-macOS",
     destinations: [.mac],
     product: .app,
-    bundleId: "com.indiagram.smokeapp",
+    productName: "$(APP_PRODUCT_NAME)",
+    bundleId: "$(BUNDLE_ID)",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .extendingDefault(with: macInfoPlist),
     sources: [
@@ -126,10 +147,10 @@ let macTarget = Target.target(
         "Shared/PrivacyInfo.xcprivacy",
         "Shared/Localizable.xcstrings",
     ],
-    entitlements: .file(path: "macOS/SmokeApp.entitlements"),
+    entitlements: .file(path: "macOS/App.entitlements"),
     scripts: [macIconScript],
     settings: .settings(base: [
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.indiagram.smokeapp",
+        "PRODUCT_BUNDLE_IDENTIFIER": "$(BUNDLE_ID)",
         // Suppress actool's auto-injection of CFBundleIconName=AppIcon.
         // Empty value = actool emits Assets.car as before but does not set
         // the key, so macOS reads CFBundleIconFile → our hand-rolled .icns.
@@ -138,18 +159,23 @@ let macTarget = Target.target(
 )
 
 // MARK: - UI test targets
+//
+// The four test-bundle identifiers derive from $(BUNDLE_ID) with a fixed
+// suffix, exactly as app/project.yml does, so the xcconfig stays at four keys
+// and no fork identity is literal here. No productName: on any test target —
+// each keeps its target name, so the two iOS .xctest bundles never collide.
 
 let iosUITestTarget = Target.target(
-    name: "SmokeAppUITests",
+    name: "AppUITests",
     destinations: [.iPhone, .iPad],
     product: .uiTests,
-    bundleId: "com.indiagram.smokeapp.uitests",
+    bundleId: "$(BUNDLE_ID).uitests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
     sources: ["UITests/**", "Shared/AccessibilityIdentifiers.swift"],
-    dependencies: [.target(name: "SmokeApp-iOS")],
+    dependencies: [.target(name: "App-iOS")],
     settings: .settings(base: [
-        "TEST_TARGET_NAME": "SmokeApp-iOS",
+        "TEST_TARGET_NAME": "App-iOS",
         // SnapshotHelper.swift is fastlane-shipped and predates Swift 6's
         // strict-by-default concurrency model. Pin this target to Swift 5
         // mode so the file compiles unmodified — base SWIFT_VERSION is 6.0.
@@ -159,16 +185,16 @@ let iosUITestTarget = Target.target(
 )
 
 let macUITestTarget = Target.target(
-    name: "SmokeAppMacOSUITests",
+    name: "AppMacOSUITests",
     destinations: [.mac],
     product: .uiTests,
-    bundleId: "com.indiagram.smokeapp.macuitests",
+    bundleId: "$(BUNDLE_ID).macuitests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
     sources: ["MacOSUITests/**", "Shared/AccessibilityIdentifiers.swift"],
-    dependencies: [.target(name: "SmokeApp-macOS")],
+    dependencies: [.target(name: "App-macOS")],
     settings: .settings(base: [
-        "TEST_TARGET_NAME": "SmokeApp-macOS",
+        "TEST_TARGET_NAME": "App-macOS",
         // AppStoreScreenshotTests overrides XCTestCase.setUpWithError /
         // tearDownWithError in a @MainActor class — Swift 6 errors on
         // main-actor-isolated mutation in nonisolated overrides. Pin this
@@ -181,72 +207,83 @@ let macUITestTarget = Target.target(
 // MARK: - Unit test targets (sanity tests; forks should add real tests here)
 
 let iosUnitTestTarget = Target.target(
-    name: "SmokeAppTests",
+    name: "AppTests",
     destinations: [.iPhone, .iPad],
     product: .unitTests,
-    bundleId: "com.indiagram.smokeapp.tests",
+    bundleId: "$(BUNDLE_ID).tests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
     sources: ["Tests/**"],
-    dependencies: [.target(name: "SmokeApp-iOS")],
+    dependencies: [.target(name: "App-iOS")],
     settings: .settings(base: [
-        "TEST_TARGET_NAME": "SmokeApp-iOS",
+        "TEST_TARGET_NAME": "App-iOS",
     ])
 )
 
 let macUnitTestTarget = Target.target(
-    name: "SmokeAppMacOSTests",
+    name: "AppMacOSTests",
     destinations: [.mac],
     product: .unitTests,
-    bundleId: "com.indiagram.smokeapp.mactests",
+    bundleId: "$(BUNDLE_ID).mactests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
     sources: ["MacOSTests/**"],
-    dependencies: [.target(name: "SmokeApp-macOS")],
+    dependencies: [.target(name: "App-macOS")],
     settings: .settings(base: [
-        "TEST_TARGET_NAME": "SmokeApp-macOS",
+        "TEST_TARGET_NAME": "App-macOS",
     ])
 )
 
 // MARK: - Schemes
 
 let iosScheme: Scheme = .scheme(
-    name: "SmokeApp-iOS",
+    name: "App-iOS",
     shared: true,
     // NB: only the main app target — UI tests live in testAction only.
-    // Including SmokeAppUITests here would compile it during plain
+    // Including AppUITests here would compile it during plain
     // `xcodebuild build` and trip strict-concurrency errors that the
     // per-target SWIFT_STRICT_CONCURRENCY=minimal override can't suppress.
-    buildAction: .buildAction(targets: ["SmokeApp-iOS"]),
+    buildAction: .buildAction(targets: ["App-iOS"]),
     testAction: .targets(
-        ["SmokeAppUITests", "SmokeAppTests"],
+        ["AppUITests", "AppTests"],
         configuration: .debug
     ),
-    runAction: .runAction(configuration: .debug, executable: "SmokeApp-iOS"),
+    runAction: .runAction(configuration: .debug, executable: "App-iOS"),
     archiveAction: .archiveAction(configuration: .release)
 )
 
 let macScheme: Scheme = .scheme(
-    name: "SmokeApp-macOS",
+    name: "App-macOS",
     shared: true,
-    buildAction: .buildAction(targets: ["SmokeApp-macOS"]),
+    buildAction: .buildAction(targets: ["App-macOS"]),
     testAction: .targets(
-        ["SmokeAppMacOSUITests", "SmokeAppMacOSTests"],
+        ["AppMacOSUITests", "AppMacOSTests"],
         configuration: .debug
     ),
-    runAction: .runAction(configuration: .debug, executable: "SmokeApp-macOS"),
+    runAction: .runAction(configuration: .debug, executable: "App-macOS"),
     archiveAction: .archiveAction(configuration: .release)
 )
 
 // MARK: - Project
 
+// `name:` governs both App.xcodeproj and App.xcworkspace (Tuist emits both;
+// XcodeGen emits only the .xcodeproj). Identity.xcconfig is the base layer of
+// each configuration; it ends in `#include? "Local.xcconfig"`, the gitignored
+// per-clone file that carries DEVELOPMENT_TEAM (IDENT-08).
 let project = Project(
-    name: "SmokeApp",
+    name: "App",
     options: .options(
         defaultKnownRegions: ["en"],
         developmentRegion: "en"
     ),
-    settings: .settings(base: baseSettings, defaultSettings: .recommended),
+    settings: .settings(
+        base: baseSettings,
+        configurations: [
+            .debug(name: "Debug", xcconfig: "Identity.xcconfig"),
+            .release(name: "Release", xcconfig: "Identity.xcconfig"),
+        ],
+        defaultSettings: .recommended
+    ),
     targets: [iosTarget, macTarget, iosUITestTarget, macUITestTarget, iosUnitTestTarget, macUnitTestTarget],
     schemes: [iosScheme, macScheme]
 )

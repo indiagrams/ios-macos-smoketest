@@ -384,9 +384,9 @@ ledger_head = ledger_rows.find { |r| cells(r).first == "ID" }
 
 assert !ledger_head.nil?, "#{UPSTREAM_LEDGER}: a table header row beginning with an ID column exists"
 
-head_cells = ledger_head ? cells(ledger_head) : []
-assert_eq head_cells,
-          ["ID", "Date", "Phase", "Learning", "SCOPE test", "Verdict", "PR", "Notes"],
+head_cells     = ledger_head ? cells(ledger_head) : []
+ledger_columns = ["ID", "Date", "Phase", "Learning", "SCOPE test", "Verdict", "PR", "Notes"]
+assert_eq head_cells, ledger_columns,
           "#{UPSTREAM_LEDGER}: the header names all eight columns in order"
 
 verdict_idx = head_cells.index("Verdict")
@@ -395,6 +395,20 @@ scope_idx   = head_cells.index("SCOPE test")
 data_rows = ledger_rows.select { |r| cells(r).first.to_s =~ /\AUL-\d{3}\z/ }
 assert !data_rows.empty?,
        "#{UPSTREAM_LEDGER}: at least one UL-NNN data row exists (found #{data_rows.length})"
+
+# The header's width is asserted above, but a header cannot vouch for the rows beneath
+# it — the same gap the fact tables close with their ragged check further down. A ledger
+# row missing its PR or Notes cell still renders, and every column the assertions below
+# index (Verdict, SCOPE test) still lines up, so it sailed through. Found 2026-09-02 by
+# deleting UL-023's PR cell as a negative control and watching this suite stay green
+# (evidence/03-04-T3-ledger-guard-controls.txt, control ledger-cell-count-unfixed-guard).
+ledger_ragged = data_rows.filter_map do |r|
+  c = cells(r)
+  "#{c.first} => #{c.length} cells" if c.length != ledger_columns.length
+end
+assert ledger_ragged.empty?,
+       "#{UPSTREAM_LEDGER}: every UL-NNN row has exactly #{ledger_columns.length} cells" \
+       "#{ledger_ragged.empty? ? '' : " — offending: #{ledger_ragged.join('; ')}"}"
 
 if verdict_idx
   # The closed-vocabulary gate. A seventh value here would not break anything

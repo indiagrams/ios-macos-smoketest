@@ -1,14 +1,14 @@
 // Stub unit tests for the macOS app. Forks should add real tests here.
 //
 // Run via:
-//   xcodebuild test -project app/SmokeApp.xcodeproj \
-//     -scheme SmokeApp-macOS -destination 'platform=macOS'
+//   xcodebuild test -project app/App.xcodeproj \
+//     -scheme App-macOS -destination 'platform=macOS'
 //
 // CI runs this on every PR via .github/workflows/pr.yml.
 
 import XCTest
 
-final class SmokeAppMacOSTests: XCTestCase {
+final class AppMacOSTests: XCTestCase {
     func testSmoke() {
         // Sanity: the unit-test target compiles, links, and the test bundle
         // launches under xcodebuild test. Replace with real assertions as

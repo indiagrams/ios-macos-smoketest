@@ -7,12 +7,16 @@
 # refuses to run on a checkout that cannot answer the question, and scans the
 # full git history reachable from HEAD.
 #
-# ─── WHY A PINNED BINARY AND NOT gitleaks-action ─────────────────────────────
-# IDENT-12 says "a pinned binary invocation, not gitleaks-action", and the
-# reason is licensing, not taste: `gitleaks-action` requires a commercial
-# licence for organisation-owned repositories, and this repository is
-# organisation-owned. The gitleaks BINARY is MIT (the tarball ships its
-# LICENSE; verified 2026-09-02). So the scan is the binary, fetched per run.
+# ─── WHY A PINNED BINARY AND NOT THE OFFICIAL GITHUB ACTION ──────────────────
+# IDENT-12 asks for a pinned binary invocation rather than the Action published
+# by the same project, and the reason is licensing, not taste: that Action
+# requires a commercial licence for organisation-owned repositories, and this
+# repository is organisation-owned. The gitleaks BINARY is MIT (the tarball
+# ships its LICENSE; verified 2026-09-02). So the scan is the binary, fetched
+# per run. The Action's literal name is deliberately not spelled here or in
+# .github/workflows/review-notes.yml, so that a grep for it cannot be satisfied
+# by a comment explaining its absence — the precaution that file already takes
+# with the writable-token variant of the pull_request trigger.
 #
 # ─── WHY THE HISTORY AND NOT THE WORKING TREE ────────────────────────────────
 # Measured, not assumed (04-RESEARCH §Q3): a high-entropy token committed in one

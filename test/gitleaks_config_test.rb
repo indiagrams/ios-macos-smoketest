@@ -482,8 +482,9 @@ if File.file?(workflow_path)
          "a step name states the pinned gitleaks version (what a reader sees in the Actions log)"
   if step_version && wrapper_version
     assert step_version == wrapper_version, "GL", WORKFLOW_REL,
-           "step name pins #{step_version.inspect}, #{WRAPPER_REL} executes " \
-           "#{wrapper_version.inspect} — the two statements of the pin disagree"
+           "the pin is stated twice and the two agree — step name " \
+           "#{step_version.inspect} vs #{WRAPPER_REL} #{wrapper_version.inspect} " \
+           "(one is what a reader sees in the Actions log, the other is what executes)"
   end
   assert workflow_text.include?("ruby tools/gitleaks.rb"), "GL", WORKFLOW_REL,
          "runs the wrapper"

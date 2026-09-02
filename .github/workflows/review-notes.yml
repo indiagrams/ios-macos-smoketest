@@ -71,6 +71,22 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # FULL HISTORY, for the secret scan at the end of this job. The default
+          # is a depth-1 checkout, and on one of those gitleaks reports
+          # `1 commits scanned … no leaks found` and exits 0 with a
+          # committed-then-deleted credential sitting in history (measured on a
+          # --depth 1 clone of this repository; recorded in
+          # .planning/…/evidence/04-09-T2-gitleaks-controls.txt). A shallow
+          # checkout does not make that scan fail, it makes it VACUOUS.
+          #
+          # THIS LINE IS NOT THE GATE. It is a config line anybody can delete
+          # with nothing going red, so tools/gitleaks.rb asserts
+          # `git rev-parse --is-shallow-repository` = false itself and exits 2
+          # if it is not. Deleting this line therefore breaks the job loudly
+          # instead of silently blinding it — which is the only reason it is
+          # safe to write a gate's precondition in YAML.
+          fetch-depth: 0
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: '3.3'
@@ -162,3 +178,58 @@ jobs:
           # the UL-003 failure class). Zero require lines, so bundler-cache: false still holds.
           ruby tools/check-contamination.rb
           ruby test/contamination_test.rb
+          # .gitleaks.toml's own gate (IDENT-12, D-62). The secret scan below can
+          # only report what its allowlist does not swallow, and one
+          # [[allowlists]] entry with a match-everything regex was observed
+          # turning an injected high-entropy token from exit 42 into exit 0 with
+          # the scan still printing "no leaks found". So the config is checked
+          # here, in the same job, BEFORE the scan runs: no catch-all or
+          # under-six-character regex, no line-target entry without paths, no
+          # description without an ISO date, no `paths` row that matches no
+          # tracked file, no key gitleaks would silently ignore — and the version
+          # pin agreeing between tools/gitleaks.rb and the step name below.
+          ruby test/gitleaks_config_test.rb
+
+      # A SEPARATE, NAMED STEP — and deliberately still a step in THIS job, not a
+      # job of its own. A new job would be a tenth status context, and branch
+      # protection on `main` requires nine; an unrequired context runs, reports,
+      # and blocks nothing (the UL-003 failure class this repository has already
+      # been bitten by). Inside `review notes` it inherits a required check.
+      #
+      # WHY THE BINARY AND NOT THE OFFICIAL ACTION (IDENT-12's whole point).
+      # The GitHub Action published by the same project requires a commercial
+      # licence for organisation-owned repositories, and this repository is
+      # organisation-owned. The gitleaks BINARY is MIT. Its literal name is
+      # deliberately not spelled anywhere in this file, and
+      # test/gitleaks_config_test.rb greps for it: a comment explaining why
+      # something is absent must not be able to make that grep fire. This file
+      # already takes the same precaution with the writable-token variant of the
+      # pull_request trigger, a few dozen lines above.
+      # So the wrapper downloads the pinned 8.30.1 release
+      # tarball and verifies its sha256 against the digest published in that
+      # release's own checksums file BEFORE unpacking or executing it, then
+      # checks the binary reports the pinned version. A tampered digest was
+      # observed refusing to run (exit 2) before any of this was trusted.
+      #
+      # The version is stated here AND in tools/gitleaks.rb: this is what a
+      # reader sees in the Actions log, that is what executes.
+      # test/gitleaks_config_test.rb fails if the two ever disagree.
+      #
+      # WHAT THIS STEP CANNOT SEE. It scans `--log-opts=HEAD`, the ancestry of
+      # the checked-out commit, which under fetch-depth: 0 on a pull_request is
+      # the merge ref — base branch plus the PR's commits. Commits on other refs
+      # are out of scope, and one specifically: 33f8e08, which carries a real
+      # given name in a fixture, is off `main` via squash and reachable only by
+      # SHA. This step does not cover it and nothing here should be read as
+      # saying it does; it remains a separate, non-blocking human action. Stale
+      # remote branches, dangling objects and reflogs are likewise unreachable,
+      # a secret that was never committed is not in git at all, and gitleaks
+      # does not detect a low-entropy fake or a credential format its rules have
+      # never seen.
+      #
+      # FAIL-CLOSED. If GitHub Releases is unavailable the wrapper exits 2 and
+      # this job goes red; every pull request is blocked until it returns. That
+      # is the intended trade for not caching an unverified binary, and a re-run
+      # is the remedy.
+      - name: Secret scan — pinned gitleaks 8.30.1, full history
+        run: ruby tools/gitleaks.rb

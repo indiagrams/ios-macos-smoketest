@@ -68,13 +68,29 @@
 #   /opt/homebrew/opt/ruby@3.3/bin/ruby test/identity_test.rb
 #   /opt/homebrew/opt/ruby@4.0/bin/ruby test/identity_test.rb
 #
-# Ruby core only. No `require` of any kind — not even stdlib — because the
-# `review notes` job runs with `bundler-cache: false` on the stated basis that
-# the generator and both suites are stdlib-only, and the plan's verify asserts
-# zero require lines. Every shell-out is an explicit argv array, never a shell
-# string. There is no broad rescue anywhere in this file.
+# Ruby core only. Exactly ONE `require`-family line — `require_relative
+# "../bin/lib/xcconfig"`, a relative load of a file in this repository that
+# itself has zero `require` lines, not even a stdlib one (test/xcconfig_test.rb
+# asserts that, so it cannot rot). Nothing outside Ruby core is loaded on any
+# path, which is the basis for the `review notes` job's `bundler-cache: false`.
+# Every shell-out is an explicit argv array, never a shell string. There is no
+# broad rescue anywhere in this file.
 
 ROOT = File.expand_path("..", __dir__)
+
+# The xcconfig questions below are asked through the SAME parser the gate uses
+# (D-57), not through a private copy of its predicate. Until 04-03 this file
+# carried a `defines_non_empty?` that was byte-identical to
+# bin/preflight-identity.rb's by design, with a comment telling the next reader
+# to keep them so — which is a guard that goes green whenever the gate is wrong
+# in the same way, and is the shape that produced UL-031 (both bodies shared the
+# `\S` regex and passed together on an identity Xcode resolved to nothing).
+# INDEPENDENCE NOW COMES FROM ELSEWHERE, and this is the load-bearing sentence:
+# test/xcconfig_test.rb pins the parser against 52 fixtures whose expected
+# values were OBSERVED with `xcodebuild -showBuildSettings` on Xcode 26.1.1, not
+# derived from any reader in this tree. A second hand-rolled predicate here
+# would not have been a second opinion; the Xcode probe is.
+require_relative "../bin/lib/xcconfig"
 
 # ─── G2 vocabulary — ROADMAP criterion 1's explicit file list ────────────────
 # Five files, in this order, asserted SEPARATELY: one reintroduction proves one
@@ -177,37 +193,6 @@ def line_numbers(text)
   text.lines.each_with_index.filter_map { |line, i| i + 1 if yield(line) }
 end
 
-# Anchored key match, then a non-empty test on the value AFTER its `//` comment
-# is cut off. `BUNDLE_ID =` with nothing after the equals sign fails here, which
-# is exactly the case Xcode silently treats as "" — and so does
-# `BUNDLE_ID = // disabled`, because in xcconfig `//` opens a comment at any
-# position in the value (observed on Xcode 26.1.1: `KEY = // x` resolves to "",
-# `KEY = value // note` to `value`, `KEY = https://a/b` to `https:`, a lone `/`
-# to `/`; evidence/03-SEC-T0306-comment-value-fix.txt). The earlier regex ended
-# in `\S`, which matched the first `/` of a commented-out value, so this guard
-# and the gate it guards passed together on an identity Xcode resolved to
-# nothing (03-SECURITY.md T-03-06 / F-01, 03-REVIEW.md WR-01). Byte-identical
-# body to bin/preflight-identity.rb's `defines_non_empty?` — keep them so.
-def defines_non_empty?(text, key)
-  text.each_line.any? do |line|
-    value = line[/\A[ \t]*#{Regexp.escape(key)}[ \t]*=(.*)/, 1]
-    !value.nil? && !value.sub(%r{//.*}, "").strip.empty?
-  end
-end
-
-# The resolved value of `key` as Xcode would read it: the LAST assignment wins
-# (xcconfig semantics), the `//` comment is cut off, surrounding whitespace is
-# stripped. nil when the key is never assigned. Same cut as defines_non_empty?
-# on purpose — the two must agree on what "the value" is.
-def xcconfig_value(text, key)
-  value = nil
-  text.each_line do |line|
-    raw = line[/\A[ \t]*#{Regexp.escape(key)}[ \t]*=(.*)/, 1]
-    value = raw.sub(%r{//.*}, "").strip unless raw.nil?
-  end
-  value
-end
-
 # ─── G1: app/Identity.xcconfig exists, is tracked, defines four variables ────
 
 puts "G1 — #{IDENTITY_XCCONFIG} is the tracked source of truth (D-45):"
@@ -220,9 +205,15 @@ assert tracked_exit.zero? && !tracked_out.strip.empty?,
        "G1", IDENTITY_XCCONFIG,
        "is tracked (git ls-files names it; exit=#{tracked_exit}, output=#{tracked_out.strip.inspect})"
 
-identity_text = identity_exists ? read_utf8(IDENTITY_XCCONFIG) : ""
+# The parser takes a PATH, not text: it follows `#include` relative to the
+# including file, which is the whole reason it is a parser and not a regex. The
+# `identity_exists` guard is not a second predicate — without it a missing file
+# would raise Errno::ENOENT here and replace every remaining FAIL line with a
+# backtrace, and the assertion directly above has already reported that defect.
+identity_path = File.join(ROOT, IDENTITY_XCCONFIG)
 REQUIRED_VARS.each do |key|
-  assert defines_non_empty?(identity_text, key),
+  value = identity_exists ? Xcconfig.value(identity_path, key) : nil
+  assert !value.nil? && !value.empty?,
          "G1", IDENTITY_XCCONFIG, "defines #{key} with a non-empty value (after its // comment, if any, is cut off)"
 end
 
@@ -366,7 +357,7 @@ puts "G6 — #{COPYRIGHT_TXT} carries the same string as COPYRIGHT in #{IDENTITY
 copyright_txt_exists = File.exist?(File.join(ROOT, COPYRIGHT_TXT))
 assert copyright_txt_exists, "G6", COPYRIGHT_TXT, "exists"
 
-xcconfig_copyright = xcconfig_value(identity_text, "COPYRIGHT")
+xcconfig_copyright = identity_exists ? Xcconfig.value(identity_path, "COPYRIGHT") : nil
 listing_copyright  = copyright_txt_exists ? read_utf8(COPYRIGHT_TXT).strip : nil
 assert !xcconfig_copyright.nil? && xcconfig_copyright == listing_copyright,
        "G6", COPYRIGHT_TXT,

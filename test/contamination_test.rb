@@ -148,15 +148,41 @@ end
 
 # Runs the gate. Combined stdout+stderr is returned separately so the exit-2 cases can
 # assert CANNOT RUN lands on stderr.
-def gate(root, allowlist_path, allowlist_text = nil, env: {}, extra: [])
+#
+# `domain_text:` is opt-in. When it is nil the gate is called WITHOUT
+# --domain-allowlist, which in override mode means "no domain rows at all" — that is what
+# lets 04-07's twenty-one cases keep their exact call shape and their exact outcomes: a
+# fixture tree judged against the TRACKED domain rows would report every one of those rows
+# stale, which says nothing about either file. Passing a String (even "") writes it to a
+# fixture path beside the identity allowlist and passes the knob.
+def gate(root, allowlist_path, allowlist_text = nil, domain_text: nil, env: {}, extra: [])
   File.write(allowlist_path, allowlist_text) unless allowlist_text.nil?
-  argv = [RbConfig.ruby, GATE, "--root", root, "--allowlist", allowlist_path] + extra
-  out, err, status = Open3.capture3(env, *argv, chdir: ROOT)
+  argv = [RbConfig.ruby, GATE, "--root", root, "--allowlist", allowlist_path]
+  unless domain_text.nil?
+    domain_path = File.join(File.dirname(allowlist_path), "domain-allowlist.txt")
+    File.write(domain_path, domain_text)
+    argv += ["--domain-allowlist", domain_path]
+  end
+  out, err, status = Open3.capture3(env, *argv + extra, chdir: ROOT)
   [out.to_s, err.to_s, status.exitstatus]
 end
 
 def row(path, count, date, reason)
   "#{path}\t#{count}\t#{date}\t#{reason}\n"
+end
+
+# A domain-allowlist row: domain<TAB>local-part<TAB>ISO-date<TAB>reason.
+def drow(domain, local, date, reason)
+  "#{domain}\t#{local}\t#{date}\t#{reason}\n"
+end
+
+# Fixture addresses are BUILT, never written literally. This file is tracked, and the gate
+# it tests sweeps the tracked tree for address-shaped strings — so a literal fixture
+# address here would have to be given a domain row to keep the tree green, and the row for
+# the domain this plan's live red control uses would make that control vacuous. Splitting
+# every fixture across the `@` keeps the source free of anything the EMAIL regex matches.
+def addr(local, domain)
+  "#{local}@#{domain}"
 end
 
 # The literal sweep, measured here rather than asked of the gate.
@@ -432,5 +458,307 @@ gate_requires = File.read(GATE, encoding: "UTF-8").lines.grep(/\A\s*require\b/)
 assert gate_requires.empty?, "CT", GATE_REL,
        "has zero require-family lines, which is the basis for review-notes.yml's bundler-cache: false" \
        "#{gate_requires.empty? ? '' : " — #{gate_requires.map(&:strip).join('; ')}"}"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# D-67 — personal information, gated by a FAIL-CLOSED DOMAIN ALLOWLIST
+# D-68 — the `vars.*` assertion (the construction half of criterion 2)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# A deny-list catches only what someone already thought of. The rule here is the other
+# way round: any address-shaped string fails unless its DOMAIN carries a dated, reasoned
+# row, and the row may restrict the local part. An address on a domain nobody has thought
+# about yet fails by default, which is the whole point.
+#
+# The regex is `test/docs_structure_test.rb:671`'s, verbatim. That sweep runs over five
+# fork-owned documents; run tree-wide the same regex matches the macOS icon filenames
+# (`icon_512x512@2x.png` and its four sibling sizes), which are not addresses at all. That
+# false-positive class is excluded in CODE, by one anchored regex, and this file proves the
+# exclusion is both load-bearing (remove it and the icon filenames go red — see this plan's
+# evidence file) and NARROW: a `@2x.io` lookalike is still reported.
+
+puts
+puts "CT — D-67 personal information: the fail-closed domain allowlist:"
+
+TODAY = "2026-09-02"
+
+# ─── 25. an address on an unknown domain fails, with no rows at all ──────────
+with_repo("a.md" => "contact: #{addr('someone', 'newdomain.io')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: "")
+  assert code == 1 &&
+         out.include?("FAIL pii a.md:1: #{addr('someone', 'newdomain.io')} — domain newdomain.io not allowlisted"),
+         "CT", "a.md",
+         "an address on an un-rowed domain fails closed, naming path, line, address and domain " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 26. a `*` local-part row admits the whole domain ────────────────────────
+with_repo("a.md" => "contact: #{addr('someone', 'newdomain.io')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: drow("newdomain.io", "*", TODAY, "fixture: any local part"))
+  assert code.zero? && out.include?("1 addresses seen, 0 unallowed"),
+         "CT", "a.md",
+         "a dated `*` row admits every local part on that domain (exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 27. a restricted row admits ONE local part and refuses the others ───────
+with_repo("a.md" => "#{addr('other', 'newdomain.io')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: drow("newdomain.io", "someone", TODAY, "fixture: one local part"))
+  assert code == 1 &&
+         out.include?("FAIL pii a.md:1: #{addr('other', 'newdomain.io')} — local part other not permitted for newdomain.io"),
+         "CT", "a.md",
+         "a row naming a local part refuses every other local part on the same domain " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 28. the domain is case-insensitive; the local part is not (RFC 5321) ────
+with_repo("a.md" => "#{addr('maintainers', 'INDIAGRAM.COM')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: drow("indiagram.com", "maintainers", TODAY, "fixture: published contact"))
+  assert code.zero? && out.include?("0 unallowed"),
+         "CT", "a.md",
+         "an upper-case DOMAIN still matches its row — domains are case-insensitive " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+with_repo("a.md" => "#{addr('Maintainers', 'indiagram.com')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: drow("indiagram.com", "maintainers", TODAY, "fixture: published contact"))
+  assert code == 1 && out.include?("local part Maintainers not permitted for indiagram.com"),
+         "CT", "a.md",
+         "a differently-cased LOCAL PART is a different local part (RFC 5321) and fails " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 29. the macOS icon filenames are not addresses ──────────────────────────
+ICON_JSON = %({ "filename" : "#{addr('icon_512x512', '2x.png')}" }\n)
+with_repo("Contents.json" => ICON_JSON) do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: "")
+  assert code.zero? && out.include?("0 addresses seen"),
+         "CT", "Contents.json",
+         "an icon filename is excluded BEFORE the address regex runs, so it is not even counted " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 30. …and the exclusion is narrow: a lookalike TLD is still reported ─────
+with_repo("a.md" => "#{addr('icon_512x512', '2x.io')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: "")
+  assert code == 1 && out.include?("domain 2x.io not allowlisted"),
+         "CT", "a.md",
+         "the non-address rule is anchored on the .png class only — a @2x.io lookalike is a finding " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 31. the ssh remote user is a row, not a person ──────────────────────────
+GITHUB_ROW = drow("github.com", "git", TODAY, "fixture: ssh user, not a person")
+with_repo("a.md" => "#{addr('git', 'github.com')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: GITHUB_ROW)
+  assert code.zero? && out.include?("0 unallowed"), "CT", "a.md",
+         "the ssh remote user is admitted by its own restricted row (exit=#{code}, out=#{out.inspect})"
+end
+
+with_repo("a.md" => "#{addr('me', 'github.com')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: GITHUB_ROW)
+  assert code == 1 && out.include?("local part me not permitted for github.com"),
+         "CT", "a.md",
+         "a person at that same domain is NOT admitted by the ssh-user row (exit=#{code}, out=#{out.inspect})"
+end
+
+puts
+puts "CT — the domain allowlist is itself a gate:"
+
+# ─── 32. a wildcard or non-hostname domain cell is refused by grammar ────────
+["*.example.com", "*", "example"].each do |bad|
+  with_repo("a.md" => "#{addr('someone', 'newdomain.io')}\n") do |root, al|
+    out, _err, code = gate(root, al, "", domain_text: drow(bad, "*", TODAY, "fixture: catch-all attempt"))
+    assert code == 1 && out.include?("FAIL allowlist #{bad}: domain row malformed (wildcard or not a hostname)"),
+           "CT", bad,
+           "a domain cell that is a wildcard or not a hostname is refused, so the list cannot be " \
+           "turned into a blanket exemption by one character (exit=#{code}, out=#{out.inspect})"
+  end
+end
+
+# ─── 33. an undated domain row fails, exactly as an undated identity row does ─
+with_repo("a.md" => "#{addr('someone', 'newdomain.io')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: drow("newdomain.io", "*", "yesterday", "fixture: undated"))
+  assert code == 1 && out.include?("FAIL allowlist newdomain.io: undated or malformed row"),
+         "CT", "newdomain.io",
+         "a domain row without an ISO date fails (exit=#{code}, out=#{out.inspect})"
+end
+
+with_repo("a.md" => "#{addr('someone', 'newdomain.io')}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: "newdomain.io\t*\t#{TODAY}\n")
+  assert code == 1 && out.include?("FAIL allowlist newdomain.io: undated or malformed row"),
+         "CT", "newdomain.io",
+         "a domain row with three cells instead of four fails as malformed (exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 34. a row matching no address anywhere is stale ─────────────────────────
+with_repo("a.md" => "#{addr('someone', 'newdomain.io')}\n") do |root, al|
+  text = drow("newdomain.io", "*", TODAY, "fixture: real") +
+         drow("unused.org", "*", TODAY, "fixture: stale")
+  out, _err, code = gate(root, al, "", domain_text: text)
+  assert code == 1 &&
+         out.include?("FAIL allowlist unused.org: entry matches nothing (no address on this domain in the tree)"),
+         "CT", "unused.org",
+         "a domain row that matches no address in the tree fails, so the list cannot rot into an " \
+         "exemption (exit=#{code}, out=#{out.inspect})"
+end
+
+puts
+puts "CT — D-68 the vars.* assertion:"
+
+# The one file whose `vars.` reads are legitimate after D-56 deleted the repository
+# variables, and how many lines it may carry. Frozen here, never derived from the gate.
+VARS_ALLOW_REL = ".github/workflows/dependabot-automerge.yml"
+VARS_ALLOW_N   = 3
+
+def dependabot_yaml(n)
+  (["name: dependabot automerge\non:\n  pull_request:\njobs:\n  merge:\n    if: >\n"] +
+   Array.new(n) { |i| "      github.actor == 'dependabot[bot]' && vars.DEPENDABOT_AUTOMERGE == 'tier#{i}'\n" }).join
+end
+
+# ─── 35. a vars.* read in any other workflow fails, with file and line ───────
+with_repo(VARS_ALLOW_REL => dependabot_yaml(VARS_ALLOW_N),
+          ".github/workflows/w.yml" => "jobs:\n  a:\n    steps:\n      - run: echo ${{ vars.APP_NAME }}\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: "")
+  assert code == 1 && out.include?("FAIL vars .github/workflows/w.yml:4: reads vars.* outside the allowlist"),
+         "CT", ".github/workflows/w.yml",
+         "a vars.* read outside the frozen allowlist fails with its file and line " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 36. the allowlisted file passes at exactly its frozen count ─────────────
+with_repo(VARS_ALLOW_REL => dependabot_yaml(VARS_ALLOW_N)) do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: "")
+  assert code.zero? && out.include?("vars: #{VARS_ALLOW_N} reads, 0 unallowed"),
+         "CT", VARS_ALLOW_REL,
+         "the one allowlisted workflow passes at exactly #{VARS_ALLOW_N} reads " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 37. …and fails at any other count, in either direction ─────────────────
+[[4, "found 4"], [2, "found 2"]].each do |n, tail|
+  with_repo(VARS_ALLOW_REL => dependabot_yaml(n)) do |root, al|
+    out, _err, code = gate(root, al, "", domain_text: "")
+    assert code == 1 &&
+           out.include?("FAIL vars #{VARS_ALLOW_REL}: expected #{VARS_ALLOW_N} vars.* line(s), #{tail}"),
+           "CT", VARS_ALLOW_REL,
+           "a count of #{n} fails against the frozen #{VARS_ALLOW_N} — a fourth dependency cannot be " \
+           "added under cover of the allowlisted file (exit=#{code}, out=#{out.inspect})"
+  end
+end
+
+# ─── 38. deleting the allowlisted file is a finding, not a green run ─────────
+with_repo(".github/workflows/w.yml" => "jobs:\n  a:\n    steps:\n      - run: true\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: "")
+  assert code == 1 &&
+         out.include?("FAIL vars #{VARS_ALLOW_REL}: expected #{VARS_ALLOW_N} vars.* line(s), found 0"),
+         "CT", VARS_ALLOW_REL,
+         "a tree that has workflows but has lost the allowlisted one fails rather than reporting zero " \
+         "reads (exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 39. `vars.` outside .github/workflows/ is prose, not a read ─────────────
+with_repo("docs/x.md" => "The workflows used to read vars.APP_NAME and vars.BUNDLE_ID.\n") do |root, al|
+  out, _err, code = gate(root, al, "", domain_text: "")
+  assert code.zero? && out.include?("vars: 0 reads, 0 unallowed"),
+         "CT", "docs/x.md",
+         "the vars scope is .github/workflows/ only — a doc quoting vars. is not a read " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── 40. an address beside a © under an unset locale (UL-012) ───────────────
+with_repo("e.md" => "© Indiagram\n#{addr('someone', 'newdomain.io')}\n") do |root, al|
+  out, err, code = gate(root, al, "", domain_text: drow("newdomain.io", "*", TODAY, "fixture: any"),
+                        env: NO_LOCALE)
+  assert code.zero? && !err.include?("ArgumentError") && !err.include?("invalid byte"),
+         "CT", "e.md",
+         "an address on a © line scans without raising when LANG/LC_ALL/LC_CTYPE are unset " \
+         "(exit=#{code}, out=#{out.inspect}, err=#{err.inspect})"
+end
+
+# ─── 41. the live tree, and the tracked domain allowlist ─────────────────────
+
+puts
+puts "CT — the live tree: pii and vars:"
+
+DOMAIN_ALLOWLIST_REL = "tools/domain-allowlist.txt"
+DOMAIN_ALLOWLIST     = File.join(ROOT, DOMAIN_ALLOWLIST_REL)
+# A hostname, lower case, no wildcard. Frozen here rather than read out of the gate.
+DOMAIN_RE            = /\A[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}\z/
+# The org domain, and the ONE local part D-67 permits on it. Spelled as two cells, never
+# as an address, for the reason given at `addr` above.
+ORG_DOMAIN           = "indiagram.com"
+ORG_LOCAL            = "maintainers"
+
+seen = real_out[/pii: (\d+) addresses seen, (\d+) unallowed/, 1].to_i
+assert real_code.zero? && real_out.include?("addresses seen, 0 unallowed") && seen >= 40,
+       "CT", "-",
+       "the gate is green on HEAD with 0 unallowed addresses, having actually seen some (#{seen}) " \
+       "(exit=#{real_code}, out=#{real_out.inspect})"
+
+assert real_out.include?("vars: #{VARS_ALLOW_N} reads, 0 unallowed"), "CT", "-",
+       "HEAD carries exactly #{VARS_ALLOW_N} vars.* reads, all in the allowlisted workflow " \
+       "(out=#{real_out.inspect})"
+
+assert File.exist?(DOMAIN_ALLOWLIST), "CT", DOMAIN_ALLOWLIST_REL, "exists"
+
+domain_rows = []
+domain_bad  = []
+if File.exist?(DOMAIN_ALLOWLIST)
+  File.read(DOMAIN_ALLOWLIST, encoding: "UTF-8").each_line.with_index(1) do |line, n|
+    line = line.chomp
+    next if line.strip.empty? || line.start_with?("#")
+
+    cells = line.split("\t", -1)
+    if cells.length != 4 || cells.any? { |c| c.strip.empty? } || cells[2] !~ ISO_DATE
+      domain_bad << "line #{n}: #{line.inspect}"
+      next
+    end
+    domain_rows << { domain: cells[0], local: cells[1], date: cells[2], reason: cells[3], line: n }
+  end
+end
+
+assert domain_bad.empty?, "CT", DOMAIN_ALLOWLIST_REL,
+       "every data row is domain<TAB>local-part<TAB>ISO-date<TAB>reason" \
+       "#{domain_bad.empty? ? '' : " — offending: #{domain_bad.join('; ')}"}"
+
+nonhost = domain_rows.reject { |r| r[:domain] =~ DOMAIN_RE }.map { |r| r[:domain] }
+assert nonhost.empty?, "CT", DOMAIN_ALLOWLIST_REL,
+       "every domain cell is a lower-case hostname — no wildcard, no catch-all" \
+       "#{nonhost.empty? ? '' : " — #{nonhost.join(', ')}"}"
+
+starred = domain_rows.map { |r| r[:domain] }.select { |d| d.include?("*") }
+assert starred.empty?, "CT", DOMAIN_ALLOWLIST_REL,
+       "no domain cell contains `*`#{starred.empty? ? '' : " — #{starred.join(', ')}"}"
+
+dupe_domains = domain_rows.map { |r| [r[:domain], r[:local]] }.tally.select { |_, n| n > 1 }.keys
+assert dupe_domains.empty?, "CT", DOMAIN_ALLOWLIST_REL,
+       "no domain/local-part pair appears twice" \
+       "#{dupe_domains.empty? ? '' : " — #{dupe_domains.map(&:first).join(', ')}"}"
+
+# D-67's line that must stay true: the org domain is admitted through ONE local part, the
+# published contact. Any other row on it would re-admit the addresses IDENT-06 removed.
+org = domain_rows.select { |r| r[:domain] == ORG_DOMAIN }
+assert org.length == 1 && org.first[:local] == ORG_LOCAL, "CT", DOMAIN_ALLOWLIST_REL,
+       "exactly one #{ORG_DOMAIN} row and its local part is the published contact " \
+       "(found #{org.map { |r| r[:local] }.inspect})"
+
+# ─── 42. the vars.* allowlist, re-measured here rather than asked of the gate ─
+workflow_files = IO.popen(%w[git ls-files -z .github/workflows], chdir: ROOT, &:read)
+                   .split("\0").reject(&:empty?)
+assert workflow_files.include?(VARS_ALLOW_REL), "CT", VARS_ALLOW_REL, "is tracked"
+
+vars_by_file = workflow_files.each_with_object({}) do |rel, acc|
+  n = File.read(File.join(ROOT, rel), encoding: "UTF-8").each_line.count { |l| l.scrub("?").include?("vars.") }
+  acc[rel] = n if n.positive?
+end
+assert vars_by_file == { VARS_ALLOW_REL => VARS_ALLOW_N }, "CT", "-",
+       "measured independently: the only workflow reading vars.* is the allowlisted one, " \
+       "with exactly #{VARS_ALLOW_N} lines (found #{vars_by_file.inspect})"
+
+# ─── 43. the gate names the domain allowlist, and still requires nothing ─────
+gate_text = File.read(GATE, encoding: "UTF-8")
+assert gate_text.include?(DOMAIN_ALLOWLIST_REL), "CT", GATE_REL,
+       "names #{DOMAIN_ALLOWLIST_REL} — the key link the plan's frontmatter asserts"
+assert gate_text.include?(VARS_ALLOW_REL), "CT", GATE_REL,
+       "names #{VARS_ALLOW_REL} — the one file whose vars.* reads are frozen"
 
 verdict!

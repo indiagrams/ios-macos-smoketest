@@ -189,6 +189,17 @@ grep over that column.
 > is no protection object to preserve, and `test/setup_github_test.rb` fails the
 > build if that write ever escapes the 404 branch.
 >
+> **Observed live, once, on 2026-09-02, against this repository's real protection.**
+> The fixed script was run twice with `SETUP_GITHUB_EXTRA_CHECKS="review notes"`.
+> Both runs exited 0, printed `required contexts: 9 (expected 9)`, and sent no `POST`
+> and no `PUT` — the union was already satisfied, which is the case that used to be
+> destructive. The full `/protection` object was captured before and after and the
+> `diff` was empty: the same nine contexts, and the same `app_id` binding of `null`
+> on the two iOS-Simulator cells and `15368` on the other seven. **The binding is the
+> assertion that matters, not the count** — a rebuilt array preserves the count 9
+> while silently rebinding those two cells, so a count-only check would have passed
+> on exactly the damage this change exists to prevent.
+>
 > **Three callers, and one of them is still exposed.** `make setup-github` and
 > `make bootstrap-fork` — the latter through `bin/lib/bootstrap.rb`'s
 > `BranchProtection` step, which passes no extra-checks list and does not need to —

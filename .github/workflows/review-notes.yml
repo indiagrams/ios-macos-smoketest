@@ -120,4 +120,8 @@ jobs:
           # in template-owned pr.yml and this repository has no fork-owned macOS CI
           # surface. A green badge here says nothing about generator parity.
           ruby bin/preflight-identity.rb
+          # bin/lib/xcconfig.rb is the single xcconfig reader (D-57) that the preflight,
+          # fastlane and the release workflows are being repointed onto, replacing the three
+          # mutually incompatible readers C-17 measured. Its contract test is Ruby core only.
+          ruby test/xcconfig_test.rb
           ruby test/identity_test.rb

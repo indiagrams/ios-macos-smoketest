@@ -36,6 +36,7 @@
 #   1    | unknown or malformed argv                            | the offending argument and the usage line
 #   2    | app/Identity.xcconfig not found                      | the resolved absolute path and the CWD
 #   3    | one or more required variables missing or empty      | every missing variable, comma-separated
+#        | (a value that is only a `//` comment is empty)        |
 #   4    | --require-team given and the team is unresolvable    | DEVELOPMENT_TEAM and app/Local.xcconfig
 #
 # Exit 2 versus exit 3 is the tools/asc-probe.rb idiom: not found is a distinct
@@ -96,13 +97,33 @@ def read_utf8(path)
   File.read(path, encoding: "UTF-8")
 end
 
-# Anchored, non-empty-value match — the fork's existing idiom at
-# tools/gen-review-notes.rb:223. Regexp.escape so a key name can never be read
-# as a pattern. The trailing \S is load-bearing: `BUNDLE_ID =` with nothing
-# after the equals sign must NOT match, because that is precisely the case
-# Xcode silently treats as the empty string.
+# Anchored key match, then a non-empty test on the value AFTER its `//` comment
+# is cut off. Regexp.escape so a key name can never be read as a pattern. Two
+# things are load-bearing, both observed on Xcode 26.1.1 via
+# `xcodebuild -showBuildSettings` (evidence/03-SEC-T0306-comment-value-fix.txt):
+#
+#   - `BUNDLE_ID =` with nothing after the equals sign must NOT count: that is
+#     precisely the case Xcode silently treats as the empty string.
+#   - `//` opens a comment at ANY position in the value, not only at the start:
+#     `KEY = // disabled` and `KEY = //` both resolve to "" (the key is absent
+#     from the dump), `KEY = value // note` resolves to `value`, and even
+#     `KEY = https://example.com/x` resolves to `https:`. A lone `/` resolves to
+#     `/` and `a/b` to `a/b` — a slash is a real character; only `//` is a
+#     comment opener. So the value is cut at the first `//` before the
+#     non-empty test, and nothing tighter: a legitimate COPYRIGHT may contain
+#     a `/`.
+#
+# The earlier predicate ended in `\S`, which matched the first `/` of a
+# commented-out value and let `BUNDLE_ID = // temporarily disabled` through at
+# exit 0 while Xcode resolved it to "" — the gate and test/identity_test.rb G1
+# shared the regex and failed together (03-SECURITY.md T-03-06 / F-01,
+# 03-REVIEW.md WR-01). The body below is byte-identical to the one in
+# test/identity_test.rb; keep them that way.
 def defines_non_empty?(text, key)
-  text.match?(/^[ \t]*#{Regexp.escape(key)}[ \t]*=[ \t]*\S/)
+  text.each_line.any? do |line|
+    value = line[/\A[ \t]*#{Regexp.escape(key)}[ \t]*=(.*)/, 1]
+    !value.nil? && !value.sub(%r{//.*}, "").strip.empty?
+  end
 end
 
 # --- argv -------------------------------------------------------------------

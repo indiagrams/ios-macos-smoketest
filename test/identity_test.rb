@@ -21,7 +21,8 @@
 #   3. A missing key inside a PRESENT xcconfig exits 0 and builds green with an
 #      empty CFBundleIdentifier (RESEARCH Pitfall 1). `BUNDLE_ID =` with nothing
 #      after the equals sign is exactly what Xcode treats as the empty string,
-#      so "the file exists" is not a check — every required variable has to be
+#      and so is `BUNDLE_ID = // disabled` (`//` opens a comment; T-03-06), so
+#      "the file exists" is not a check — every required variable has to be
 #      asserted non-empty, one assertion per variable so the message names it.
 #
 # This project's dominant defect is a check that structurally cannot fail —
@@ -162,6 +163,24 @@ def line_numbers(text)
   text.lines.each_with_index.filter_map { |line, i| i + 1 if yield(line) }
 end
 
+# Anchored key match, then a non-empty test on the value AFTER its `//` comment
+# is cut off. `BUNDLE_ID =` with nothing after the equals sign fails here, which
+# is exactly the case Xcode silently treats as "" — and so does
+# `BUNDLE_ID = // disabled`, because in xcconfig `//` opens a comment at any
+# position in the value (observed on Xcode 26.1.1: `KEY = // x` resolves to "",
+# `KEY = value // note` to `value`, `KEY = https://a/b` to `https:`, a lone `/`
+# to `/`; evidence/03-SEC-T0306-comment-value-fix.txt). The earlier regex ended
+# in `\S`, which matched the first `/` of a commented-out value, so this guard
+# and the gate it guards passed together on an identity Xcode resolved to
+# nothing (03-SECURITY.md T-03-06 / F-01, 03-REVIEW.md WR-01). Byte-identical
+# body to tools/preflight-identity.rb's `defines_non_empty?` — keep them so.
+def defines_non_empty?(text, key)
+  text.each_line.any? do |line|
+    value = line[/\A[ \t]*#{Regexp.escape(key)}[ \t]*=(.*)/, 1]
+    !value.nil? && !value.sub(%r{//.*}, "").strip.empty?
+  end
+end
+
 # ─── G1: app/Identity.xcconfig exists, is tracked, defines four variables ────
 
 puts "G1 — #{IDENTITY_XCCONFIG} is the tracked source of truth (D-45):"
@@ -176,11 +195,8 @@ assert tracked_exit.zero? && !tracked_out.strip.empty?,
 
 identity_text = identity_exists ? read_utf8(IDENTITY_XCCONFIG) : ""
 REQUIRED_VARS.each do |key|
-  # Anchored, non-empty-value regex (tools/gen-review-notes.rb:223). The
-  # trailing \S is load-bearing: `BUNDLE_ID =` with nothing after the equals
-  # sign fails here, which is exactly the case Xcode silently treats as "".
-  assert identity_text.match?(/^[ \t]*#{Regexp.escape(key)}[ \t]*=[ \t]*\S/),
-         "G1", IDENTITY_XCCONFIG, "defines #{key} with a non-empty value"
+  assert defines_non_empty?(identity_text, key),
+         "G1", IDENTITY_XCCONFIG, "defines #{key} with a non-empty value (after its // comment, if any, is cut off)"
 end
 
 # ─── G2: the five criterion-1 files carry no SmokeApp literal ────────────────

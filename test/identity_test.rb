@@ -87,6 +87,11 @@ CRITERION_ONE_FILES = %w[
   .gitignore
 ].freeze
 FORBIDDEN_LITERAL = "SmokeApp"
+# Matched case-insensitively: the template's other spelling is the placeholder
+# bundle id `com.indiagram.smokeapp`, which a case-sensitive `include?` ticked
+# straight past (03-REVIEW IN-05 — observed passing 24/24 with that string
+# appended to .gitignore before this was widened). None of the five files
+# carries the lowercase form today; this stops one arriving unnoticed.
 
 # ─── G1 / G5 vocabulary — the tracked schema and the gitignored value ────────
 IDENTITY_XCCONFIG = "app/Identity.xcconfig"
@@ -224,16 +229,16 @@ end
 # ─── G2: the five criterion-1 files carry no SmokeApp literal ────────────────
 
 puts
-puts "G2 — criterion 1: no `#{FORBIDDEN_LITERAL}` literal in the five named files:"
+puts "G2 — criterion 1: no `#{FORBIDDEN_LITERAL}` literal, in any letter case, in the five named files:"
 
 CRITERION_ONE_FILES.each do |rel|
   unless File.exist?(File.join(ROOT, rel))
     assert false, "G2", rel, "file does not exist, so it cannot be asserted literal-free"
     next
   end
-  hits = line_numbers(read_utf8(rel)) { |line| line.include?(FORBIDDEN_LITERAL) }
+  hits = line_numbers(read_utf8(rel)) { |line| line.downcase.include?(FORBIDDEN_LITERAL.downcase) }
   assert hits.empty?, "G2", rel,
-         "contains no `#{FORBIDDEN_LITERAL}` literal" \
+         "contains no `#{FORBIDDEN_LITERAL}` literal in any letter case" \
          "#{hits.empty? ? '' : " — found at line(s) #{hits.join(', ')}"}"
 end
 

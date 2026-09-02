@@ -1013,10 +1013,15 @@ module Bootstrap
       # measures the spread between dominant colour clusters — 0 for a flat fill
       # or bare gradient, 282 for real artwork. It takes no arguments and
       # resolves the asset catalog itself.
-      out, ok = Sh.run("bash", icon_script.to_s)
+      #
+      # `bash -c … 2>&1` rather than `bash <script>`: the script writes every
+      # FAIL line to STDERR, and Sh.run discards stderr (see its comment). Run
+      # plainly, the only thing left to quote back at the user was the script's
+      # banner — a blocked step whose message said nothing about why.
+      out, ok = Sh.run("bash", "-c", "#{Shellwords.escape(icon_script.to_s)} 2>&1")
       unless ok
         return [:blocked, "tier 2 failed: icon is the template placeholder — " \
-                          "ci/check-app-icon.sh: #{out.lines.reject { |l| l.strip.empty? }.last.to_s.strip}\n" \
+                          "ci/check-app-icon.sh: #{icon_failure_line(out)}\n" \
                           "Set ICON_1024_PATH to real 1024x1024 artwork and re-run `make bootstrap-fork`. " \
                           "This is Guideline 2.3.8 and it costs a full review cycle to learn from Apple."]
       end
@@ -1032,6 +1037,16 @@ module Bootstrap
     def do_it
       src = config.expand_path("ICON_1024_PATH")
       FileUtils.cp(src, icon_target)
+    end
+
+    private
+
+    # The script prints a per-icon `  FAIL <label>: <reason>` and then a generic
+    # `FAILED: releasing this icon…` summary. The first one carries the reason
+    # (which icon, what spread), so it is the line worth surfacing.
+    def icon_failure_line(out)
+      lines = out.lines.map(&:strip).reject(&:empty?)
+      lines.find { |l| l.start_with?("FAIL ") } || lines.last.to_s
     end
   end
 

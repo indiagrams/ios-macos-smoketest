@@ -428,15 +428,27 @@ Dir.mktmpdir do |dir|
 
   cfg = config_for(extra: { "ICON_1024_PATH" => src })
 
-  table = { ["bash", ICON_SCRIPT] => ->(_) { ["  FAIL iOS 1024 icon: looks like a placeholder\nFAILED\n", false] } }
+  # `bash -c "<script> 2>&1"`: the script writes its FAIL lines to stderr and
+  # Sh.run discards stderr, so a plain `bash <script>` would leave the blocked
+  # message with nothing but the script's banner to quote.
+  script_out = "==> App icon check\n" \
+               "  FAIL iOS 1024 icon: looks like a placeholder — flat colour or bare gradient (spread 0, need >= 40).\n" \
+               "\nFAILED: releasing this icon invites a Guideline 2.3.8 rejection.\n"
+  table = { %w[bash -c] => lambda { |cmd|
+    raise "the icon check must run ci/check-app-icon.sh" unless cmd.last.include?("check-app-icon.sh")
+    raise "stderr must be captured — that is where the reason is" unless cmd.last.include?("2>&1")
+    [script_out, false]
+  } }
   step = Bootstrap::Icon1024.new(cfg)
   result = with_sh_stub(table) { step.check }
   assert_blocked(result, "tier 2 failed: icon is the template placeholder",
                  "matching hashes are NOT enough: a placeholder is blocked")
   assert(result[1].include?("check-app-icon.sh"),
          "the message cites the script that judged it")
+  assert(result[1].include?("spread 0"),
+         "and quotes the script's FAIL line, not its banner (stderr is captured)")
 
-  table_ok = { ["bash", ICON_SCRIPT] => ->(_) { ["  ok   iOS 1024 icon 1024x1024, no alpha, spread 282\npassed\n", true] } }
+  table_ok = { %w[bash -c] => ->(_) { ["  ok   iOS 1024 icon 1024x1024, no alpha, spread 282\npassed\n", true] } }
   step_ok = Bootstrap::Icon1024.new(cfg)
   assert_eq(with_sh_stub(table_ok) { step_ok.check }, :done, "real artwork is :done")
   assert_eq(step_ok.tier_reached, 2, "and it reached tier 2")

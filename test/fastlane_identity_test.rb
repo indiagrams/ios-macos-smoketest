@@ -95,7 +95,7 @@ GUARD_OCCURRENCES   = 2
 # have. All four are credentials or process config, none is identity: the ASC API
 # key, the Apple Developer team, the platform list, and `make ship`'s env export.
 # D-58 removes identity consumers, not the file.
-BOOTSTRAP_ENV_ALLOWED_SUBJECTS = /ASC_API_KEY|FASTLANE_TEAM_ID|PLATFORMS|auto-exports env/
+BOOTSTRAP_ENV_ALLOWED_SUBJECTS = /ASC_API_KEY|FASTLANE_TEAM_ID|PLATFORMS|auto-exports env|D-58|D-59/
 
 # ─── harness (test/identity_test.rb:139-208, one-line FAIL contract) ──────────
 
@@ -129,10 +129,27 @@ def lines_matching(text, pattern)
   text.lines.each_with_index.filter_map { |line, i| i + 1 if line.match?(pattern) }
 end
 
+# The same text with every whole-line comment blanked out, LINE NUMBERS PRESERVED.
+#
+# The three "this construct must not appear" assertions below are about the
+# RESOLUTION PATH, not about the prose. Scanning raw text made them unsatisfiable
+# in the one way that matters: fastlane/Appfile's header has to explain that
+# `raise` and `UI.user_error!` are swallowed by AppfileConfig#try_fetch_value and
+# that `__dir__` is nil inside the eval — and it cannot say so without writing
+# those three words. A guard that forbids documenting its own reason gets its
+# reason deleted, and then nobody knows why the file is shaped this way. Whole
+# lines only: a trailing `#` inside a string literal is not reliably a comment,
+# and every construct these assertions care about would be at the start of a
+# statement anyway.
+def code_only(text)
+  text.lines.map { |line| line.match?(/\A\s*#/) ? "\n" : line }.join
+end
+
 appfile_exists  = File.exist?(File.join(ROOT, APPFILE))
 fastfile_exists = File.exist?(File.join(ROOT, FASTFILE))
 appfile         = appfile_exists  ? read_utf8(APPFILE)  : ""
 fastfile        = fastfile_exists ? read_utf8(FASTFILE) : ""
+appfile_code    = code_only(appfile)
 
 # ─── FL1-FL15: fastlane/Appfile ──────────────────────────────────────────────
 
@@ -172,20 +189,20 @@ assert appfile.match?(/File\.expand_path\("\.\.",\s*Dir\.pwd\)/), APPFILE,
        "resolves the repo root with File.expand_path(\"..\", Dir.pwd) — inside the Appfile eval " \
        "Dir.pwd is fastlane/ and __dir__ is nil (measured, fastlane 2.238.0)"
 
-assert !appfile.match?(/(^|[^_a-zA-Z])__dir__/), APPFILE,
-       "does not use __dir__, which is nil inside the Appfile eval"
+assert !appfile_code.match?(/(^|[^_a-zA-Z])__dir__/), APPFILE,
+       "does not use __dir__ on any code line, because it is nil inside the Appfile eval"
 
 assert appfile.include?("abort"), APPFILE,
        "fails with `abort` — the ONLY construct AppfileConfig.try_fetch_value does not swallow " \
        "(measured: raise and UI.user_error! ran the lane to exit 0 with app_identifier=nil)"
 
-raise_hits = lines_matching(appfile, /(?:^|[^\w.])raise\b/)
+raise_hits = lines_matching(appfile_code, /(?:^|[^\w.])raise\b/)
 assert raise_hits.empty?, APPFILE,
-       "contains no `raise` — it is rescued and the lane continues with a nil identity" \
+       "has no `raise` on any code line — it is rescued and the lane continues with a nil identity" \
        "#{raise_hits.empty? ? '' : " (found at line(s) #{raise_hits.join(', ')})"}"
 
-assert !appfile.include?("user_error!"), APPFILE,
-       "contains no UI.user_error! — FastlaneError < StandardError, swallowed the same way"
+assert !appfile_code.include?("user_error!"), APPFILE,
+       "has no UI.user_error! on any code line — FastlaneError < StandardError, swallowed the same way"
 
 assert appfile.match?(/ENV\["BUNDLE_ID"\]/), APPFILE,
        "keeps ENV[\"BUNDLE_ID\"] as the explicit override, ahead of the file"

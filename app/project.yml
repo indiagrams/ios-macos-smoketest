@@ -191,6 +191,17 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).tests
         TEST_TARGET_NAME: App-iOS
         GENERATE_INFOPLIST_FILE: YES
+        # XcodeGen derives a unit-test bundle's TEST_HOST from the host TARGET
+        # name at generation time ($(BUILT_PRODUCTS_DIR)/App-iOS.app/App-iOS),
+        # but D-49 makes the host's PRODUCT_NAME resolve at BUILD time to
+        # $(APP_PRODUCT_NAME), so nothing builds at that path and `xcodebuild
+        # test` fails with "Could not find test host" (observed on PR #5 runs
+        # 33578051048 and 33578615479, and locally on Xcode 26.1.1). Spell the
+        # host path from the product name instead — the shape Tuist derives
+        # itself from productName:. UI-test bundles use TEST_TARGET_NAME (a
+        # target name, correct as is) and carry no TEST_HOST.
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/$(APP_PRODUCT_NAME).app/$(APP_PRODUCT_NAME)
+        BUNDLE_LOADER: $(TEST_HOST)
     dependencies:
       - target: App-iOS
 # ─── macOS UITest target (drives App Store screenshot capture) ─────────────
@@ -228,6 +239,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).mactests
         TEST_TARGET_NAME: App-macOS
         GENERATE_INFOPLIST_FILE: YES
+        # Same mechanism as AppTests above; macOS bundles keep the executable
+        # under Contents/MacOS/.
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/$(APP_PRODUCT_NAME).app/Contents/MacOS/$(APP_PRODUCT_NAME)
+        BUNDLE_LOADER: $(TEST_HOST)
     dependencies:
       - target: App-macOS
 

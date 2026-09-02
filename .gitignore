@@ -17,11 +17,6 @@ app/macOS/Generated-Info.plist
 # Tuist-generated project + workspace + cache (regenerated from app/Project.swift)
 app/App.xcodeproj
 app/App.xcworkspace
-# The two lines below leave in the rename change (03-05), only after the stale
-# generated project still on disk is deleted — dropping them first would expose
-# a 36 KB generated project as untracked.
-app/SmokeApp.xcodeproj
-app/SmokeApp.xcworkspace
 app/Derived/
 .tuist/
 

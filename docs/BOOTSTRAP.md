@@ -129,13 +129,13 @@ needs.
 
 ## What `make bootstrap-fork` does
 
-The pipeline has 15 step classes (single source of truth: `PIPELINE` in
-`bin/lib/bootstrap.rb`). CI mode (`RELEASE_MODE=ci`) runs 14 with default
+The pipeline has 21 step classes (single source of truth: `PIPELINE` in
+`bin/lib/bootstrap.rb`). CI mode (`RELEASE_MODE=ci`) runs 20 with default
 `PLATFORMS=ios,macos` (excludes `LocalKeychainCerts`, which is local-only);
-local mode runs 14 (excludes `GHSecrets`, which is ci-only). Each step has
+local mode runs 20 (excludes `GHSecrets`, which is ci-only). Each step has
 a `check` (no side effects) and a `do_it`. A step is skipped if its desired
 state is already reached, so re-running after a partial failure picks up
-where you left off.
+where you left off. `make doctor` runs every `check` and changes nothing.
 
 Mode key: ⚪ both, 🅒 ci-only, 🅛 local-only, 🍎 macOS-only.
 
@@ -145,17 +145,60 @@ Mode key: ⚪ both, 🅒 ci-only, 🅛 local-only, 🍎 macOS-only.
 | 2 | `CheckGHCreds` | ⚪ | CI mode: probes `gh auth status`. Local mode: no-op (gh CLI not used at ship time). |
 | 3 | `RemoteMatches` | ⚪ | Verifies `git remote get-url origin` matches `GH_ORG/GH_APP_REPO` |
 | 4 | `RenameStub` | ⚪ | Runs `bin/rename.sh` (SmokeApp → APP_NAME) + `bin/verify-rename.sh` |
-| 5 | `BrewBootstrap` | ⚪ | `make bootstrap` (brew bundle + lefthook + xcodegen/tuist + bundler) |
-| 6 | `Icon1024` | ⚪ | If `ICON_1024_PATH` set, copies it to the iOS asset catalog (tree mutation lands before `InitialPush`) |
-| 7 | `MakeIcons` | 🍎 | `make icons` — regenerates the macOS `.icns` from the 1024 PNG. Runs only when `PLATFORMS` includes `macos`. |
-| 8 | `InitialPush` | ⚪ | First commit (rename + icons) pushed to `origin/main` |
-| 9 | `BranchProtection` | ⚪ | `bin/setup-github.sh` (required checks: swiftlint + swiftformat + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
-| 10 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) on the app repo. It sets **no** repository variables. It used to also set `APP_NAME` and `BUNDLE_ID` as variables for `release.yml` / `pr.yml` to read via `${{ vars.* }}`; that gave identity a second source (measured 2026-09-02, the live `BUNDLE_ID` variable carried the template's `com.indiagram.smokeapp`, not this app's) and re-set it on every `make bootstrap-fork`, silently reverting any hand correction (UL-026). Every workflow now resolves identity from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` (D-56/D-57), so there is nothing for a variable to carry. |
-| 11 | `RegisterAppId` | ⚪ | `fastlane register_app_id` — registers the App ID for the bundle id in `.bootstrap.env`. Idempotent: it looks the identifier up with `BundleId.all(filter:)` before creating anything. Defaults to iOS; pass `platform:macos` (or set `BUNDLE_ID_PLATFORM`) for a macOS App ID. Two platforms with separate bundle ids means two invocations either way, since a bundle id maps to one App ID. Apple may report the created App ID's platform as `UNIVERSAL` whatever was requested — the lane prints both values rather than echoing the request, and treats `UNIVERSAL` as covering the requested platform rather than as a mismatch. |
-| 12 | `VerifyAscApp` | ⚪ | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |
-| 13 | `LocalKeychainCerts` | 🅛 | Auto-mints any missing local-mode cert types (Apple Distribution, Apple Development, and — when shipping macOS — 3rd Party Mac Developer Installer) via `fastlane cert` into `login.keychain-db`. New in v1.4 — replaces the v1.3 hard-blocker requiring manual remediation. |
-| 14 | `ScanMetadata` | ⚪ | Informational — counts present-vs-placeholder strings under `fastlane/metadata/` |
-| 15 | `ScanScreenshots` | ⚪ | Informational — counts present screenshots under `fastlane/screenshots/` |
+| 5 | `IdentityAdopted` | ⚪ | **Verifies, changes nothing.** Climbs the three tiers below against `app/Identity.xcconfig` and names the tier it reached, or the tier that failed and the offending value. Read-only: its `do_it` refuses, because there is no automatic answer to "your app still carries the template's identity" |
+| 6 | `BrewBootstrap` | ⚪ | `make bootstrap` (brew bundle + lefthook + xcodegen/tuist + bundler) |
+| 7 | `Icon1024` | ⚪ | If `ICON_1024_PATH` set, copies it to the iOS asset catalog (tree mutation lands before `InitialPush`), then runs `ci/check-app-icon.sh` on the result — copying a placeholder into place is not adoption |
+| 8 | `MakeIcons` | 🍎 | `make icons` — regenerates the macOS `.icns` from the 1024 PNG. Runs only when `PLATFORMS` includes `macos`. |
+| 9 | `InitialPush` | ⚪ | First commit (rename + icons) pushed to `origin/main` |
+| 10 | `BranchProtection` | ⚪ | `bin/setup-github.sh` (required checks: swiftlint + swiftformat + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
+| 11 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) on the app repo. It sets **no** repository variables (04-06). It used to also set `APP_NAME` and `BUNDLE_ID` as variables for `release.yml` / `pr.yml` to read via `${{ vars.* }}`; that gave identity a second source (measured 2026-09-02, the live `BUNDLE_ID` variable carried the template's `com.indiagram.smokeapp`, not this app's) and re-set it on every `make bootstrap-fork`, silently reverting any hand correction (UL-026). Every workflow now resolves identity from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` (D-56/D-57), so there is nothing for a variable to carry. |
+| 12 | `RegisterAppId` | ⚪ | `fastlane register_app_id` — registers the App ID for the bundle id in `.bootstrap.env`. Idempotent: it looks the identifier up with `BundleId.all(filter:)` before creating anything. Defaults to iOS; pass `platform:macos` (or set `BUNDLE_ID_PLATFORM`) for a macOS App ID. Two platforms with separate bundle ids means two invocations either way, since a bundle id maps to one App ID. Apple may report the created App ID's platform as `UNIVERSAL` whatever was requested — the lane prints both values rather than echoing the request, and treats `UNIVERSAL` as covering the requested platform rather than as a mismatch. |
+| 13 | `VerifyAscApp` | ⚪ | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |
+| 14 | `LocalKeychainCerts` | 🅛 | Auto-mints any missing local-mode cert types (Apple Distribution, Apple Development, and — when shipping macOS — 3rd Party Mac Developer Installer) via `fastlane cert` into `login.keychain-db`. New in v1.4 — replaces the v1.3 hard-blocker requiring manual remediation. |
+| 15 | `ScanMetadata` | ⚪ | Informational — counts present-vs-placeholder strings under `fastlane/metadata/` |
+| 16 | `ScanScreenshots` | ⚪ | Informational — counts present screenshots under `fastlane/screenshots/` |
+| 17 | `AppPrivacyForm` | ⚪ | Informational — queries ASC for the App Privacy publish state |
+| 18 | `AppStoreSubmissionPrereqs` | ⚪ | Informational — category, age rating, price schedule |
+| 19 | `XcodeQuarantine` | ⚪ | Advisory — `com.apple.quarantine` xattr on `Xcode.app` |
+| 20 | `FastlaneTmpKeychain` | ⚪ | Advisory — `setup_ci` temp keychains leaked into the user keychain search list |
+| 21 | `DefaultKeychain` | ⚪ | Advisory — a user-domain default keychain is set (`security cms -D`, and therefore `make ship`'s sigh step, needs one) |
+
+### Verification tiers
+
+A check that reports success without having looked deeply enough is worse than
+no check: it is a check that structurally cannot fail. This template shipped
+one. `Icon1024` compared the icon's bytes against `ICON_1024_PATH`, so a fork
+that pointed `ICON_1024_PATH` at the placeholder was told `done` — the file was
+present, its content was never examined — and the placeholder went to App
+Review and came back as a Guideline 2.3.8 rejection, one full cycle, with every
+CI cell green. `ci/check-app-icon.sh` exists because of that.
+
+So the doctor reports DEPTH, not just status (D-64):
+
+| Tier | Question it answers | Example |
+|---|---|---|
+| **1** | Does the thing exist? | `app/Identity.xcconfig` is a regular file |
+| **2** | Is its content something other than the template's? | none of `BUNDLE_ID` / `APP_PRODUCT_NAME` / `DISPLAY_NAME` / `COPYRIGHT` is empty, a comment-only value, an identity this template has ever shipped, or the `TODO Copyright` placeholder — and `.bootstrap.env`'s `APP_NAME`/`BUNDLE_ID` agree with the xcconfig |
+| **3** | Is the value the BUILD actually resolves something other than the template's? | `xcodebuild -showBuildSettings` reports `PRODUCT_BUNDLE_IDENTIFIER` and `PRODUCT_NAME` equal to the parsed values |
+
+On success the step prints the tier it reached (`verified to tier 3: …`) rather
+than a bare ✓. A failure names the tier AND the offending value
+(`tier 2 failed: BUNDLE_ID = <the template's> (template identity)`) and exits 2.
+Tier 3 being unreachable — no `xcodebuild`, or no generated project — is an
+explicit `verified to tier 2; tier 3 not reached: …` advisory, never a silent
+pass, and an `xcodebuild` that fails outright is reported as **no verdict**
+rather than as a result.
+
+A step declares the minimum depth at which its `done` means anything
+(`MIN_TIER`), and **the runner**, not the step, downgrades a `done` from below
+that depth to blocked. That placement is deliberate: a step's own discipline is
+precisely what failed in the icon story.
+
+**Fixture knobs.** `IDENTITY_XCCONFIG=<path>` points the identity step at a
+different xcconfig and `BOOTSTRAP_ENV=<path>` points the config loader at a
+different `.bootstrap.env` — for driving a tier red without editing a tracked
+file. Both print a banner on stderr every time they are honoured, so a doctor
+run against a fixture can never be mistaken for a run against this repository.
 
 ### CI mode at a glance (v1.6+)
 

@@ -42,7 +42,7 @@ The fork ↔ upstream sync property is the most important architectural invarian
 
 | Task | Command | What it does |
 |---|---|---|
-| First-time check | `make doctor` | 17-step read-only pipeline. Surfaces every prerequisite + advisory. Run this when something feels wrong. |
+| First-time check | `make doctor` | 21-step read-only pipeline. Names the verification tier each identity step reached — **1** the thing exists, **2** its content is not the template's, **3** the value the build actually resolves is not the template's (D-64) — and renders a step that reports done below its declared minimum tier as blocked. Surfaces every prerequisite + advisory. Run this when something feels wrong. |
 | One-time setup | `make bootstrap` | Installs brew deps, bundler, project-generator (xcodegen or tuist), git hook. Idempotent. |
 | Local build (no signing) | `make check` | Same signal CI runs on PR. Use this in your edit-build-test loop. |
 | Run unit + UI tests | `make verify` (after `make ship`), or invoke `xcodebuild test` directly during dev | Don't write custom test scripts — the project generators wire schemes correctly. |

@@ -50,13 +50,15 @@ product name. A reader who later finds `ios-macos-smoketest` in the URL bar and
 `Shipkit Pipes` on the App Store listing has not found a mismatch — they have found
 this separation working as designed.
 
-**A fourth string in that family is called `APP_NAME`, and its two holders disagree — by
+**A fourth string in that family is called `APP_NAME`, and its holders disagree — by
 design.** Read on 2026-09-02: the gitignored `.bootstrap.env` carries
 `APP_NAME=ShipkitPipes`; the Xcode project is the constant `App` (`name: App` in both
-manifests); the GitHub repository variable `APP_NAME` reads `App` (`gh variable list
---repo indiagrams/ios-macos-smoketest`, set 2026-09-02); and the App Store display name
-is `Shipkit Pipes`. Three different values behind one label were decided rather than
-drifted. `.bootstrap.env`'s `APP_NAME` is the product handle the template-owned
+manifests); and the App Store display name is `Shipkit Pipes`. A GitHub repository
+variable named `APP_NAME` was a fourth holder, reading `App` when it was measured that
+morning — it was **deleted the same day**, 2026-09-02, together with `BUNDLE_ID` (Phase 4
+plan 06, `D-56`; see the dated correction below), so a reader running `gh variable list
+--repo indiagrams/ios-macos-smoketest` today finds only `DEPENDABOT_AUTOMERGE`. The values
+that remain behind the one label were decided rather than drifted. `.bootstrap.env`'s `APP_NAME` is the product handle the template-owned
 `fastlane/Fastfile` and `bin/` bootstrap scripts read; neither generator manifest reads
 it. **That disagreement broke the fork's documented ship command, and from 2026-09-02
 until Phase 4 the working invocation was `APP_NAME=App make ship`. Both halves of that
@@ -109,15 +111,29 @@ and removing them would break `make doctor`; both keys now carry a D-59 comment 
 release-path consumer reads them, doctor compares them against the xcconfig and reports
 disagreement, and Phase 5 removes them. So the three-values-behind-one-label situation
 recorded above is still literally true of the FILE — it is simply no longer load-bearing for
-anything that ships. The repository
-variable exists only because the template's pull-request workflow resolves the project
-path from it, and the project's constant name is the only value that workflow can use.
-The display name is the one string App Review sees. The hazard is recorded as `UL-026`
-in [UPSTREAM-LEDGER.md](UPSTREAM-LEDGER.md): `make bootstrap-fork`
-(`bin/bootstrap-fork.rb`) re-sets the repository variable from `.bootstrap.env`, which
-would silently put `ShipkitPipes` back into a variable that must read `App` and turn six
-required checks red on the next pull request. Do not "fix" the file to match the
-variable, and re-read the variable after any bootstrap run.
+anything that ships.
+
+**Dated correction, 2026-09-02 — the repository variables are gone.** `APP_NAME` existed
+only because the template's pull-request workflow resolved the project path from it, and
+`BUNDLE_ID` only because `release.yml` read it through the `vars` context. The 04-01 sync
+replaced the six `vars.APP_NAME` sites in `pr.yml` with the constants `app/App.xcodeproj`
+/ `App-iOS` / `App-macOS`; plan 04-06 moved `release.yml` and `canary-local-mode.yml` onto
+`app/Identity.xcconfig` through `bin/lib/xcconfig.rb`; both variables were then deleted
+from `indiagrams/ios-macos-smoketest` with `gh variable delete`, bracketed by before/after
+`gh variable list` captures, and the nine required contexts were observed green both with
+them present and without them. Only `DEPENDABOT_AUTOMERGE` remains. The display name is
+still the one string App Review sees.
+
+The hazard that made deletion the fix, rather than correcting the values in place, is
+recorded as `UL-026` in [UPSTREAM-LEDGER.md](UPSTREAM-LEDGER.md) and amended there: `make
+bootstrap-fork` (`bin/bootstrap-fork.rb`) re-set both variables from `.bootstrap.env` on
+every run, so it would have silently put `ShipkitPipes` back into a variable that had to
+read `App` — and would have undone the deletion itself with no diff and no warning.
+`Bootstrap::GHSecrets` no longer issues `gh variable set` at all (`UL-037`), and
+`test/gh_secrets_test.rb` — which CI runs on any change to `bin/lib/bootstrap.rb` — fails
+if that call is ever re-added. The advice this paragraph used to give, "re-read the
+variable after any bootstrap run", is therefore obsolete in both halves: there is no
+variable to re-read, and the tooling can no longer create one.
 
 **Why the display name matters.** Guideline 2.2 states that demos, betas, and trial
 versions do not belong on the App Store. An app presenting itself as a smoke test
@@ -230,8 +246,9 @@ this fork's hardened body (the value is cut at its first `//` before the non-emp
 the fork-owned `review notes` job, and behind `ci/check-identity.sh` from `pr.yml`'s
 `config` job and both `ci/local-*check.sh` scripts (synced from apple-shipkit `c6c324f` in
 Phase 4, `UL-034`); and `.github/workflows/pr.yml` spells `app/App.xcodeproj`, `App-iOS`
-and `App-macOS` as constants, so the repository variable `APP_NAME` is read by the release
-path only until Phase 4 deletes it. A refork would reset `app/Identity.xcconfig` to the
+and `App-macOS` as constants, and the repository variables `APP_NAME` and `BUNDLE_ID` were
+deleted on 2026-09-02 once `release.yml` and `canary-local-mode.yml` had been moved onto the
+same file (Phase 4 plan 06, `D-56`), so nothing resolves identity from the `vars` context. A refork would reset `app/Identity.xcconfig` to the
 placeholders visibly rather than remove the mechanism.
 
 ### Re-measuring

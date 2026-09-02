@@ -16,10 +16,10 @@ The fork ↔ upstream sync property is the most important architectural invarian
 | Rule | Why | If you need to change behavior |
 |---|---|---|
 | Do **not** edit `fastlane/Fastfile` | Template-owned; upstream changes will conflict on every `git pull upstream main` | Add to `fastlane/Fastfile.local` (see "Custom fastlane logic" below) |
-| Do **not** hardcode `APP_NAME` / `BUNDLE_ID` / ASC URLs in workflows or scripts | They resolve from `.bootstrap.env` (Fastfile) or repo `vars.*` (workflows) | Set the env / repo variable |
+| Do **not** hardcode `APP_NAME` / `BUNDLE_ID` / ASC URLs in workflows or scripts | They resolve from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` — the one reader (D-57) | Edit `app/Identity.xcconfig` |
 | Do **not** edit files under `bin/`, `ci/`, `.github/workflows/`, `Makefile` | Template-owned | Override via env, or open an upstream issue at `indiagrams/ios-macos-smoketest` |
 | Do **not** commit secrets | `.bootstrap.env` and `.p8` files are gitignored | Commit `.bootstrap.env.example` only; real values live in GitHub Secrets / `~/.config/secrets/` |
-| Do **not** sed-substitute `SmokeApp` literals | The template uses env-driven resolution everywhere it matters | Run `bin/rename.sh MyApp com.example.myapp "My App" --email=you@example.com` once at fork creation; afterward, the app's identity is edited in `app/Identity.xcconfig` (fastlane's `APP_NAME` / `BUNDLE_ID` handle stays in `.bootstrap.env`) |
+| Do **not** sed-substitute `SmokeApp` literals | The template resolves identity everywhere it matters | Run `bin/rename.sh MyApp com.example.myapp "My App" --email=you@example.com` once at fork creation; afterward, the app's identity is edited in `app/Identity.xcconfig` — fastlane and the release workflows read it through `bin/lib/xcconfig.rb`, and `.bootstrap.env` carries no identity consumer (Phase 5 removes the keys) |
 
 ## Where your code goes
 
@@ -122,8 +122,8 @@ The single source of truth for fork-specific identity + config:
 
 | Field | Used by |
 |---|---|
-| `APP_NAME` | Fastfile (project + scheme + IPA/PKG names), workflows (`vars.APP_NAME`) |
-| `BUNDLE_ID` | Fastfile (app identifier), workflows (`vars.BUNDLE_ID`) |
+| `APP_NAME` | **No release-path consumer since Phase 4 (D-58).** Still required by `bin/lib/bootstrap.rb`'s `Config` until Phase 5, and `make doctor` compares it against `APP_PRODUCT_NAME` in `app/Identity.xcconfig` and reports disagreement. Edit the xcconfig, not this. |
+| `BUNDLE_ID` | **No release-path consumer since Phase 4 (D-58).** Same as above: `Config` still requires it, doctor compares it against `BUNDLE_ID` in `app/Identity.xcconfig`. Edit the xcconfig, not this. |
 | `FASTLANE_TEAM_ID` | Fastlane (Apple Developer team) |
 | `ASC_API_KEY_*` | Fastlane (App Store Connect auth) |
 | `RELEASE_MODE` | `local` (sign on your Mac) or `ci` (mint-fresh in GitHub Actions) |
@@ -131,10 +131,19 @@ The single source of truth for fork-specific identity + config:
 | `SUBMIT_FOR_REVIEW` | `make submit` behavior (stage vs auto-submit) |
 | Many more | `docs/BOOTSTRAP.md` and `.bootstrap.env.example` |
 
-Reading order in code:
-1. Workflow env (`vars.*` / `secrets.*` from CI; shell exports / `.envrc` for local)
-2. `.bootstrap.env` (per-fork)
-3. Fail-loud placeholders (`SmokeApp`, `com.indiagram.smokeapp`, `+10000000000`, `example.com`)
+Reading order in code, for the app's IDENTITY (`BUNDLE_ID`, `APP_PRODUCT_NAME`,
+`DISPLAY_NAME`, `COPYRIGHT`) — two tiers and a named failure, since Phase 4 (D-58):
+
+1. `ENV` — an explicit, deliberate override (`BUNDLE_ID=… make …`, a workflow env)
+2. `app/Identity.xcconfig`, read through `bin/lib/xcconfig.rb`
+3. **A named failure.** `abort`, naming the key and the file. There is no
+   placeholder tier: a fallback default means a fork with a missing or
+   commented-out value ships under a plausible fake identity instead of failing,
+   which is a check that structurally cannot fail. `test/fastlane_identity_test.rb`
+   rejects any `|| "…"` fallback and any `.bootstrap.env` identity read.
+
+Everything else in `.bootstrap.env` (ASC credentials, `FASTLANE_TEAM_ID`,
+`RELEASE_MODE`, `PLATFORMS`) keeps the old order: workflow env, then the file.
 
 ## Commit + PR conventions
 
@@ -172,8 +181,8 @@ Reading order in code:
 
 | Antipattern | What breaks | Do instead |
 |---|---|---|
-| `sed -i 's/SmokeApp/MyApp/' fastlane/Fastfile` | Fastfile is byte-equivalent across template + forks via env resolution; sed creates divergence that conflicts every upstream sync | Set `APP_NAME=MyApp` in `.bootstrap.env` |
-| Editing `.github/workflows/*.yml` to point at a specific app | Workflows resolve repo state via `vars.APP_NAME` / `vars.BUNDLE_ID` | `gh variable set APP_NAME --body MyApp` |
+| `sed -i 's/SmokeApp/MyApp/' fastlane/Fastfile` | Fastfile is byte-equivalent across template + forks via env resolution; sed creates divergence that conflicts every upstream sync | Edit `BUNDLE_ID` / `APP_PRODUCT_NAME` in `app/Identity.xcconfig` |
+| Editing `.github/workflows/*.yml` to point at a specific app | Workflows resolve identity from `app/Identity.xcconfig` via `bin/lib/xcconfig.rb`, so a pinned literal goes stale silently | Nothing to set — edit `app/Identity.xcconfig` and every workflow follows |
 | Committing `.bootstrap.env` | Contains paths to local secrets, possibly real values | Already gitignored; commit `.bootstrap.env.example` if you add a new field |
 | Adding new lanes to `fastlane/Fastfile` | Upstream sync will conflict every time the template touches the file | Use `fastlane/Fastfile.local` |
 | Defining `before_all` in `Fastfile.local` | Fastlane's `before_all` is last-write-wins; will silently drop the template's ASC API key setup, breaking every signed upload | Use `override_lane` for the specific lane needing setup |

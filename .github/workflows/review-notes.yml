@@ -111,9 +111,10 @@ jobs:
           # criterion 4's durable guard: the five named files carry no SmokeApp
           # literal, the Team ID is in no tracked build config, preGenCommand is wired
           # and cache-proof, and Local.xcconfig is gitignored while Identity.xcconfig
-          # is not. Both are Ruby core: each has exactly one `require`-family line and
-          # it is a require_relative of bin/lib/xcconfig.rb, which itself has ZERO
-          # require lines (asserted by test/xcconfig_test.rb below, so it cannot rot).
+          # is not. All three Ruby files in this step are Ruby core: each has exactly
+          # one `require`-family line and it is a require_relative of
+          # bin/lib/xcconfig.rb, which itself has ZERO require lines (asserted by
+          # test/xcconfig_test.rb below, so it cannot rot).
           # Nothing outside Ruby core is loaded on any path here, which is what keeps
           # bundler-cache: false above honest. WHAT THIS STEP CANNOT DO: this runner
           # is ubuntu-latest with no Xcode, so it runs the preflight's text checks and
@@ -128,3 +129,12 @@ jobs:
           # mutually incompatible readers C-17 measured. Its contract test is Ruby core only.
           ruby test/xcconfig_test.rb
           ruby test/identity_test.rb
+          # test/fastlane_identity_test.rb is D-58's guard: fastlane/Appfile and
+          # fastlane/Fastfile resolve identity through that same parser, with ENV as the
+          # only override, no .bootstrap.env tier and NO fallback default — the shape
+          # that lets a fork ship under a plausible fake identity instead of failing.
+          # It reads text, which is all this runner can do: fastlane is a gem and
+          # `bundler-cache: false` above means there are none here. That the guard's
+          # abort actually fires through fastlane is observed LOCALLY, both directions,
+          # in .planning/…/evidence/04-04-T2-fastlane-integration-controls.txt.
+          ruby test/fastlane_identity_test.rb

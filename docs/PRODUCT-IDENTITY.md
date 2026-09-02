@@ -58,17 +58,20 @@ manifests); the GitHub repository variable `APP_NAME` reads `App` (`gh variable 
 is `Shipkit Pipes`. Three different values behind one label were decided rather than
 drifted. `.bootstrap.env`'s `APP_NAME` is the product handle the template-owned
 `fastlane/Fastfile` and `bin/` bootstrap scripts read; neither generator manifest reads
-it. **That disagreement breaks the fork's documented ship command today, and the working
-invocation is `APP_NAME=App make ship`.** This fork's copy of the Fastfile still derives
-`IOS_SCHEME`, `MACOS_SCHEME`, `IPA_NAME_PATTERN` and `PKG_NAME_PATTERN` from `APP_NAME`
-(`fastlane/Fastfile` lines 90-93), so with `APP_NAME=ShipkitPipes` the release lane looks
+it. **That disagreement broke the fork's documented ship command, and from 2026-09-02
+until Phase 4 the working invocation was `APP_NAME=App make ship`. Both halves of that
+sentence are now SUPERSEDED — see the dated correction below — and `make ship` needs no
+`APP_NAME` at all.** The mechanism, kept because the correction is only legible against
+it: this fork's copy of the Fastfile derived
+`IOS_SCHEME`, `MACOS_SCHEME`, `IPA_NAME_PATTERN` and `PKG_NAME_PATTERN` from `APP_NAME`,
+so with `APP_NAME=ShipkitPipes` the release lane looked
 for `build/ShipkitPipes-<version>.ipa` while `ci/local-release-check.sh` writes the constant
 `build/App-<version>.ipa` (D-47, `UL-024`): a local `make ship` would perform the full signed
 archive and export and then stop at the lane's `IPA missing at …` check. The environment
-variable wins over the file (`Fastfile` line 88), `bin/ship.rb` passes the shell environment
+variable won over the file, `bin/ship.rb` passes the shell environment
 through to fastlane, and `App` is what the schemes and artefacts are actually named, so
-`APP_NAME=App make ship` resolves every derived name to a thing that exists. Measured
-2026-09-02 by evaluating the Fastfile's own resolution block outside fastlane: it yields
+`APP_NAME=App make ship` resolved every derived name to a thing that exists. Measured
+2026-09-02 by evaluating the Fastfile's own resolution block outside fastlane: it yielded
 `build/ShipkitPipes-0.1.0.ipa` from the file and `build/App-0.1.0.ipa` with the variable set.
 Do not "fix" this by writing `APP_NAME=App` into `.bootstrap.env`: `bundle_name` in the
 Fastfile's App-ID registration lane and `bin/lib/bootstrap.rb`'s config loader read the same
@@ -77,7 +80,36 @@ fix is the Fastfile itself — upstream's copy at `c6c324f` (apple-shipkit #281)
 the constants `App-iOS`, `App-macOS`, `App-%s.ipa` and `App-%s.pkg` and uses `APP_NAME` only
 for `bundle_name` — and carrying that into this fork's template-owned Fastfile, with the
 fallback reading shared config, is Phase 4's `IDENT-05`, whose scope names the artefact name
-as well as the scheme fallback. The repository
+as well as the scheme fallback.
+
+**CORRECTION, 2026-09-02 (Phase 4, plan 04-04, D-58) — the prescription above is retired.**
+`APP_NAME=App make ship` is not needed any more, and `APP_NAME` is no longer read from
+`.bootstrap.env` by anything on the release path.
+Two changes landed together and between them dissolve the disagreement rather than working
+around it. `IOS_SCHEME`, `MACOS_SCHEME`, `IPA_NAME_PATTERN` and `PKG_NAME_PATTERN` are now
+the D-47 constants `App-iOS`, `App-macOS`, `App-%s.ipa` and `App-%s.pkg`, spelled literally
+in `fastlane/Fastfile` (04-01), so no artefact or scheme name is derived from `APP_NAME` and
+there is nothing left for the variable to resolve wrongly. And `APP_NAME` itself is now
+resolved from `APP_PRODUCT_NAME` in `app/Identity.xcconfig` through `bin/lib/xcconfig.rb`
+(04-04), which is the same value the build gives the product as `PRODUCT_NAME` — so the one
+surviving consumer, `bundle_name` in the App-ID registration lane, names the App ID on
+Apple's side after the product, which is what it was always supposed to mean.
+
+Observed rather than asserted, through fastlane itself under the pinned bundler
+(`evidence/04-04-T2-fastlane-integration-controls.txt`): `bundle exec fastlane lanes` on a
+clean environment with neither `APP_NAME` nor `BUNDLE_ID` exported loads the Fastfile and
+lists all 20 lanes, exit 0; the same command pointed at a fixture whose `APP_PRODUCT_NAME`
+is commented out exits 1 with `IDENTITY: APP_PRODUCT_NAME is missing or empty in <file>`.
+There is no fallback default any more, so a missing product name is a named failure and not
+a silent substitution.
+
+**What this does NOT change.** `.bootstrap.env` still carries `APP_NAME=ShipkitPipes` and
+`BUNDLE_ID`, because `bin/lib/bootstrap.rb`'s `Config::REQUIRED_ALWAYS` still requires them
+and removing them would break `make doctor`; both keys now carry a D-59 comment saying no
+release-path consumer reads them, doctor compares them against the xcconfig and reports
+disagreement, and Phase 5 removes them. So the three-values-behind-one-label situation
+recorded above is still literally true of the FILE — it is simply no longer load-bearing for
+anything that ships. The repository
 variable exists only because the template's pull-request workflow resolves the project
 path from it, and the project's constant name is the only value that workflow can use.
 The display name is the one string App Review sees. The hazard is recorded as `UL-026`

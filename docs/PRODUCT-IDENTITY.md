@@ -85,9 +85,9 @@ literal; `tools/identity-parity.rb` regenerates with each, reads `xcodebuild
 
 | Pair | Resolved identity settings, identical across XcodeGen and Tuist | Measured (ISO-8601) | Against |
 |---|---|---|---|
-| `App-iOS`, `Release` | `PRODUCT_BUNDLE_IDENTIFIER = com.indiagram.shipkitpipes.ios`, `PRODUCT_NAME = ShipkitPipes`, `FULL_PRODUCT_NAME = ShipkitPipes.app`, `INFOPLIST_KEY_NSHumanReadableCopyright = Copyright © 2026 Indiagram LLC. All rights reserved.`, plus `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `SWIFT_VERSION` — 7 keys | 2026-09-02 | XcodeGen 2.46.0, Tuist 4.205.0, Xcode 26.1.1 (17B100) |
-| `App-iOS`, `Debug` | the same 7 keys, identical | 2026-09-02 | same |
-| `App-macOS`, `Release` | `PRODUCT_BUNDLE_IDENTIFIER = com.indiagram.shipkitpipes.ios`, `PRODUCT_NAME = ShipkitPipes`, `FULL_PRODUCT_NAME = ShipkitPipes.app`, plus the three version keys — 6 keys. The copyright is a plist-dictionary key on macOS rather than a build setting, so it is absent from both sides symmetrically | 2026-09-02 | same |
+| `App-iOS`, `Release` | `PRODUCT_BUNDLE_IDENTIFIER = com.indiagram.shipkitpipes.ios`, `PRODUCT_NAME = ShipkitPipes`, `FULL_PRODUCT_NAME = ShipkitPipes.app`, plus `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `SWIFT_VERSION` — 6 keys. Until 2026-09-02 this pair also carried `INFOPLIST_KEY_NSHumanReadableCopyright`, equal on both sides and never reaching the bundle (below); the setting was removed when the copyright became a plist key on iOS as it already was on macOS | 2026-09-02, re-measured the same day after the iOS copyright fix | XcodeGen 2.46.0, Tuist 4.205.0, Xcode 26.1.1 (17B100) |
+| `App-iOS`, `Debug` | the same 6 keys, identical | 2026-09-02 | same |
+| `App-macOS`, `Release` | `PRODUCT_BUNDLE_IDENTIFIER = com.indiagram.shipkitpipes.ios`, `PRODUCT_NAME = ShipkitPipes`, `FULL_PRODUCT_NAME = ShipkitPipes.app`, plus the three version keys — 6 keys. The copyright is a plist-dictionary key rather than a build setting on both platforms, so it is absent from both sides symmetrically and is measured from the built apps below, not here | 2026-09-02 | same |
 | `App-macOS`, `Debug` | the same 6 keys, identical | 2026-09-02 | same |
 | `DEVELOPMENT_TEAM`, all four pairs | With the gitignored `app/Local.xcconfig` set aside: **no `DEVELOPMENT_TEAM` line on either side** and the verdict is still `PARITY OK`. With the file present: one identical line on both sides, and one more key per pair | 2026-09-02 | both states measured in the same session; the file restored byte-identically afterwards |
 
@@ -107,7 +107,7 @@ unresolved `$(COPYRIGHT)` reference, so it is not evidence of anything.
 | iOS `CFBundleDisplayName` | `Shipkit Pipes` | 2026-09-02 | `App-iOS`, `Release`, `iphonesimulator`, unsigned, XcodeGen project, Xcode 26.1.1 |
 | iOS `CFBundleName` | `ShipkitPipes` | 2026-09-02 | same |
 | iOS `CFBundleIdentifier` | `com.indiagram.shipkitpipes.ios` | 2026-09-02 | same |
-| iOS `NSHumanReadableCopyright` | **Absent from the built iOS plist** — `PlistBuddy` reports `Does Not Exist`. The build setting `INFOPLIST_KEY_NSHumanReadableCopyright` resolves to the full string in `-showBuildSettings`, but `INFOPLIST_KEY_*` values are written into the plist only under `GENERATE_INFOPLIST_FILE = YES`, and the app targets use an explicit `INFOPLIST_FILE` with that setting `NO`. No iOS surface displays this key; the store-facing copyright is `fastlane/metadata/copyright.txt` | 2026-09-02 | same; recorded as observed, not rounded up |
+| iOS `NSHumanReadableCopyright` | `Copyright © 2026 Indiagram LLC. All rights reserved.` — bytes `c2 a9` in the built plist, from both the XcodeGen and the Tuist project. Earlier the same day the key was **absent** (`PlistBuddy` reported `Does Not Exist`): the iOS target carried the copyright only as the `INFOPLIST_KEY_NSHumanReadableCopyright` build setting, which resolved in `-showBuildSettings` but is written into the plist only under `GENERATE_INFOPLIST_FILE = YES`, and the app targets have it `NO`. The `fix(03-05)` commit set `NSHumanReadableCopyright` as a plist key in both manifests' iOS blocks, as the macOS blocks already did, and dropped the inert setting; removing the key again reproduced `Does Not Exist`, restoring it brought the string back (UL-030) | 2026-09-02, after the fix | same, plus the Tuist-generated project for the same unsigned Simulator build |
 | Both platforms, the edit control | `DISPLAY_NAME` in `app/Identity.xcconfig` set to `Negative Control`: the rebuilt macOS and iOS apps both read `Negative Control`; reverted, both read `Shipkit Pipes` again. Six unsigned builds, six `PlistBuddy` reads | 2026-09-02 | the claim "editing the one tracked file changes the built app on both platforms", demonstrated in both directions |
 
 ### What is not gated, and what covers it
@@ -130,7 +130,9 @@ values in the tables above; a re-check command that nobody has run is a conventi
 mechanism. It regenerates the gitignored project with both generators, builds both platforms
 unsigned, and prints the parity verdict followed by the built-plist values. Expect
 `identity-parity: PARITY OK — 4 scheme x configuration pair(s) identical across XcodeGen and
-Tuist`, then the macOS bundle path and four values, then the iOS bundle path and three.
+Tuist`, then the macOS bundle path and four values, then the iOS bundle path and the same
+four (the iOS copyright line was added on 2026-09-02 with the fix, and the block was re-run
+and re-compared to the executed script before this version was published).
 
 ```bash
 export PATH="/opt/homebrew/opt/ruby@3.3/bin:$PATH"
@@ -143,7 +145,7 @@ for k in CFBundleDisplayName CFBundleName CFBundleIdentifier NSHumanReadableCopy
 D=$(xcodebuild -project app/App.xcodeproj -scheme App-iOS -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -showBuildSettings 2>/dev/null | sed 's/^ *//' | awk -F' = ' '/^BUILT_PRODUCTS_DIR = /{print $2}')
 xcodebuild build -quiet -project app/App.xcodeproj -scheme App-iOS -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 APP=$(ls -d "$D"/*.app | head -1); echo "$APP"
-for k in CFBundleDisplayName CFBundleName CFBundleIdentifier; do /usr/libexec/PlistBuddy -c "Print :$k" "$APP/Info.plist"; done
+for k in CFBundleDisplayName CFBundleName CFBundleIdentifier NSHumanReadableCopyright; do /usr/libexec/PlistBuddy -c "Print :$k" "$APP/Info.plist"; done
 ```
 
 ### Tool versions these measurements were made against

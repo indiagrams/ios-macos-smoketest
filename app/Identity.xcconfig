@@ -27,10 +27,13 @@ APP_PRODUCT_NAME = ShipkitPipes
 // Feeds CFBundleDisplayName — the name under the icon — on both platforms.
 DISPLAY_NAME     = Shipkit Pipes
 
-// Feeds NSHumanReadableCopyright on macOS and
-// INFOPLIST_KEY_NSHumanReadableCopyright on iOS. The organisation name matches
-// the Apple enrollment name on record character for character (D-51,
-// docs/APPLE-ACCOUNT-STATE.md). The © is U+00A9 — UTF-8 bytes c2 a9.
+// Feeds NSHumanReadableCopyright — the Info.plist key, set directly in both
+// manifests' plist blocks — on both platforms. Not through an INFOPLIST_KEY_*
+// build setting: that reaches the bundle only under GENERATE_INFOPLIST_FILE = YES,
+// which the app targets do not set (observed: the setting resolved, the built
+// iOS plist had no key). The organisation name matches the Apple enrollment
+// name on record character for character (D-51, docs/APPLE-ACCOUNT-STATE.md).
+// The © is U+00A9 — UTF-8 bytes c2 a9.
 COPYRIGHT        = Copyright © 2026 Indiagram LLC. All rights reserved.
 
 // The Apple Team ID (DEVELOPMENT_TEAM) lives in app/Local.xcconfig, which is

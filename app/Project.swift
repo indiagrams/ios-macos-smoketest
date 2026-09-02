@@ -45,6 +45,12 @@ let iosInfoPlist: [String: Plist.Value] = [
     "CFBundleDisplayName": "$(DISPLAY_NAME)",
     "CFBundleShortVersionString": "$(MARKETING_VERSION)",
     "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
+    // Set here, as a plist key, exactly as the macOS target does. An
+    // INFOPLIST_KEY_NSHumanReadableCopyright build setting reaches the
+    // bundle only under GENERATE_INFOPLIST_FILE = YES, and this target's
+    // plist is this dictionary (GENERATE_INFOPLIST_FILE = NO), so the setting
+    // resolved in -showBuildSettings but the built plist had no key.
+    "NSHumanReadableCopyright": "$(COPYRIGHT)",
     "UILaunchScreen": .dictionary([:]),
     "UIApplicationSceneManifest": .dictionary([
         "UIApplicationSupportsMultipleScenes": false,
@@ -90,7 +96,6 @@ let iosTarget = Target.target(
         "TARGETED_DEVICE_FAMILY": "1,2",
         "SUPPORTS_MACCATALYST": "NO",
         "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
-        "INFOPLIST_KEY_NSHumanReadableCopyright": "$(COPYRIGHT)",
     ])
 )
 

@@ -102,12 +102,12 @@ on:
         type: boolean
         default: false
 
-# Workflow-level env: bring fork identity from repo variables (see release.yml
-# header for the rationale + the two required `gh variable set` invocations).
-# Same pattern; same fail-loud behavior if unset.
-env:
-  APP_NAME:  ${{ vars.APP_NAME }}
-  BUNDLE_ID: ${{ vars.BUNDLE_ID }}
+# App identity is resolved from app/Identity.xcconfig through bin/lib/xcconfig.rb
+# by the "Resolve app identity from app/Identity.xcconfig" step below, which
+# exports APP_NAME and BUNDLE_ID into $GITHUB_ENV. There is no workflow-level
+# `env:` block and nothing reads the `vars` context. See release.yml's header for
+# why the two repository variables were deleted rather than corrected (D-56,
+# C-16, UL-026, UL-037).
 
 permissions:
   contents: read
@@ -210,6 +210,44 @@ jobs:
         with:
           ruby-version: '3.3'
           bundler-cache: true
+
+      - name: Resolve app identity from app/Identity.xcconfig
+        # The ONE source (D-45/D-56/D-57). app/Identity.xcconfig is tracked and
+        # is the same file the Xcode build reads BUNDLE_ID and APP_PRODUCT_NAME
+        # from, so a workflow and a build cannot disagree about which app this
+        # is. bin/lib/xcconfig.rb reproduces Xcode's real semantics —
+        # last-assignment-wins, value cut at the first `//`, `#include?`
+        # followed — which a `grep` cannot: `BUNDLE_ID = // disabled` resolves
+        # to the empty string in Xcode and matched the old presence check
+        # (UL-031).
+        #
+        # `ruby` here is deliberately bare and un-bundled: bin/lib/xcconfig.rb
+        # has ZERO require lines, not even stdlib (asserted by
+        # test/xcconfig_test.rb, so it cannot rot), and runs unchanged on the
+        # macOS runner's system Ruby 2.6 — verified 2026-09-02 against
+        # /usr/bin/ruby 2.6.10. It therefore needs no Gemfile, no bundle
+        # install, and no particular position relative to the toolchain steps.
+        #
+        # `|| VAR=""` is load-bearing: the parser exits 3 when a key is
+        # undefined or empty, and under `set -e` a bare assignment from a
+        # failing command substitution would kill the step before the named
+        # ::error:: below could print. The parser's own message still reaches
+        # the log on stderr.
+        run: |
+          set -euo pipefail
+
+          BUNDLE_ID="$(ruby bin/lib/xcconfig.rb app/Identity.xcconfig BUNDLE_ID)" || BUNDLE_ID=""
+          APP_NAME="$(ruby bin/lib/xcconfig.rb app/Identity.xcconfig APP_PRODUCT_NAME)" || APP_NAME=""
+
+          if [ -z "${BUNDLE_ID}" ] || [ -z "${APP_NAME}" ]; then
+            echo "::error::BUNDLE_ID / APP_PRODUCT_NAME resolved empty from app/Identity.xcconfig."
+            echo "::error::Set them in app/Identity.xcconfig — no repository variable is read (D-56)."
+            exit 1
+          fi
+
+          echo "BUNDLE_ID=${BUNDLE_ID}" >> "$GITHUB_ENV"
+          echo "APP_NAME=${APP_NAME}"   >> "$GITHUB_ENV"
+          echo "identity: ${APP_NAME} (${BUNDLE_ID})"
 
       - name: Switch workspace to ${{ matrix.generator }} (if needed)
         # Mirrors release.yml's "Apply generator override" step. Each matrix
@@ -518,13 +556,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # BUNDLE_ID comes from the workflow-level env block at the top of
-          # this file, which reads vars.BUNDLE_ID. Fail-loud guard if a fork
-          # hasn't configured the repo variable yet.
+          # BUNDLE_ID reaches this step through $GITHUB_ENV, exported by the
+          # "Resolve app identity from app/Identity.xcconfig" step near the top
+          # of this job. That step already fails on an empty value; this is the
+          # same guard sited where the value is USED, so that an edit which
+          # reorders, conditions or drops the resolving step cannot synthesize
+          # a .bootstrap.env with an empty bundle id. No repository variable is
+          # read (D-56).
           if [ -z "${BUNDLE_ID:-}" ]; then
-            echo "::error::vars.BUNDLE_ID is not set on this repo. Configure it via:"
-            echo "::error::  gh variable set BUNDLE_ID --body <com.you.app> --repo ${{ github.repository }}"
-            echo "::error::Also set APP_NAME the same way."
+            echo "::error::BUNDLE_ID is empty here — it did not survive from the identity step."
+            echo "::error::Set BUNDLE_ID in app/Identity.xcconfig; no repository variable is read."
             exit 1
           fi
 

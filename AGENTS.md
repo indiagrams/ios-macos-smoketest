@@ -237,9 +237,16 @@ editing the existing one.
 
 <!-- Add fork-specific conventions here. -->
 
-- **Product identity lives in `docs/PRODUCT-IDENTITY.md`** — the App Store display name
-  and both platform bundle IDs, with the reasoning behind them. They are recorded there and
-  implemented in Phase 3; nothing is hardcoded in any build file yet, so do not sed them in.
+- **Product identity is recorded in `docs/PRODUCT-IDENTITY.md` and implemented in
+  `app/Identity.xcconfig`** — the App Store display name, the shared bundle ID, the product
+  name and the copyright, with the reasoning in the document and the values in the one
+  tracked file both generator manifests read (`BUNDLE_ID`, `APP_PRODUCT_NAME`,
+  `DISPLAY_NAME`, `COPYRIGHT`). The Apple Team ID is not in git: it comes from the
+  gitignored `app/Local.xcconfig` through that file's optional include. Do not sed identity
+  strings into build files — the manifests carry `$(VAR)` references, and a literal written
+  into a manifest silently overrides the xcconfig. Change the value in
+  `app/Identity.xcconfig`, then prove both generators still agree with
+  `ruby tools/identity-parity.rb`.
 - **Review arguments live in `docs/REVIEW-ARGUMENTS.md`** — the source of truth for the
   text App Review reads, plus the hostile-read reasoning behind it.
 - **`fastlane/metadata/review_information/notes.txt` is generated** by
@@ -252,8 +259,15 @@ editing the existing one.
   file-level check still passed. `ruby tools/gen-review-notes.rb --check` fails loudly if it
   is ever set.
 - **Fork-owned tooling goes in `tools/`**, never in `bin/` or `ci/`, which are template-owned.
-  Fork-owned tests go in `test/`.
+  Fork-owned tests go in `test/`. The identity tooling is `tools/preflight-identity.rb`
+  (the generation gate that XcodeGen's `preGenCommand` and the `review notes` job run),
+  `tools/identity-parity.rb` (the cross-generator `xcodebuild -showBuildSettings` diff) and
+  `test/identity_test.rb` (the guard for the structural constant, the Team ID's absence
+  and the gate's wiring). The template carries its own copies under `bin/` and `ci/`; this
+  fork keeps `tools/` canonical until the rename machinery is retired.
 - **Every generic learning gets a row in `docs/UPSTREAM-LEDGER.md`** in the same change that
   produced it, with a verdict from that file's closed vocabulary — including learnings
   that will never go upstream. The outbound contribution flow is
-  `docs/CONTRIBUTING-UPSTREAM.md`.
+  `docs/CONTRIBUTING-UPSTREAM.md`; when `git am` rejects a patch because the template's
+  context lines say a different name, the change is authored by hand in a separate clone
+  against the template's own text, which is the route apple-shipkit #281 took.

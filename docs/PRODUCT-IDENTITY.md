@@ -10,12 +10,21 @@ it is what later work reads when it needs the actual strings: the App Store Conn
 records, the identity replacement in the project manifests, and the App Store metadata
 all resolve their values from here.
 
-**The App Store Connect side of this identity is live; the build-file side is not.**
-As of 2026-09-01 the record, the store name, the bundle ID and the SKU exist at Apple
-and are recorded below. Changing the identity strings inside the project manifests is a
-separate step in a separate phase, tracked as `IDENT-01` onward. A reader who finds the
-old placeholder identity in `app/` has not found a contradiction — they have found the
-half that has not landed yet.
+**Both halves of this identity are live: the App Store Connect side since 2026-09-01,
+the build-file side since 2026-09-02.** The record, the store name, the bundle ID and the
+SKU exist at Apple and are recorded below. In the repository, the tracked file
+`app/Identity.xcconfig` is the single source of truth the build resolves — `BUNDLE_ID`,
+`APP_PRODUCT_NAME`, `DISPLAY_NAME` and `COPYRIGHT` — and both generator manifests,
+`app/project.yml` and `app/Project.swift`, attach it and carry only references to its
+variables. A reader who opens `app/` and finds `$(BUNDLE_ID)`, `$(APP_PRODUCT_NAME)`,
+`$(DISPLAY_NAME)` and `$(COPYRIGHT)` where they expected the strings in the table below
+has not found a contradiction — they have found the mechanism working as designed. The
+values live in exactly one tracked file, the manifests carry references (a value written
+into a manifest would silently override the xcconfig), and `xcodebuild -showBuildSettings`
+and the built `.app` bundles carry the resolved strings, measured under "Build-system
+identity, measured" below. The one identity value that is in no tracked file is the Apple
+Team ID: the gitignored `app/Local.xcconfig` supplies it through an optional include, and
+`ruby tools/preflight-identity.rb --require-team` is what names it when it is missing.
 
 ## Identity
 
@@ -29,7 +38,8 @@ half that has not landed yet.
 | Registered but unused App ID | `com.indiagram.shipkitpipes.macos` (`KPNQ2D3B8A`) | D-44 |
 | Bundle ID prefix | `com.indiagram.*` | D-06 |
 | GitHub repository name | Unchanged: `indiagrams/ios-macos-smoketest` | D-02 |
-| Xcode target and scheme names | Generic and fork-independent — decided, not yet implemented | D-03 |
+| Xcode target and scheme names | Generic and fork-independent, implemented as the constant `App`: `app/App.xcodeproj`, schemes `App-iOS` and `App-macOS`, `App.entitlements` on both platforms, `@main struct AppMain`; nothing to substitute and no variable to resolve | D-03, D-47 |
+| Tracked identity source of truth | `app/Identity.xcconfig` — `BUNDLE_ID`, `APP_PRODUCT_NAME`, `DISPLAY_NAME`, `COPYRIGHT`, read natively by XcodeGen, Tuist and `xcodebuild`; ends in `#include? "Local.xcconfig"` for the gitignored Team ID | D-45, D-49 |
 
 **Three separate strings.** The repository name, the Xcode target name, and the App
 Store display name are three different strings, and only the third one reaches App
@@ -39,6 +49,24 @@ fork-independent name that needs no renaming, and the store-facing name can be t
 product name. A reader who later finds `ios-macos-smoketest` in the URL bar and
 `Shipkit Pipes` on the App Store listing has not found a mismatch — they have found
 this separation working as designed.
+
+**A fourth string in that family is called `APP_NAME`, and its two holders disagree — by
+design.** Read on 2026-09-02: the gitignored `.bootstrap.env` carries
+`APP_NAME=ShipkitPipes`; the Xcode project is the constant `App` (`name: App` in both
+manifests); the GitHub repository variable `APP_NAME` reads `App` (`gh variable list
+--repo indiagrams/ios-macos-smoketest`, set 2026-09-02); and the App Store display name
+is `Shipkit Pipes`. Three different values behind one label were decided rather than
+drifted. `.bootstrap.env`'s `APP_NAME` is the product handle the template-owned
+`fastlane/Fastfile` and `bin/` bootstrap scripts read; neither generator manifest reads
+it, and its scheme-name fallback in the Fastfile is Phase 4's `IDENT-05`. The repository
+variable exists only because the template's pull-request workflow resolves the project
+path from it, and the project's constant name is the only value that workflow can use.
+The display name is the one string App Review sees. The hazard is recorded as `UL-026`
+in [UPSTREAM-LEDGER.md](UPSTREAM-LEDGER.md): `make bootstrap-fork`
+(`bin/bootstrap-fork.rb`) re-sets the repository variable from `.bootstrap.env`, which
+would silently put `ShipkitPipes` back into a variable that must read `App` and turn six
+required checks red on the next pull request. Do not "fix" the file to match the
+variable, and re-read the variable after any bootstrap run.
 
 **Why the display name matters.** Guideline 2.2 states that demos, betas, and trial
 versions do not belong on the App Store. An app presenting itself as a smoke test
@@ -66,9 +94,9 @@ back from Apple rather than trusted from the form: `GET /v1/apps` reports `name`
 from a generated project or from a built `.app` on the date shown, against the tool versions
 shown, and each row says what it was measured against — the same value, date, scope triple
 that [APPLE-ACCOUNT-STATE.md](APPLE-ACCOUNT-STATE.md) uses for facts that live at Apple.
-The paragraph at the top of this file that describes the build-file side as not yet landed is
-dated to 2026-09-01; the rows below are what landed, and the phase's final audit closes that
-paragraph rather than this section.
+Until 2026-09-02 the paragraph at the top of this file said the build-file side had not
+landed; the phase's close-out audit replaced it on that date, and the rows below are what
+landed.
 
 **Why this is a dated record and not a badge.** There is no fork-owned macOS CI surface in
 this repository. The one fork-owned required status context, `review notes`, runs on
@@ -122,6 +150,39 @@ skipped whenever only the xcconfig changes, because Tuist's manifest cache keys 
 manifest's own content. Tuist's coverage is the `review notes` job, which runs the same
 preflight as plain text on every pull request whichever generator produced anything.
 Measured 2026-09-02 against Tuist 4.205.0 and XcodeGen 2.46.0.
+
+**What the parity instrument does not compare.** `tools/identity-parity.rb` diffs the
+resolved build settings for the identity keys only. Two defects this phase found were
+invisible to it and were caught by CI and by `PlistBuddy` on the built bundle instead:
+XcodeGen deriving a unit-test bundle's `TEST_HOST` from the target name (`UL-027`), and
+the iOS copyright travelling as an `INFOPLIST_KEY_*` setting that never reached the
+file-backed plist (`UL-030`). The tool's key list still names
+`INFOPLIST_KEY_NSHumanReadableCopyright`; since that fix the key is absent on both sides,
+so the entry is inert rather than wrong. Both were left as they are at the phase close:
+widening an instrument is a change to plan and drive red, not to slip into an audit, and
+the built-plist reads above are the coverage until then.
+
+### Convergence with the template
+
+apple-shipkit merged the same mechanism on 2026-09-02 as
+[#281](https://github.com/indiagrams/apple-shipkit/pull/281), merge commit `c6c324f`.
+Diffed on 2026-09-02 with `git diff upstream/main -- <path>` against that commit, fetched
+read-only: `fastlane/Snapfile`, `fastlane/MacSnapfile`, `app/Shared/App.swift` and both
+`App.entitlements` files are byte-identical to the template's; `app/project.yml` and
+`app/Project.swift` differ only in comments and in the preflight's path; `.gitignore`
+differs in one comment. The divergence that remains is deliberate and is the
+fork-owned/template-owned split from AGENTS.md: this fork's `app/Identity.xcconfig` holds
+Shipkit Pipes' values where the template's holds `com.example.helloapp` / `HelloApp`
+placeholders; this fork's preflight is `tools/preflight-identity.rb`, run by XcodeGen's
+`preGenCommand` and by the fork-owned `review notes` job, where the template's is
+`bin/preflight-identity.rb` behind `ci/check-identity.sh`, run by `pr.yml`'s `config` job
+and by both `ci/local-*check.sh` scripts (the four and fifteen lines this fork's copies of
+those two scripts lack are exactly those calls, since `bin/` and `ci/` are template-owned
+here); and this fork's `.github/workflows/pr.yml` still resolves the project path through
+the repository variable `APP_NAME`, which is why that variable reads `App`. The fork keeps
+`tools/` as its own until `IDENT-10` retires the rename machinery in Phase 5; a refork
+would reset `app/Identity.xcconfig` to the placeholders visibly rather than remove the
+mechanism.
 
 ### Re-measuring
 

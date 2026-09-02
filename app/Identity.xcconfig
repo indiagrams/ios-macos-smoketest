@@ -1,0 +1,41 @@
+// app/Identity.xcconfig — the single tracked identity source of truth (D-45).
+//
+// Editing the four values below rebrands the app on both platforms. XcodeGen
+// (configFiles:), Tuist (.settings(configurations:)) and xcodebuild all read
+// this file natively — there is no parser in between, which is what lets
+// `xcodebuild -showBuildSettings` report these resolved values directly.
+// tools/preflight-identity.rb refuses to generate if any of the four is
+// missing or empty, and names the variable (IDENT-09).
+//
+// Format rules: values are UNQUOTED (quotes would land in the plist as
+// literal characters); comments are `//`; the `#` below is a directive, not
+// a comment.
+
+// Feeds PRODUCT_BUNDLE_IDENTIFIER on both app targets (one shared bundle id).
+BUNDLE_ID        = com.indiagram.shipkitpipes.ios
+
+// Feeds PRODUCT_NAME on the two APP targets only, through a per-target
+// PRODUCT_NAME = $(APP_PRODUCT_NAME) in each manifest (D-49). Deliberately NOT
+// a bare PRODUCT_NAME: a project-level PRODUCT_NAME leaks into every target —
+// observed on Xcode 26.1.1, all four test bundles became ShipkitPipes.xctest
+// and the two iOS ones collided at one path under
+// Build/Products/Debug-iphonesimulator/. Tuist writes a per-target
+// PRODUCT_NAME, so a bare one would also make the two generators disagree
+// and fail the parity check. Do not simplify this back.
+APP_PRODUCT_NAME = ShipkitPipes
+
+// Feeds CFBundleDisplayName — the name under the icon — on both platforms.
+DISPLAY_NAME     = Shipkit Pipes
+
+// Feeds NSHumanReadableCopyright on macOS and
+// INFOPLIST_KEY_NSHumanReadableCopyright on iOS. The organisation name matches
+// the Apple enrollment name on record character for character (D-51,
+// docs/APPLE-ACCOUNT-STATE.md). The © is U+00A9 — UTF-8 bytes c2 a9.
+COPYRIGHT        = Copyright © 2026 Indiagram LLC. All rights reserved.
+
+// The Apple Team ID (DEVELOPMENT_TEAM) lives in app/Local.xcconfig, which is
+// gitignored under IDENT-08 and is never tracked. On a fresh clone the include
+// below is silent and DEVELOPMENT_TEAM is undefined — not empty, undefined:
+// no line for it appears in -showBuildSettings at all. The named failure comes
+// from `tools/preflight-identity.rb --require-team`, not from the build (D-50).
+#include? "Local.xcconfig"

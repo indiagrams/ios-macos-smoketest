@@ -98,7 +98,7 @@
 #
 # Usage (run from anywhere; paths resolve from this file's location):
 #   ruby tools/identity-parity.rb
-#   ruby tools/identity-parity.rb --project-name SmokeApp --schemes SmokeApp-iOS,SmokeApp-macOS
+#   ruby tools/identity-parity.rb --project-name Legacy --schemes Legacy-iOS,Legacy-macOS
 #   ruby tools/identity-parity.rb --configurations Release,Debug
 #   ruby tools/identity-parity.rb --skip-generate        # inspect-only, exits 2
 #

@@ -108,9 +108,9 @@ jobs:
           # pre-generation hook, and a guard embedded in Project.swift is skipped
           # whenever the manifest cache is warm — whereas XcodeGen runs it itself via
           # options.preGenCommand. test/identity_test.rb is criterion 1's and
-          # criterion 4's durable guard: the five named files carry no SmokeApp
-          # literal, the Team ID is in no tracked build config, preGenCommand is wired
-          # and cache-proof, and Local.xcconfig is gitignored while Identity.xcconfig
+          # criterion 4's durable guard: the five named files carry no template
+          # identity literal, the Team ID is in no tracked build config, preGenCommand
+          # is wired and cache-proof, and Local.xcconfig is gitignored while Identity.xcconfig
           # is not. All three Ruby files in this step are Ruby core: each has exactly
           # one `require`-family line and it is a require_relative of
           # bin/lib/xcconfig.rb, which itself has ZERO require lines (asserted by

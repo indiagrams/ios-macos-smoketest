@@ -19,10 +19,13 @@
 # PRESENT IS NOT REQUIRED. This file existing, and even this job going red, does
 # not by itself block a merge. Blocking requires `review notes` to be listed as a
 # required status check on `main`, which is live GitHub state rather than
-# anything in this repository — and `bin/setup-github.sh` recomputes and PUTs
-# that list from scratch, silently dropping this check on its next run.
-# `make setup-github` and `bin/refork-smoketest.sh` therefore turn the gate off
-# without failing or warning. The hazard, the exact PATCH that restores it, the
+# anything in this repository. `bin/setup-github.sh` used to recompute and PUT
+# that list from scratch, silently dropping this check on its next run; as of
+# 2026-09-02 (04-11) it reads the live array, appends only what is missing, and
+# asserts the result, so `make setup-github` and `make bootstrap-fork` now
+# preserve this context. `bin/refork-smoketest.sh` still recreates this
+# repository from the TEMPLATE, whose copy of that script is unfixed until
+# UL-003 merges upstream. The hazard, the exact PATCH that restores it, the
 # verification command, and the expected context count of nine are in
 # docs/CONTRIBUTING-UPSTREAM.md §6 "Fork operations that `make setup-github`
 # reverts". Ledger row UL-003 proposes the upstream fix.

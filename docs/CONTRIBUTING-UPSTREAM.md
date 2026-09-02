@@ -176,6 +176,31 @@ grep over that column.
 
 ## 6. Fork operations that `make setup-github` reverts
 
+> **Fixed fork-side on 2026-09-02 (plan 04-11); read the rest of this section as a
+> description of the TEMPLATE's behaviour.** `bin/setup-github.sh` in this repository
+> no longer PUTs `/protection`. Where protection already exists it reads
+> `…/required_status_checks/contexts`, appends only what is missing through the
+> additive `POST …/contexts` endpoint, re-reads, and asserts the resulting array,
+> printing `before`, `after` and `want` and exiting 1 on any disagreement. A context
+> the script did not author therefore survives whether or not anybody remembered to
+> name it; `SETUP_GITHUB_EXTRA_CHECKS='review notes'` exists to put the fork's own
+> context back on a repository that has already lost it, not to keep one that is
+> there. The full PUT survives only behind a 404 on `GET …/protection`, where there
+> is no protection object to preserve, and `test/setup_github_test.rb` fails the
+> build if that write ever escapes the 404 branch.
+>
+> **Three callers, and one of them is still exposed.** `make setup-github` and
+> `make bootstrap-fork` — the latter through `bin/lib/bootstrap.rb`'s
+> `BranchProtection` step, which passes no extra-checks list and does not need to —
+> both run the script in this repository and are now safe.
+> `bin/refork-smoketest.sh` is not: it deletes this repository and recreates it from
+> the template with `gh repo create --template`, so the script that runs in step 7
+> is the template's, which still PUTs. That path also takes
+> `.github/workflows/review-notes.yml` with it, so what a refork leaves behind is a
+> repository with eight required contexts and no ninth job to require — a different
+> shape of the same loss. The runbook below is the recovery for that case, once the
+> workflow file is back on the branch.
+
 One fork-owned guarantee lives in GitHub state rather than in a file, and one
 template-owned script destroys it without saying so. This section exists so that
 recovery is a paste rather than an investigation.

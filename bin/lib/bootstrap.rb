@@ -598,30 +598,44 @@ module Bootstrap
   class GHSecrets < Step
     MODES = %w[ci].freeze
 
-    # GH Actions repo Variables (not Secrets) required by both release.yml +
-    # pr.yml. Workflows read these via `${{ vars.APP_NAME }}` /
-    # `${{ vars.BUNDLE_ID }}` at workflow-level env blocks. Distinct from
-    # secrets because they're non-sensitive identity strings the user
-    # purposely wants visible in logs (e.g. so a workflow failure cleanly
-    # shows which app+bundle triggered). They MUST be set for CI-mode
-    # release.yml to compute the release tag (release.yml fails fast with
-    # `vars.BUNDLE_ID is not set on this repo` if missing); pr.yml falls
-    # back to nothing. (pr.yml no longer reads them: its project path and
-    # schemes are the constant app/App.xcodeproj / App-iOS / App-macOS.)
-    REQUIRED_VARIABLES = %w[APP_NAME BUNDLE_ID].freeze
-
-    def name; "Set 5 GH Secrets + 2 GH Variables on app repo"; end
+    # This step sets GH Actions SECRETS. It deliberately sets no repository
+    # VARIABLES, and that absence is the point (D-56).
+    #
+    # It used to also set APP_NAME and BUNDLE_ID as repository variables, which
+    # release.yml, canary-local-mode.yml and pr.yml read at their workflow-level
+    # `env:` blocks through `${{ vars.APP_NAME }}` / `${{ vars.BUNDLE_ID }}`.
+    # Two things were wrong with that.
+    #
+    # Identity had a SECOND SOURCE. The value CI used came from the gitignored
+    # `.bootstrap.env` by way of a live repository setting; the value the BUILD
+    # used came from the tracked `app/Identity.xcconfig`; nothing compared them.
+    # Measured 2026-09-02 on this repo: the BUNDLE_ID variable read
+    # `com.indiagram.smokeapp` — the TEMPLATE's bundle id — while the app's own
+    # is `com.indiagram.shipkitpipes.ios`. The release path was wired to the
+    # wrong app and nothing had caught it, because no build had been uploaded.
+    #
+    # And the write below ran on EVERY `make bootstrap-fork`, so a live value
+    # corrected by hand was silently reverted by the next bootstrap, and by
+    # every refork (`bin/refork-smoketest.sh` ends by telling the operator to
+    # run `make bootstrap-fork`). That is UL-026: a decision the repo's own
+    # tooling reverses, with no diff, no warning and no gate — the same shape
+    # as UL-003, which D-63 fixes for branch protection.
+    #
+    # Every workflow now resolves identity from `app/Identity.xcconfig` through
+    # `bin/lib/xcconfig.rb`, the one parser (D-57), which is the same file the
+    # build resolves it from (D-45). There is nothing left for a repository
+    # variable to carry, so `check` no longer consults `gh variable list`
+    # either — a check that required them would report `pending` forever
+    # against a correctly-configured fork and nag someone into re-creating
+    # them. Re-adding a `gh variable set` here reopens UL-026 and quietly
+    # undoes D-56; test/gh_secrets_test.rb fails on the argv if anyone does.
+    def name; "Set 5 GH Secrets on app repo"; end
 
     def check
       out, ok = Sh.run("gh", "secret", "list", "--repo", config.repo_slug)
       return :pending unless ok
       secrets_present = out.lines.map { |l| l.split(/\s+/).first }.compact
-      return :pending unless REQUIRED_SECRETS.all? { |s| secrets_present.include?(s) }
-
-      out, ok = Sh.run("gh", "variable", "list", "--repo", config.repo_slug)
-      return :pending unless ok
-      vars_present = out.lines.map { |l| l.split(/\s+/).first }.compact
-      REQUIRED_VARIABLES.all? { |v| vars_present.include?(v) } ? :done : :pending
+      REQUIRED_SECRETS.all? { |s| secrets_present.include?(s) } ? :done : :pending
     end
 
     def do_it
@@ -642,22 +656,6 @@ module Bootstrap
       secrets.each do |key, val|
         IO.popen(["gh", "secret", "set", key, "--repo", config.repo_slug], "w") { |io| io.write(val) }
         UI.fail!("gh secret set #{key} failed") unless $?.success?
-      end
-
-      # Set the workflow-level repo Variables. These are non-sensitive and
-      # accept `--body` directly (vs secrets which read from stdin to avoid
-      # leaking through process listings). `gh variable set` is idempotent:
-      # re-running overwrites the prior value silently, so this is safe to
-      # re-invoke (e.g. after the user changes APP_NAME / BUNDLE_ID in
-      # `.bootstrap.env` and re-runs `make bootstrap-fork`).
-      variables = {
-        "APP_NAME"  => config["APP_NAME"],
-        "BUNDLE_ID" => config["BUNDLE_ID"]
-      }
-
-      variables.each do |key, val|
-        UI.fail!("#{key} is empty in .bootstrap.env; cannot set as GH variable") if val.to_s.strip.empty?
-        Sh.run!("gh", "variable", "set", key, "--body", val, "--repo", config.repo_slug)
       end
     end
 

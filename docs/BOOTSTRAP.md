@@ -46,7 +46,7 @@ make verify
 
 | | `ci` (default) | `local` |
 |---|---|---|
-| **Setup includes** | 5 GH Secrets + 2 GH Variables, branch protection, ASC App verify | Login keychain identities check, branch protection, ASC App verify |
+| **Setup includes** | 5 GH Secrets, branch protection, ASC App verify | Login keychain identities check, branch protection, ASC App verify |
 | **`make ship` does** | Triggers `.github/workflows/release.yml` on the app repo | Runs `bundle exec fastlane release tag:v<MARKETING>+<BUILD>` on this machine (marketing version read from project file; build number resolved from ASC) |
 | **Signing material lives** | Minted fresh on the GitHub Actions runner per release run, then revoked at the end of the run (net cert delta = 0). Nothing is persisted between runs. | In your login keychain (Apple Distribution + Apple Development + 3rd Party Mac Developer Installer for macOS) |
 | **Who can release** | Anyone with push to the app repo + a working `gh auth login` (the ASC API key is already in GH Secrets) | Only this laptop |
@@ -63,11 +63,12 @@ in v1.6+.
 You can switch modes later by editing `RELEASE_MODE` and re-running
 `make bootstrap-fork`. Going `local → ci`: bootstrap sets the 5 GH Secrets
 (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`,
-`ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) + the 2 GH Variables
-(`APP_NAME`, `BUNDLE_ID`) and configures branch protection. Going
-`ci → local`: bootstrap leaves the GH Secrets + Variables in place
-(they're inert if `release.yml` is never triggered) and CI just stops
-being invoked.
+`ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) and configures branch
+protection. It sets no repository variables: the app's identity is read
+from `app/Identity.xcconfig` by every workflow, through
+`bin/lib/xcconfig.rb` (D-56/D-57). Going `ci → local`: bootstrap leaves
+the GH Secrets in place (they're inert if `release.yml` is never
+triggered) and CI just stops being invoked.
 
 > **Note for private repos on the free GitHub plan:** GitHub gates branch
 > protection on private repos behind paid plans (Pro / Team / Enterprise).
@@ -149,7 +150,7 @@ Mode key: ⚪ both, 🅒 ci-only, 🅛 local-only, 🍎 macOS-only.
 | 7 | `MakeIcons` | 🍎 | `make icons` — regenerates the macOS `.icns` from the 1024 PNG. Runs only when `PLATFORMS` includes `macos`. |
 | 8 | `InitialPush` | ⚪ | First commit (rename + icons) pushed to `origin/main` |
 | 9 | `BranchProtection` | ⚪ | `bin/setup-github.sh` (required checks: swiftlint + swiftformat + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
-| 10 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) AND the 2 GH Variables (`APP_NAME`, `BUNDLE_ID`) on the app repo. The Variables are non-sensitive identity strings read by `release.yml` + `pr.yml` at workflow-level `env:` blocks via `${{ vars.APP_NAME }}` / `${{ vars.BUNDLE_ID }}`. Without them, `release.yml` fails fast at the "Compute release tag" step with `vars.BUNDLE_ID is not set on this repo` and `pr.yml` silently falls back to the literal `'SmokeApp'` scheme name which won't match a renamed fork's xcodeproj. |
+| 10 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) on the app repo. It sets **no** repository variables. It used to also set `APP_NAME` and `BUNDLE_ID` as variables for `release.yml` / `pr.yml` to read via `${{ vars.* }}`; that gave identity a second source (measured 2026-09-02, the live `BUNDLE_ID` variable carried the template's `com.indiagram.smokeapp`, not this app's) and re-set it on every `make bootstrap-fork`, silently reverting any hand correction (UL-026). Every workflow now resolves identity from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` (D-56/D-57), so there is nothing for a variable to carry. |
 | 11 | `RegisterAppId` | ⚪ | `fastlane register_app_id` — registers the App ID for the bundle id in `.bootstrap.env`. Idempotent: it looks the identifier up with `BundleId.all(filter:)` before creating anything. Defaults to iOS; pass `platform:macos` (or set `BUNDLE_ID_PLATFORM`) for a macOS App ID. Two platforms with separate bundle ids means two invocations either way, since a bundle id maps to one App ID. Apple may report the created App ID's platform as `UNIVERSAL` whatever was requested — the lane prints both values rather than echoing the request, and treats `UNIVERSAL` as covering the requested platform rather than as a mismatch. |
 | 12 | `VerifyAscApp` | ⚪ | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |
 | 13 | `LocalKeychainCerts` | 🅛 | Auto-mints any missing local-mode cert types (Apple Distribution, Apple Development, and — when shipping macOS — 3rd Party Mac Developer Installer) via `fastlane cert` into `login.keychain-db`. New in v1.4 — replaces the v1.3 hard-blocker requiring manual remediation. |

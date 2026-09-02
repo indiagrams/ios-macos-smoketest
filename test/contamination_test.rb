@@ -358,7 +358,8 @@ end
 puts
 puts "CT — the live tree and the tracked allowlist:"
 
-real_out, real_err, real_code = Open3.capture3(RbConfig.ruby, GATE, chdir: ROOT)
+real_out, real_err, real_status = Open3.capture3(RbConfig.ruby, GATE, chdir: ROOT)
+real_code = real_status.exitstatus
 assert real_code.zero? && real_out.include?("0 unallowed"), "CT", "-",
        "the gate is green on HEAD with 0 unallowed " \
        "(exit=#{real_code}, out=#{real_out.inspect}, err=#{real_err.inspect})"

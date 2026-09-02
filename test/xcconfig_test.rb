@@ -231,6 +231,57 @@ with_tree("A.xcconfig" => %(#include "B.xcconfig"\n),
          "an include cycle (A→B→A) raises MissingInclude naming a cycle (T-04-07)"
 end
 
+# ─── Xcconfig.own: what a file's OWN text assigns, no #include followed ──────
+#
+# `value` answers "what would Xcode resolve here", which follows `#include?`.
+# That is the right question for a build and the WRONG question for a leak
+# check. app/Identity.xcconfig ends with `#include? "Local.xcconfig"`, so on
+# every machine that has the gitignored file `Xcconfig.value(identity,
+# "DEVELOPMENT_TEAM")` returns the LOCAL team — measured 2026-09-02, a fixture
+# whose own text assigns no team resolved to `LOCALONLY9`. If
+# bin/preflight-identity.rb's IDENT-08 warning ("a Team ID defined in the
+# TRACKED file is a Team ID in git") asked `value`, it would fire on every
+# developer machine about a value that is not tracked at all — a false security
+# warning, which trains its reader to ignore the true one. `own` is the second
+# question, asked of the same one parser body rather than of a second reader.
+
+puts
+puts "xcconfig — Xcconfig.own (the file's own assignments; includes recognised, not followed):"
+
+assert Xcconfig.respond_to?(:own),
+       "Xcconfig.own exists — the IDENT-08 leak check needs \"what does THIS file say\", not \"what would Xcode resolve\""
+
+if Xcconfig.respond_to?(:own)
+  with_tree("Main.xcconfig" => %(K = mine\nT = // disabled\nR = $(K)\n#include? "Inc.xcconfig"\n),
+            "Inc.xcconfig"  => %(K = theirs\nONLY_THEIRS = yes\n)) do |root|
+    f = File.join(root, "Main.xcconfig")
+
+    assert_eq Xcconfig.own(f)["K"], "mine",
+              "own does NOT follow the include — `value` would say `theirs` (last-wins across the boundary)"
+    assert_eq Xcconfig.value(f, "K"), "theirs",
+              "…and `value` on the same file DOES say `theirs`, so the two questions are observably different"
+    assert_eq Xcconfig.own(f)["ONLY_THEIRS"], nil,
+              "a key that only the INCLUDED file assigns is absent from own — this is the IDENT-08 case"
+    assert_eq Xcconfig.own(f)["T"], "",
+              "own applies the same `//` cut as load: `// disabled` is \"\", so a commented-out value is not a leak"
+    assert_eq Xcconfig.own(f)["R"], "$(K)",
+              "own returns the RAW assignment, unexpanded — the same shape the deleted defines_non_empty? tested"
+  end
+
+  with_tree("Main.xcconfig" => %(K = kept\n#include "Definitely-Missing.xcconfig"\n)) do |root|
+    raised = nil
+    begin
+      Xcconfig.own(File.join(root, "Main.xcconfig"))
+    rescue Xcconfig::MissingInclude => e
+      raised = e
+    end
+    assert raised.nil?,
+           "own does not raise on a hard-include miss: nothing was asked of the included file (`value` still raises — asserted above)"
+  end
+else
+  puts "  (skipped: Xcconfig.own is not defined, so the six assertions below cannot run)"
+end
+
 # ─── CLI contract ────────────────────────────────────────────────────────────
 
 puts

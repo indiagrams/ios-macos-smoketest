@@ -55,7 +55,7 @@
 #
 # Every constant below is duplicated deliberately rather than derived from the
 # artifact under test (the idiom from test/docs_structure_test.rb:87-91): a
-# test that read its file list out of tools/preflight-identity.rb, or its
+# test that read its file list out of bin/preflight-identity.rb, or its
 # variable list out of app/Identity.xcconfig, would accept whatever that file
 # happened to say, which is not a test.
 #
@@ -129,7 +129,7 @@ TEAM_ID_SWEEP_PATHS = %w[app/ ci/ fastlane/ .github/ Makefile].freeze
 
 # ─── G4 vocabulary — the generation gate and the flag that bypasses it ───────
 PROJECT_YML           = "app/project.yml"
-PREFLIGHT             = "tools/preflight-identity.rb"
+PREFLIGHT             = "bin/preflight-identity.rb"
 # XcodeGen's own documentation: preGenCommand does not run when the project is
 # not regenerated because nothing changed under the cache. A gate one flag away
 # from being bypassed needs an assertion that nobody passes that flag.
@@ -187,7 +187,7 @@ end
 # in `\S`, which matched the first `/` of a commented-out value, so this guard
 # and the gate it guards passed together on an identity Xcode resolved to
 # nothing (03-SECURITY.md T-03-06 / F-01, 03-REVIEW.md WR-01). Byte-identical
-# body to tools/preflight-identity.rb's `defines_non_empty?` — keep them so.
+# body to bin/preflight-identity.rb's `defines_non_empty?` — keep them so.
 def defines_non_empty?(text, key)
   text.each_line.any? do |line|
     value = line[/\A[ \t]*#{Regexp.escape(key)}[ \t]*=(.*)/, 1]
@@ -318,13 +318,18 @@ assert !pregen.nil? && !pregen.include?("--config"), "G4", PROJECT_YML,
        "options.preGenCommand passes no --config flag#{pregen.nil? ? '' : " (observed #{pregen.inspect})"}"
 
 # The cache-flag sweep over every tracked file under the three caller surfaces.
+# Comment-only lines (`#` first) are not callers and are skipped: upstream's
+# ci/check-identity.sh, adopted as-is in Phase 4, EXPLAINS in its header that
+# preGenCommand is skipped under `xcodegen --use-cache`, which is this very
+# assertion's reason for existing, not a violation of it. A flag on a live
+# command line still counts, wherever on the line it sits.
 scan_out, scan_exit = run(%w[git ls-files -z --] + CACHE_FLAG_SCAN_PATHS)
 cache_hits = []
 if scan_exit.zero?
   scan_out.split("\0").each do |rel|
     next unless File.file?(File.join(ROOT, rel))
 
-    hits = line_numbers(read_utf8(rel)) { |line| line.scrub("?") =~ CACHE_FLAG }
+    hits = line_numbers(read_utf8(rel)) { |line| line.scrub("?") !~ /\A[ \t]*#/ && line.scrub("?") =~ CACHE_FLAG }
     hits.each { |n| cache_hits << "#{rel}:#{n}" }
   end
 end

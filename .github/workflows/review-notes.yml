@@ -119,5 +119,5 @@ jobs:
           # output is recorded as dated evidence, because all three macos-15 jobs live
           # in template-owned pr.yml and this repository has no fork-owned macOS CI
           # surface. A green badge here says nothing about generator parity.
-          ruby tools/preflight-identity.rb
+          ruby bin/preflight-identity.rb
           ruby test/identity_test.rb

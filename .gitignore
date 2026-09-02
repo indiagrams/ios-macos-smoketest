@@ -24,7 +24,7 @@ app/Derived/
 # here and nowhere in tracked build or signing config. app/Identity.xcconfig
 # includes it optionally (`#include? "Local.xcconfig"`): on a fresh clone the
 # include is silent and DEVELOPMENT_TEAM is undefined, and it is
-# tools/preflight-identity.rb --require-team that names the missing file.
+# bin/preflight-identity.rb --require-team that names the missing file.
 app/Local.xcconfig
 
 # Editor

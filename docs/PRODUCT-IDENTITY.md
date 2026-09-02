@@ -24,7 +24,7 @@ into a manifest would silently override the xcconfig), and `xcodebuild -showBuil
 and the built `.app` bundles carry the resolved strings, measured under "Build-system
 identity, measured" below. The one identity value that is in no tracked file is the Apple
 Team ID: the gitignored `app/Local.xcconfig` supplies it through an optional include, and
-`ruby tools/preflight-identity.rb --require-team` is what names it when it is missing.
+`ruby bin/preflight-identity.rb --require-team` is what names it when it is missing.
 
 ## Identity
 
@@ -161,7 +161,7 @@ unresolved `$(COPYRIGHT)` reference, so it is not evidence of anything.
 
 With a required key removed from `app/Identity.xcconfig`, `xcodegen generate` exits 3 naming
 the key and writes no project, because `options.preGenCommand` runs
-`tools/preflight-identity.rb` first. On the same input `tuist generate` exits 0 and writes a
+`bin/preflight-identity.rb` first. On the same input `tuist generate` exits 0 and writes a
 project whose `PRODUCT_BUNDLE_IDENTIFIER` resolves to nothing — the line is absent from
 `-showBuildSettings` altogether. That is a known, documented coverage gap, not a passing
 control: Tuist has no pre-generation hook, and a guard embedded in `app/Project.swift` is
@@ -192,16 +192,15 @@ read-only: `fastlane/Snapfile`, `fastlane/MacSnapfile`, `app/Shared/App.swift` a
 differs in one comment. The divergence that remains is deliberate and is the
 fork-owned/template-owned split from AGENTS.md: this fork's `app/Identity.xcconfig` holds
 Shipkit Pipes' values where the template's holds `com.example.helloapp` / `HelloApp`
-placeholders; this fork's preflight is `tools/preflight-identity.rb`, run by XcodeGen's
-`preGenCommand` and by the fork-owned `review notes` job, where the template's is
-`bin/preflight-identity.rb` behind `ci/check-identity.sh`, run by `pr.yml`'s `config` job
-and by both `ci/local-*check.sh` scripts (the four and fifteen lines this fork's copies of
-those two scripts lack are exactly those calls, since `bin/` and `ci/` are template-owned
-here); and this fork's `.github/workflows/pr.yml` still resolves the project path through
-the repository variable `APP_NAME`, which is why that variable reads `App`. The fork keeps
-`tools/` as its own until `IDENT-10` retires the rename machinery in Phase 5; a refork
-would reset `app/Identity.xcconfig` to the placeholders visibly rather than remove the
-mechanism.
+placeholders; the preflight sits at the template's path, `bin/preflight-identity.rb`, with
+this fork's hardened body (the value is cut at its first `//` before the non-empty test —
+`UL-031`, divergent until it merges upstream), and is run by XcodeGen's `preGenCommand`, by
+the fork-owned `review notes` job, and behind `ci/check-identity.sh` from `pr.yml`'s
+`config` job and both `ci/local-*check.sh` scripts (synced from apple-shipkit `c6c324f` in
+Phase 4, `UL-034`); and `.github/workflows/pr.yml` spells `app/App.xcodeproj`, `App-iOS`
+and `App-macOS` as constants, so the repository variable `APP_NAME` is read by the release
+path only until Phase 4 deletes it. A refork would reset `app/Identity.xcconfig` to the
+placeholders visibly rather than remove the mechanism.
 
 ### Re-measuring
 

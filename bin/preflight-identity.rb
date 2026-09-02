@@ -45,10 +45,10 @@
 # there" can never be read as "the file was checked".
 #
 # Usage:
-#   ruby tools/preflight-identity.rb                  # from the repository root (CI)
-#   ruby ../tools/preflight-identity.rb               # from app/ — XcodeGen's preGenCommand
-#   ruby tools/preflight-identity.rb --require-team   # additionally require a resolvable DEVELOPMENT_TEAM
-#   ruby tools/preflight-identity.rb --config PATH    # check PATH instead of app/Identity.xcconfig (fixtures only)
+#   ruby bin/preflight-identity.rb                  # from the repository root (CI)
+#   ruby ../bin/preflight-identity.rb               # from app/ — XcodeGen's preGenCommand
+#   ruby bin/preflight-identity.rb --require-team   # additionally require a resolvable DEVELOPMENT_TEAM
+#   ruby bin/preflight-identity.rb --config PATH    # check PATH instead of app/Identity.xcconfig (fixtures only)
 #
 # Ruby stdlib only. No gem, no Gemfile entry, no test framework, no `require`
 # at all: a `require` of anything outside core would force bundler-cache: true
@@ -76,7 +76,7 @@ TEAM_VAR = "DEVELOPMENT_TEAM"
 FAIL_PREFIX = "IDENTITY PREFLIGHT FAILED:"
 
 USAGE = <<~USAGE
-  usage: ruby tools/preflight-identity.rb [--require-team] [--config PATH]
+  usage: ruby bin/preflight-identity.rb [--require-team] [--config PATH]
     --require-team   also require DEVELOPMENT_TEAM to resolve from app/Local.xcconfig (exit 4 if not)
     --config PATH    check PATH instead of app/Identity.xcconfig; prints a banner to stderr on every use
     -h, --help       print this usage and exit 0

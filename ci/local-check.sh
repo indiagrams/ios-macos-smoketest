@@ -106,6 +106,10 @@ build_macos() {
 step "preflight: shared release helpers in sync"
 verify_helpers_in_sync
 
+# Same check pr.yml's config job runs, so a hole in app/Identity.xcconfig is
+# named here before xcodegen would silently generate around it.
+ci/check-identity.sh || fail "app/Identity.xcconfig incomplete — see ci/check-identity.sh"
+
 case "$mode" in
   --fast)
     ensure_xcodeproj

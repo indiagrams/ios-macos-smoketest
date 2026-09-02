@@ -32,7 +32,7 @@ let baseSettings: SettingsDictionary = [
     // include, and appears in no tracked build or signing configuration
     // (IDENT-08, ROADMAP criterion 4). Setting it here would put the value in
     // git and override the include. A clone without Local.xcconfig gets a
-    // named failure from `tools/preflight-identity.rb --require-team`, not
+    // named failure from `bin/preflight-identity.rb --require-team`, not
     // from Xcode.
     "CODE_SIGN_STYLE": "Automatic",
     "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO",

@@ -260,12 +260,15 @@ editing the existing one.
   file-level check still passed. `ruby tools/gen-review-notes.rb --check` fails loudly if it
   is ever set.
 - **Fork-owned tooling goes in `tools/`**, never in `bin/` or `ci/`, which are template-owned.
-  Fork-owned tests go in `test/`. The identity tooling is `tools/preflight-identity.rb`
-  (the generation gate that XcodeGen's `preGenCommand` and the `review notes` job run),
+  Fork-owned tests go in `test/`. The identity preflight lives at `bin/preflight-identity.rb`
+  — upstream's path, this fork's hardened body (the value is cut at its first `//` before
+  the non-empty test); it is the generation gate that XcodeGen's `preGenCommand`, the
+  `review notes` job, and upstream's `ci/check-identity.sh` wrapper (from `pr.yml`'s `config`
+  job and both `ci/local-*check.sh` scripts) all run. The file is divergent from upstream
+  until UL-031 merges — see `docs/UPSTREAM-LEDGER.md`. The rest of the identity tooling is
   `tools/identity-parity.rb` (the cross-generator `xcodebuild -showBuildSettings` diff) and
   `test/identity_test.rb` (the guard for the structural constant, the Team ID's absence
-  and the gate's wiring). The template carries its own copies under `bin/` and `ci/`; this
-  fork keeps `tools/` canonical until the rename machinery is retired.
+  and the gate's wiring).
 - **Every generic learning gets a row in `docs/UPSTREAM-LEDGER.md`** in the same change that
   produced it, with a verdict from that file's closed vocabulary — including learnings
   that will never go upstream. The outbound contribution flow is

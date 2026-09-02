@@ -42,7 +42,7 @@ options:
   # no project. Deliberately no --config: test/identity_test.rb G4 asserts this
   # hook can never be pointed at a fixture. The hook is skipped under
   # `xcodegen --use-cache` / `-c`, which the same test asserts no caller passes.
-  preGenCommand: ruby ../tools/preflight-identity.rb
+  preGenCommand: ruby ../bin/preflight-identity.rb
 
 # Identity.xcconfig is the base layer of every configuration. It ends in
 # `#include? "Local.xcconfig"`, the gitignored per-clone file that carries
@@ -63,7 +63,7 @@ settings:
     # include, and appears in no tracked build or signing configuration
     # (IDENT-08, ROADMAP criterion 4). Setting it here would put the value in
     # git and override the include. A clone without Local.xcconfig gets a named
-    # failure from `tools/preflight-identity.rb --require-team`, not from Xcode.
+    # failure from `bin/preflight-identity.rb --require-team`, not from Xcode.
     CODE_SIGN_STYLE: Automatic
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     GCC_TREAT_WARNINGS_AS_ERRORS: NO

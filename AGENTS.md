@@ -261,14 +261,26 @@ editing the existing one.
   is ever set.
 - **Fork-owned tooling goes in `tools/`**, never in `bin/` or `ci/`, which are template-owned.
   Fork-owned tests go in `test/`. The identity preflight lives at `bin/preflight-identity.rb`
-  — upstream's path, this fork's hardened body (the value is cut at its first `//` before
-  the non-empty test); it is the generation gate that XcodeGen's `preGenCommand`, the
-  `review notes` job, and upstream's `ci/check-identity.sh` wrapper (from `pr.yml`'s `config`
-  job and both `ci/local-*check.sh` scripts) all run. The file is divergent from upstream
-  until UL-031 merges — see `docs/UPSTREAM-LEDGER.md`. The rest of the identity tooling is
-  `tools/identity-parity.rb` (the cross-generator `xcodebuild -showBuildSettings` diff) and
-  `test/identity_test.rb` (the guard for the structural constant, the Team ID's absence
-  and the gate's wiring).
+  — upstream's path, this fork's hardened body; it is the generation gate that XcodeGen's
+  `preGenCommand`, the `review notes` job, and upstream's `ci/check-identity.sh` wrapper
+  (from `pr.yml`'s `config` job and both `ci/local-*check.sh` scripts) all run. The file is
+  divergent from upstream until UL-031 merges — see `docs/UPSTREAM-LEDGER.md`.
+- **There is exactly ONE xcconfig reader: `bin/lib/xcconfig.rb`** (D-57, UL-035). It is
+  fork-owned and it sits in template-owned `bin/` rather than in `tools/` — a deliberate
+  exception to the rule above, because `bin/preflight-identity.rb` `require_relative`s it,
+  `fastlane/Appfile` `load`s it, and `ci/local-release-check.sh` shells out to it, and it is
+  upstream-bound alongside the preflight it belongs with. **Do not add a fifth reader.** If
+  you need a value out of an xcconfig, call `Xcconfig.value(path, key)` (what the toolchain
+  would resolve, `#include` followed) or `Xcconfig.own(path)` (what that one file's text
+  says, for questions about what is in git); from a shell, `ruby bin/lib/xcconfig.rb <file>
+  <KEY>`. The module has ZERO `require` lines, not even stdlib — `review-notes.yml` sets
+  `bundler-cache: false` on that basis and `test/xcconfig_test.rb` asserts it. That test's
+  52 expected values were observed with `xcodebuild -showBuildSettings`; do not "correct" a
+  row to match an implementation, re-measure and move both. The rest of the identity tooling
+  is `tools/identity-parity.rb` (the cross-generator `xcodebuild -showBuildSettings` diff)
+  and `test/identity_test.rb` (the guard for the structural constant, the Team ID's absence
+  and the gate's wiring), which asserts through the same parser rather than through a copy
+  of the gate's predicate — the duplication that made UL-031 possible.
 - **Every generic learning gets a row in `docs/UPSTREAM-LEDGER.md`** in the same change that
   produced it, with a verdict from that file's closed vocabulary — including learnings
   that will never go upstream. The outbound contribution flow is

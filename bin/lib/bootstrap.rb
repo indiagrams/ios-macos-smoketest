@@ -2,8 +2,8 @@
 
 # Shared library for `bin/doctor.rb` (read-only) and `bin/bootstrap-fork.rb`
 # (idempotent driver). Reads `.bootstrap.env`, validates config, exposes a
-# pipeline of 19 step classes. CI mode runs 18 steps with default
-# PLATFORMS=ios,macos; local mode runs 18. Each step has a `check`
+# pipeline of 21 step classes. CI mode runs 20 steps with default
+# PLATFORMS=ios,macos; local mode runs 20. Each step has a `check`
 # (returns bool, no side effects)
 # and a `do_it` (idempotent: safe to re-run on partial state).
 #
@@ -23,6 +23,13 @@ require "pathname"
 require "securerandom"
 require "shellwords"
 require "tmpdir"
+
+# The ONE xcconfig reader (D-57). Not stdlib and not a gem: a sibling file in
+# this directory with zero `require` lines of its own, so requiring it here adds
+# no dependency to anything that already loads this library. `IdentityAdopted`
+# below is a consumer of it — the alternative would be a second parsing body,
+# which is the condition D-57 exists to prevent.
+require_relative "xcconfig"
 
 module Bootstrap
   REPO_ROOT = Pathname.new(__dir__).join("..", "..").expand_path
@@ -89,8 +96,23 @@ module Bootstrap
 
     attr_reader :values
 
+    # Where the config is read from. `BOOTSTRAP_ENV` is a FIXTURE KNOB, for
+    # driving a step red against a config this repository does not carry — the
+    # same shape as `bin/preflight-identity.rb --config PATH` and the
+    # `IDENTITY_XCCONFIG` override on `IdentityAdopted`. It announces itself on
+    # stderr every time (T-04-42): a doctor run against a fixture that looked
+    # like a real one would be a worse defect than the one the fixture is
+    # testing for.
+    def self.env_file
+      override = ENV["BOOTSTRAP_ENV"].to_s.strip
+      return ENV_FILE if override.empty?
+      $stderr.puts "!! BOOTSTRAP_ENV override in effect: reading #{override} instead of #{ENV_FILE}."
+      $stderr.puts "!! This run is reading a FIXTURE config. It says nothing about this repository."
+      Pathname.new(override).expand_path
+    end
+
     def self.load!
-      env_file = ENV_FILE
+      env_file = self.env_file
       unless env_file.exist?
         UI.fail!(<<~MSG)
           .bootstrap.env not found at #{env_file}.
@@ -389,6 +411,38 @@ module Bootstrap
     MODES = %w[ci local].freeze
     PLATFORMS = %w[ios macos].freeze
 
+    # ─── Verification tiers (D-64) ────────────────────────────────────────────
+    #
+    # "Tier" in this project means DEPTH OF VERIFICATION. It is defined here
+    # because it is defined nowhere else — the word appeared only in IDENT-13
+    # and a roadmap criterion, never in code (C-19).
+    #
+    #   tier 1  the thing exists
+    #   tier 2  its content is not the template's
+    #   tier 3  the value the build or Apple actually resolves is not the
+    #           template's
+    #
+    # WHY DEPTH AND NOT SURFACE. Upstream's ci/check-app-icon.sh header records
+    # the failure this exists to prevent: doctor's Icon1024 step compared the
+    # icon's hash against ICON_1024_PATH, so pointing that at a placeholder
+    # reported "done". Presence was verified; content never was. It reached a
+    # human App Store reviewer as a Guideline 2.3.8 rejection, one full review
+    # cycle, with every CI cell green. A presence-only check on the right
+    # surface still reports a confident pass; depth is what was missing.
+    #
+    # MIN_TIER is the minimum depth at which this step's `:done` means
+    # anything. `nil` (the default, and every pre-existing step) opts out. A
+    # subclass that verifies content sets an Integer, records `@tier_reached`
+    # as it climbs, and `Runner#render_result` renders a `:done` from below
+    # MIN_TIER as blocked. THE GUARD LIVES IN THE RUNNER ON PURPOSE: a step's
+    # own discipline is precisely what failed in the icon story, so it is not
+    # what enforces this.
+    MIN_TIER = nil
+
+    # The highest tier this step's `check` actually reached. nil unless the
+    # step set it.
+    attr_reader :tier_reached
+
     attr_reader :config
 
     def initialize(config)
@@ -412,6 +466,12 @@ module Bootstrap
     #   [:blocked, msg]  — human-gated, do_it will fail loud with msg
     def check; raise NotImplementedError; end
     def do_it; raise NotImplementedError; end
+
+    # One extra line printed dimmed after a `:done` name in `Runner#doctor`.
+    # nil for steps that have nothing to add. This is what stops a tier-aware
+    # step from rendering as a bare ✓ that says nothing about how hard it
+    # looked.
+    def detail; nil; end
   end
 
   # ─── Concrete steps ─────────────────────────────────────────────────────────
@@ -498,6 +558,176 @@ module Bootstrap
     end
   end
 
+  # Did this fork actually adopt its own identity, and how deeply do we know it?
+  # (D-64, IDENT-13.) See `Step`'s tier comment for what tier 1/2/3 mean and why
+  # the concept exists at all.
+  #
+  # It sits immediately after `RenameStub` because that is the step whose `do_it`
+  # writes identity, and because `RenameStub#check` is itself only tier-2-ish:
+  # upstream's post-#281 body matches `APP_PRODUCT_NAME = <APP_NAME>` with a
+  # regex that does NOT cut at `//`, so `APP_PRODUCT_NAME = // disabled` would
+  # satisfy it (the UL-031 hole, in a second file). This step asks the harder
+  # question through the one parser.
+  class IdentityAdopted < Step
+    MIN_TIER = 2
+
+    # Every identity this template has ever shipped, compared CASE-INSENSITIVELY:
+    # a rename that only changed the case of `HelloApp` has adopted nothing.
+    # `SmokeApp`/`com.indiagram.smokeapp` are this template's; `HelloApp`/
+    # `com.example.helloapp` are the values upstream's post-#281 Fastfile
+    # substituted in their place (D-58) — the literal changed, the placeholder
+    # did not.
+    TEMPLATE_VALUES = %w[SmokeApp com.indiagram.smokeapp HelloApp com.example.helloapp].freeze
+
+    # Prefix-matched, not equality: the shipped placeholder is
+    # "TODO Copyright © <year> <Your Org>. All rights reserved." and a forker who
+    # edits only the year has still shipped a TODO to the App Store.
+    COPYRIGHT_PLACEHOLDER = "TODO Copyright"
+
+    # The four values app/Identity.xcconfig is the single source of truth for
+    # (D-45). Order is the order they are reported in.
+    KEYS = %w[BUNDLE_ID APP_PRODUCT_NAME DISPLAY_NAME COPYRIGHT].freeze
+
+    # `.bootstrap.env` key => the xcconfig key it must agree with. D-58 left
+    # these two keys in the file with no release-path consumer; D-59 asks for a
+    # gate so the next reader is not misled by a stale value. That comparison is
+    # simultaneously a tier-2 check.
+    ENV_AGREEMENT = { "BUNDLE_ID" => "BUNDLE_ID", "APP_NAME" => "APP_PRODUCT_NAME" }.freeze
+
+    def name; "App identity adopted (tiers 1-3)"; end
+
+    # `IDENTITY_XCCONFIG` is a FIXTURE KNOB, for driving the tiers red against a
+    # file this repository does not carry. It announces itself on stderr every
+    # time it is honoured (T-04-42) — the shape bin/preflight-identity.rb's
+    # `--config PATH` banner established. A doctor run against a fixture that
+    # could be mistaken for a real one would be worse than no fixture at all.
+    def xcconfig_path
+      override = ENV["IDENTITY_XCCONFIG"].to_s.strip
+      return REPO_ROOT.join("app", "Identity.xcconfig") if override.empty?
+      $stderr.puts "!! IDENTITY_XCCONFIG override in effect: reading #{override}"
+      $stderr.puts "!! This run is reading a FIXTURE. It says nothing about app/Identity.xcconfig."
+      Pathname.new(override).expand_path
+    end
+
+    def xcodeproj_path
+      REPO_ROOT.join("app", "App.xcodeproj")
+    end
+
+    def check
+      path = xcconfig_path
+
+      # ── tier 1: the thing exists ────────────────────────────────────────────
+      return [:blocked, "tier 1 failed: #{path} is missing"] unless path.file?
+      @tier_reached = 1
+
+      # ── tier 2: its content is not the template's ───────────────────────────
+      values = {}
+      KEYS.each do |key|
+        raw = Xcconfig.value(path.to_s, key)
+        # nil = never assigned; "" = assigned but empty, comment-only
+        # (`= // disabled`), or resolving through undefined $(VAR) references to
+        # nothing. All three are the same defect to a forker and to the build.
+        if raw.nil? || raw.strip.empty?
+          return [:blocked, "tier 2 failed: #{key} is missing or empty in #{path}"]
+        end
+        values[key] = raw.strip
+      end
+
+      KEYS.each do |key|
+        value = values[key]
+        if TEMPLATE_VALUES.any? { |t| t.casecmp(value).zero? }
+          return [:blocked, "tier 2 failed: #{key} = #{value} (template identity)"]
+        end
+      end
+      if values["COPYRIGHT"].start_with?(COPYRIGHT_PLACEHOLDER)
+        return [:blocked, "tier 2 failed: COPYRIGHT = #{values['COPYRIGHT']} (template identity)"]
+      end
+
+      ENV_AGREEMENT.each do |env_key, xc_key|
+        next unless config.set?(env_key)
+        next if config[env_key] == values[xc_key]
+        return [:blocked, "tier 2 failed: .bootstrap.env #{env_key} = #{config[env_key]} " \
+                          "disagrees with #{path} #{xc_key} = #{values[xc_key]} (D-59).\n" \
+                          "app/Identity.xcconfig is the source of truth; the .bootstrap.env key " \
+                          "has no release-path consumer (D-58) and Phase 5 removes it."]
+      end
+
+      @bundle_id    = values["BUNDLE_ID"]
+      @product_name = values["APP_PRODUCT_NAME"]
+      @tier_reached = 2
+
+      # ── tier 3: what the build actually resolves ────────────────────────────
+      #
+      # -showBuildSettings only. NEVER `xcodebuild test` from the doctor: it is
+      # read-only, and a full-scheme macOS test run trips Gatekeeper on an
+      # unsigned runner.
+      unless xcodebuild_available?
+        return [:warn, "verified to tier 2; tier 3 not reached: xcodebuild is not on PATH, " \
+                       "so what the build resolves could not be read."]
+      end
+      unless xcodeproj_path.directory?
+        return [:warn, "verified to tier 2; tier 3 not reached: #{xcodeproj_path} does not exist. " \
+                       "Generate it (`cd app && xcodegen generate`) and re-run."]
+      end
+
+      out, ok = Sh.run("xcodebuild", "-project", xcodeproj_path.to_s,
+                       "-target", "App-iOS", "-showBuildSettings")
+      unless ok
+        # Pattern 1: a gate refuses to run on an input it cannot judge. NO
+        # VERDICT is not a pass — the whole point of this step is that a silent
+        # `:done` is the defect.
+        return [:blocked, "tier 3: no verdict — xcodebuild exit non-zero, so the resolved " \
+                          "identity is unknown:\n  #{out.lines.last.to_s.strip}"]
+      end
+
+      resolved_id   = build_setting(out, "PRODUCT_BUNDLE_IDENTIFIER")
+      resolved_name = build_setting(out, "PRODUCT_NAME")
+      if resolved_id.nil? || resolved_name.nil?
+        absent = resolved_id.nil? ? "PRODUCT_BUNDLE_IDENTIFIER" : "PRODUCT_NAME"
+        return [:blocked, "tier 3: no verdict — xcodebuild reported no #{absent} for target App-iOS."]
+      end
+
+      unless resolved_id == @bundle_id
+        return [:blocked, "tier 3 failed: PRODUCT_BUNDLE_IDENTIFIER resolved to #{resolved_id}, " \
+                          "#{path} says #{@bundle_id}. The generated project is stale or a " \
+                          "manifest carries a literal that overrides the xcconfig."]
+      end
+      unless resolved_name == @product_name
+        return [:blocked, "tier 3 failed: PRODUCT_NAME resolved to #{resolved_name}, " \
+                          "#{path} says #{@product_name}. The generated project is stale or a " \
+                          "manifest carries a literal that overrides the xcconfig."]
+      end
+
+      @tier_reached = 3
+      :done
+    end
+
+    def detail
+      return nil if tier_reached.nil?
+      "verified to tier #{tier_reached}: #{@bundle_id} / #{@product_name}"
+    end
+
+    # Doctor is read-only and this step verifies rather than mutates; there is
+    # no automatic answer to "your app is still called SmokeApp". Same shape as
+    # CheckGHCreds#do_it.
+    def do_it
+      raise "nothing to do automatically — edit app/Identity.xcconfig and re-run `make doctor`."
+    end
+
+    private
+
+    # Deliberately `Sh.run` rather than `Sh.ok?`: `ok?` reaches the private
+    # instance copy of `run` that `module_function` makes, which a test cannot
+    # stub by redefining the module method.
+    def xcodebuild_available?
+      _out, ok = Sh.run("which", "xcodebuild")
+      ok
+    end
+
+    def build_setting(dump, key)
+      dump[/^[ \t]*#{Regexp.escape(key)} = (.*)$/, 1]&.strip
+    end
+  end
 
   class BrewBootstrap < Step
     def name; "Toolchain (brew + bundler + xcodegen/tuist + lefthook)"; end
@@ -743,11 +973,24 @@ module Bootstrap
 
 
 
+  # THE step the tier vocabulary is named after (D-64). Its hash comparison is a
+  # tier-1 check wearing a tier-2 costume: it proves the bytes at
+  # ICON_1024_PATH are the bytes in the asset catalog, and says nothing about
+  # whether those bytes are a picture of anything. Point ICON_1024_PATH at the
+  # template's flat blue square and it reported `done` — which is how a
+  # placeholder reached a human App Store reviewer and came back as Guideline
+  # 2.3.8, one full review cycle (upstream ci/check-app-icon.sh, header).
   class Icon1024 < Step
+    MIN_TIER = 2
+
     def name; "Replace 1024 icon"; end
 
     def icon_target
       REPO_ROOT.join("app", "iOS", "Assets.xcassets", "AppIcon.appiconset", "Icon-1024.png")
+    end
+
+    def icon_script
+      REPO_ROOT.join("ci", "check-app-icon.sh")
     end
 
     def check
@@ -758,7 +1001,32 @@ module Bootstrap
       src = config.expand_path("ICON_1024_PATH")
       return [:blocked, "ICON_1024_PATH does not exist: #{src}"] unless src.file?
       return :pending unless icon_target.file?
-      Digest::SHA256.file(src).hexdigest == Digest::SHA256.file(icon_target).hexdigest ? :done : :pending
+      # tier 1: the file is in place. Not enough on its own — MIN_TIER = 2, so a
+      # `:done` returned here would be rendered blocked by the runner anyway.
+      unless Digest::SHA256.file(src).hexdigest == Digest::SHA256.file(icon_target).hexdigest
+        return :pending
+      end
+      @tier_reached = 1
+
+      # tier 2: the content is not the template's. ci/check-app-icon.sh (the
+      # script written BECAUSE of this step's gap) quantises the icon and
+      # measures the spread between dominant colour clusters — 0 for a flat fill
+      # or bare gradient, 282 for real artwork. It takes no arguments and
+      # resolves the asset catalog itself.
+      out, ok = Sh.run("bash", icon_script.to_s)
+      unless ok
+        return [:blocked, "tier 2 failed: icon is the template placeholder — " \
+                          "ci/check-app-icon.sh: #{out.lines.reject { |l| l.strip.empty? }.last.to_s.strip}\n" \
+                          "Set ICON_1024_PATH to real 1024x1024 artwork and re-run `make bootstrap-fork`. " \
+                          "This is Guideline 2.3.8 and it costs a full review cycle to learn from Apple."]
+      end
+      @tier_reached = 2
+      :done
+    end
+
+    def detail
+      return nil unless tier_reached == 2
+      "verified to tier 2: icon content is not the placeholder (ci/check-app-icon.sh)"
     end
 
     def do_it
@@ -1453,6 +1721,7 @@ module Bootstrap
       CheckGHCreds,
       RemoteMatches,
       RenameStub,
+      IdentityAdopted,       # verifies what RenameStub writes, to depth (D-64)
       BrewBootstrap,
       Icon1024,              # tree mutations land before InitialPush
       MakeIcons,
@@ -1479,6 +1748,30 @@ module Bootstrap
         .select { |step| step.applicable?(mode, config.platforms) }
     end
 
+    # The MIN_TIER guard (D-64), extracted so it is unit-testable and so it
+    # cannot be quietly skipped by a future step.
+    #
+    # A step that declares a minimum verification depth and then reports `:done`
+    # without having reached it is claiming more than it checked. That claim —
+    # not a wrong answer, an over-confident one — is the exact defect the tier
+    # vocabulary exists for: Icon1024 reported `done` on a placeholder because
+    # hash equality was all it ever looked at, and nothing downstream was in a
+    # position to disagree. So the runner disagrees. A step cannot opt out by
+    # being sloppy, only by declaring no MIN_TIER at all.
+    #
+    # Only `:done` is rewritten; :pending / :warn / [:blocked, …] pass through
+    # untouched, as does every pre-existing step (MIN_TIER defaults to nil).
+    def render_result(step, result)
+      return result unless result == :done
+      min = step.class.const_get(:MIN_TIER)
+      return result if min.nil?
+      reached = step.tier_reached
+      return result if reached && reached >= min
+      [:blocked, "claims done at tier #{reached.inspect}; minimum is #{min}. " \
+                 "The step verified less than it reported — treat this as a bug in the step, " \
+                 "not as a fact about the repository (D-64)."]
+    end
+
     def doctor
       @config.validate!
       UI.section "Configuration"
@@ -1492,10 +1785,14 @@ module Bootstrap
       results = []
       blockers = []  # collected for the action-required tail message
       @steps.each_with_index do |step, idx|
-        result = step.check
+        result = render_result(step, step.check)
         case result
         when :done
           puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.ok step.name}"
+          # "Verified to tier N" rather than a bare ✓. A step that looked hard
+          # and a step that glanced render identically without this (D-64).
+          detail = step.detail
+          puts "      #{UI.dim detail}" if detail && !detail.to_s.strip.empty?
           results << :done
         when :pending
           puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.miss step.name}#{UI.dim ' — will run on bootstrap-fork'}"

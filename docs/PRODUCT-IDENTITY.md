@@ -60,6 +60,109 @@ Anything downstream may hardcode the name without inheriting a caveat. The name 
 back from Apple rather than trusted from the form: `GET /v1/apps` reports `name` as
 `Shipkit Pipes`, `sku` as `shipkitpipes-ios-001`, and `primaryLocale` as `en-US`.
 
+## Build-system identity, measured
+
+**The build-file side is now measured, not claimed.** Every row in this section was read
+from a generated project or from a built `.app` on the date shown, against the tool versions
+shown, and each row says what it was measured against — the same value, date, scope triple
+that [APPLE-ACCOUNT-STATE.md](APPLE-ACCOUNT-STATE.md) uses for facts that live at Apple.
+The paragraph at the top of this file that describes the build-file side as not yet landed is
+dated to 2026-09-01; the rows below are what landed, and the phase's final audit closes that
+paragraph rather than this section.
+
+**Why this is a dated record and not a badge.** There is no fork-owned macOS CI surface in
+this repository. The one fork-owned required status context, `review notes`, runs on
+`ubuntu-latest` with no Xcode, and all three `macos-15` jobs live in the template-owned
+`.github/workflows/pr.yml`, which this fork does not edit. The check that both generators
+report the same identity needs `xcodebuild`, so it is a local command whose output is recorded
+here, and re-running the command at the end of this section is how the record is refreshed.
+
+### Generator parity
+
+Both generators attach `app/Identity.xcconfig` and neither manifest carries an identity
+literal; `tools/identity-parity.rb` regenerates with each, reads `xcodebuild
+-showBuildSettings` for every scheme and configuration, and diffs the identity keys.
+
+| Pair | Resolved identity settings, identical across XcodeGen and Tuist | Measured (ISO-8601) | Against |
+|---|---|---|---|
+| `App-iOS`, `Release` | `PRODUCT_BUNDLE_IDENTIFIER = com.indiagram.shipkitpipes.ios`, `PRODUCT_NAME = ShipkitPipes`, `FULL_PRODUCT_NAME = ShipkitPipes.app`, `INFOPLIST_KEY_NSHumanReadableCopyright = Copyright © 2026 Indiagram LLC. All rights reserved.`, plus `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `SWIFT_VERSION` — 7 keys | 2026-09-02 | XcodeGen 2.46.0, Tuist 4.205.0, Xcode 26.1.1 (17B100) |
+| `App-iOS`, `Debug` | the same 7 keys, identical | 2026-09-02 | same |
+| `App-macOS`, `Release` | `PRODUCT_BUNDLE_IDENTIFIER = com.indiagram.shipkitpipes.ios`, `PRODUCT_NAME = ShipkitPipes`, `FULL_PRODUCT_NAME = ShipkitPipes.app`, plus the three version keys — 6 keys. The copyright is a plist-dictionary key on macOS rather than a build setting, so it is absent from both sides symmetrically | 2026-09-02 | same |
+| `App-macOS`, `Debug` | the same 6 keys, identical | 2026-09-02 | same |
+| `DEVELOPMENT_TEAM`, all four pairs | With the gitignored `app/Local.xcconfig` set aside: **no `DEVELOPMENT_TEAM` line on either side** and the verdict is still `PARITY OK`. With the file present: one identical line on both sides, and one more key per pair | 2026-09-02 | both states measured in the same session; the file restored byte-identically afterwards |
+
+### Built apps
+
+The values below were read with `PlistBuddy` from the `.app` bundles that `xcodebuild`
+produced, located through `BUILT_PRODUCTS_DIR` from `-showBuildSettings`. They are the
+arbiter for the identity: a generated `Info.plist` under `app/` is untracked and carries the
+unresolved `$(COPYRIGHT)` reference, so it is not evidence of anything.
+
+| Platform and key | Value read from the built app | Measured (ISO-8601) | Against |
+|---|---|---|---|
+| macOS `CFBundleDisplayName` | `Shipkit Pipes` | 2026-09-02 | `App-macOS`, `Release`, `platform=macOS`, unsigned, XcodeGen project, Xcode 26.1.1 |
+| macOS `CFBundleName` | `ShipkitPipes` | 2026-09-02 | same |
+| macOS `CFBundleIdentifier` | `com.indiagram.shipkitpipes.ios` | 2026-09-02 | same |
+| macOS `NSHumanReadableCopyright` | `Copyright © 2026 Indiagram LLC. All rights reserved.` — the `©` present as UTF-8 bytes `c2 a9` in the built plist, checked with `xxd`, not by how it renders | 2026-09-02 | same; this is the string the About box shows |
+| iOS `CFBundleDisplayName` | `Shipkit Pipes` | 2026-09-02 | `App-iOS`, `Release`, `iphonesimulator`, unsigned, XcodeGen project, Xcode 26.1.1 |
+| iOS `CFBundleName` | `ShipkitPipes` | 2026-09-02 | same |
+| iOS `CFBundleIdentifier` | `com.indiagram.shipkitpipes.ios` | 2026-09-02 | same |
+| iOS `NSHumanReadableCopyright` | **Absent from the built iOS plist** — `PlistBuddy` reports `Does Not Exist`. The build setting `INFOPLIST_KEY_NSHumanReadableCopyright` resolves to the full string in `-showBuildSettings`, but `INFOPLIST_KEY_*` values are written into the plist only under `GENERATE_INFOPLIST_FILE = YES`, and the app targets use an explicit `INFOPLIST_FILE` with that setting `NO`. No iOS surface displays this key; the store-facing copyright is `fastlane/metadata/copyright.txt` | 2026-09-02 | same; recorded as observed, not rounded up |
+| Both platforms, the edit control | `DISPLAY_NAME` in `app/Identity.xcconfig` set to `Negative Control`: the rebuilt macOS and iOS apps both read `Negative Control`; reverted, both read `Shipkit Pipes` again. Six unsigned builds, six `PlistBuddy` reads | 2026-09-02 | the claim "editing the one tracked file changes the built app on both platforms", demonstrated in both directions |
+
+### What is not gated, and what covers it
+
+With a required key removed from `app/Identity.xcconfig`, `xcodegen generate` exits 3 naming
+the key and writes no project, because `options.preGenCommand` runs
+`tools/preflight-identity.rb` first. On the same input `tuist generate` exits 0 and writes a
+project whose `PRODUCT_BUNDLE_IDENTIFIER` resolves to nothing — the line is absent from
+`-showBuildSettings` altogether. That is a known, documented coverage gap, not a passing
+control: Tuist has no pre-generation hook, and a guard embedded in `app/Project.swift` is
+skipped whenever only the xcconfig changes, because Tuist's manifest cache keys on the
+manifest's own content. Tuist's coverage is the `review notes` job, which runs the same
+preflight as plain text on every pull request whichever generator produced anything.
+Measured 2026-09-02 against Tuist 4.205.0 and XcodeGen 2.46.0.
+
+### Re-measuring
+
+The command below was executed on 2026-09-02, before it was published here, and produced the
+values in the tables above; a re-check command that nobody has run is a convention, not a
+mechanism. It regenerates the gitignored project with both generators, builds both platforms
+unsigned, and prints the parity verdict followed by the built-plist values. Expect
+`identity-parity: PARITY OK — 4 scheme x configuration pair(s) identical across XcodeGen and
+Tuist`, then the macOS bundle path and four values, then the iOS bundle path and three.
+
+```bash
+export PATH="/opt/homebrew/opt/ruby@3.3/bin:$PATH"
+ruby tools/identity-parity.rb
+( cd app && xcodegen generate )
+D=$(xcodebuild -project app/App.xcodeproj -scheme App-macOS -configuration Release -showBuildSettings 2>/dev/null | sed 's/^ *//' | awk -F' = ' '/^BUILT_PRODUCTS_DIR = /{print $2}')
+xcodebuild build -quiet -project app/App.xcodeproj -scheme App-macOS -configuration Release -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
+APP=$(ls -d "$D"/*.app | head -1); echo "$APP"
+for k in CFBundleDisplayName CFBundleName CFBundleIdentifier NSHumanReadableCopyright; do /usr/libexec/PlistBuddy -c "Print :$k" "$APP/Contents/Info.plist"; done
+D=$(xcodebuild -project app/App.xcodeproj -scheme App-iOS -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -showBuildSettings 2>/dev/null | sed 's/^ *//' | awk -F' = ' '/^BUILT_PRODUCTS_DIR = /{print $2}')
+xcodebuild build -quiet -project app/App.xcodeproj -scheme App-iOS -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+APP=$(ls -d "$D"/*.app | head -1); echo "$APP"
+for k in CFBundleDisplayName CFBundleName CFBundleIdentifier; do /usr/libexec/PlistBuddy -c "Print :$k" "$APP/Info.plist"; done
+```
+
+### Tool versions these measurements were made against
+
+`.tool-versions` is the template's pin file; `make bootstrap` installs through `Brewfile`
+instead, so nothing reports when the two diverge. Five of its six pins differ from what is
+installed on the machine that made every measurement above.
+
+| Tool | `.tool-versions` pin | Installed when measured (2026-09-02) |
+|---|---|---|
+| ruby | 3.3.11 | 3.3.12 at `/opt/homebrew/opt/ruby@3.3/bin/ruby`; the suites are also run under 4.0.6 |
+| xcodegen | 2.45.4 | 2.46.0 |
+| lefthook | 2.1.6 | 2.1.12 |
+| swiftlint | 0.63.2 | 0.65.1 |
+| swiftformat | 0.61.1 | 0.62.1 |
+| xcbeautify | 3.2.1 | 3.2.1 — the one pin that matches |
+| tuist | not pinned (`Brewfile` cask) | 4.205.0 |
+| Xcode | `xcodeVersion: "26.0"` in `app/project.yml` | 26.1.1 (17B100) |
+
 ## One record, two platforms
 
 **Universal Purchase was adopted on 2026-09-01, reversing the decision to decline it

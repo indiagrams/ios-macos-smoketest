@@ -1,0 +1,66 @@
+# .gitleaks.toml — the allowlist for the secret scan (D-62, IDENT-12).
+#
+# WHY THIS FILE IS NOT OPTIONAL. With the built-in rule set alone, gitleaks
+# 8.30.1 fails on this repository's own history: seven findings on HEAD's
+# ancestry and fourteen across every fetched ref (measured 2026-09-02, recorded
+# in .planning/…/evidence/04-09-T2-gitleaks-controls.txt). Every one of them is
+# a documentation placeholder or an example that reads an environment variable.
+# None is a credential. Without this file the gate is red on a clean tree, and a
+# gate that cannot pass on HEAD is a gate somebody switches off within a week.
+#
+# WHY THIS FILE IS ITSELF A GATE. An allowlist is where the hole gets drilled.
+# One entry with `regexTarget = "line"` and a match-everything regex turns an
+# injected high-entropy token from exit 42 into exit 0 — the scan still runs,
+# still prints "no leaks found", and sees nothing. That was observed, on a real
+# file, before this config was trusted. `test/gitleaks_config_test.rb` is
+# therefore this file's own gate and runs in `review notes` beside the scan: it
+# rejects a catch-all or under-six-character regex, a `paths` regex matching no
+# tracked file, a line-target entry without `paths`, a description that does not
+# begin with an ISO date, and any key gitleaks would silently ignore.
+#
+# HOW TO ADD AN ENTRY. Scope it — `paths` to the file, or a `regexes` literal
+# specific enough that it cannot match a real credential — date it, and say what
+# was measured and where. An entry with no date, no scope, or no observation
+# behind it is a suppression nobody can re-check.
+#
+# WHAT THIS FILE CANNOT DO. It suppresses findings; it does not decide what is
+# scanned. The scan target, the pin, the digest and the refusal to run on a
+# shallow checkout are all in tools/gitleaks.rb.
+
+[extend]
+# Inherit gitleaks' own rule set rather than replacing it. A config without this
+# scans for nothing but whatever rules it defines itself — which here is none.
+useDefault = true
+
+[[allowlists]]
+# Fires on 6 of the 7 HEAD findings: docs/GETTING-STARTED.md:222 and
+# docs/NO-CI.md:44 (the issuer id every fork is told to replace) and the four
+# fixture strings in test/gitleaks_config_test.rb that spell the same
+# placeholder. Scoped by the placeholder's own literal prefix rather than by
+# path, because the string is documentation wherever it appears and a real
+# issuer id does not begin `12345678-abcd-`.
+description = "2026-09-02 documented placeholder ASC issuer id (12345678-abcd-…) in the bootstrap docs and this repo's own fixtures"
+regexTarget = "match"
+regexes = ['''ASC_API_KEY_ISSUER_ID=12345678-abcd-''']
+
+[[allowlists]]
+# fastlane/Fastfile.local.example:189, the `curl -u` pattern in the commented
+# Jira example. gitleaks' curl-auth-user rule reports the flag; what follows it
+# is `ENV.fetch('JIRA_USER'…)`, a read, not a literal. Path-scoped so the same
+# rule keeps firing everywhere else.
+description = "2026-09-02 Fastfile.local.example curl -u example reads JIRA_USER via ENV.fetch, not a literal"
+paths = ['''fastlane/Fastfile\.local\.example''']
+regexTarget = "match"
+regexes = ['''ENV\.fetch\('JIRA_USER''']
+
+[[allowlists]]
+# Prose listing App Store Connect metadata field names beside a URL trips
+# generic-api-key. Not currently among the seven HEAD findings — it was observed
+# on a `--all` scan of this working repository (307 commits, which reaches the
+# unrelated `upstream` remote) — and kept because this CHANGELOG gains entries
+# describing that same metadata every phase, and the alternative is a red gate
+# on a release note. Scoped to the two field names, in one file.
+description = "2026-09-02 CHANGELOG prose listing ASC metadata field names next to a URL"
+paths = ['''CHANGELOG\.md''']
+regexTarget = "line"
+regexes = ['''marketing_url=|privacy_policy_url=''']

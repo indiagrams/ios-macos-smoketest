@@ -34,7 +34,8 @@
 #   -----+------------------------------------------------------+---------------------------------------------
 #   0    | every required variable present and non-empty        | — (prints `identity preflight ok`)
 #   1    | unknown or malformed argv                            | the offending argument and the usage line
-#   2    | app/Identity.xcconfig not found                      | the resolved absolute path and the CWD
+#   2    | app/Identity.xcconfig not found, or not a regular    | the resolved absolute path and the CWD
+#        | file (a directory at that path is "not found" here)  |
 #   3    | one or more required variables missing or empty      | every missing variable, comma-separated
 #        | (a value that is only a `//` comment is empty)        |
 #   4    | --require-team given and the team is unresolvable    | DEVELOPMENT_TEAM and app/Local.xcconfig
@@ -180,9 +181,22 @@ unless config_override.nil?
 end
 
 # --- exit 2: the file is not there ------------------------------------------
+# File.file?, not File.exist?: a directory (or a socket, a fifo) at the path
+# passes File.exist? and then read_utf8 raises Errno::EISDIR — Ruby's exit 1
+# with a backtrace, which the contract reserves for malformed argv, so a
+# caller branching on the code misreads "the file is not there" as "you called
+# me wrong" (03-REVIEW IN-01, reproduced with --config app under both pinned
+# interpreters). A non-regular path is "not found" for this gate's purposes.
 
-unless File.exist?(config)
-  fail_with 2, "#{config} not found (cwd: #{Dir.pwd}). " \
+unless File.file?(config)
+  state = if File.directory?(config)
+            "is a directory, not a file"
+          elsif File.exist?(config)
+            "is not a regular file"
+          else
+            "not found"
+          end
+  fail_with 2, "#{config} #{state} (cwd: #{Dir.pwd}). " \
                "app/Identity.xcconfig is the tracked identity source of truth (D-45); " \
                "generation must not proceed without it."
 end
@@ -216,7 +230,10 @@ if require_team
          "which is tracked. The Team ID belongs in gitignored app/Local.xcconfig only; " \
          "a value in the tracked file is exactly the leak this phase removes."
   else
-    team_resolved = File.exist?(local) && defines_non_empty?(read_utf8(local), TEAM_VAR)
+    # Same File.file? discipline as the exit-2 branch above: a directory named
+    # Local.xcconfig must produce the exit-4 message, not an EISDIR backtrace.
+    local_is_file = File.file?(local)
+    team_resolved = local_is_file && defines_non_empty?(read_utf8(local), TEAM_VAR)
     unless team_resolved
       # This message has to exist because Xcode's own behaviour is useless
       # here: on iOS it says `requires a development team` (names the concept,
@@ -224,7 +241,13 @@ if require_team
       # build succeeds with `Signing Identity: "Sign to Run Locally"` (C-16,
       # observed on Xcode 26.1.1). Neither names DEVELOPMENT_TEAM or the file
       # that should have defined it. This one does.
-      state = File.exist?(local) ? "present but does not define #{TEAM_VAR} with a non-empty value" : "not found"
+      state = if local_is_file
+                "present but does not define #{TEAM_VAR} with a non-empty value"
+              elsif File.exist?(local)
+                "present but not a regular file"
+              else
+                "not found"
+              end
       fail_with 4, "#{TEAM_VAR} is unresolvable: app/Local.xcconfig (#{local}) is #{state}. " \
                    "Create app/Local.xcconfig (gitignored) containing `#{TEAM_VAR} = <your Team ID>`; " \
                    "it is never committed. Note that Xcode would not report this on macOS " \

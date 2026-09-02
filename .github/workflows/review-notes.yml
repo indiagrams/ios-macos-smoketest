@@ -138,3 +138,27 @@ jobs:
           # abort actually fires through fastlane is observed LOCALLY, both directions,
           # in .planning/…/evidence/04-04-T2-fastlane-integration-controls.txt.
           ruby test/fastlane_identity_test.rb
+          # IDENT-11's gate (D-65, D-69). tools/check-contamination.rb asks whether the
+          # TEMPLATE's identity — BOTH of them, this fork's original placeholder and the one
+          # 04-01's sync brought in from upstream, spelled out in the gate's own header and its
+          # frozen LITERALS constant and deliberately not here — still appears in any tracked
+          # file outside tools/identity-allowlist.txt, whose every row carries a
+          # path, an expected COUNT, an ISO date and a reason. The count is what catches a
+          # regression standing next to a legitimate guard literal, which a path-level
+          # exemption would swallow; the allowlist is therefore a gate itself, and its stale,
+          # short, undated, duplicate and wildcard failures were each observed on the live tree
+          # before it was trusted (.planning/…/evidence/04-07-T3-contamination-live-controls.txt).
+          #
+          # DO NOT CONFUSE THIS WITH ci/check-identity.sh, which pr.yml's non-required `config`
+          # job runs. That is upstream's COMPLETENESS check — is the fork's own identity present
+          # and non-empty where the build needs it. This is a CONTAMINATION check — is the
+          # template's identity absent where it is not permitted. Opposite questions; a green
+          # run of one says nothing about the other.
+          #
+          # It is fork-owned and lives in tools/, NOT at IDENT-11's literal bin/check-identity.sh,
+          # because bin/ and ci/ are template-owned and bin/refork-smoketest.sh recreates this
+          # repository from the template — a fork-authored file at a template-owned path is
+          # deleted wholesale on the next refork, which would silently remove this gate (D-69,
+          # the UL-003 failure class). Zero require lines, so bundler-cache: false still holds.
+          ruby tools/check-contamination.rb
+          ruby test/contamination_test.rb

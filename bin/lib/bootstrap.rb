@@ -2,8 +2,8 @@
 
 # Shared library for `bin/doctor.rb` (read-only) and `bin/bootstrap-fork.rb`
 # (idempotent driver). Reads `.bootstrap.env`, validates config, exposes a
-# pipeline of 21 step classes. CI mode runs 20 steps with default
-# PLATFORMS=ios,macos; local mode runs 20. Each step has a `check`
+# pipeline of 22 step classes. CI mode runs 21 steps with default
+# PLATFORMS=ios,macos; local mode runs 21. Each step has a `check`
 # (returns bool, no side effects)
 # and a `do_it` (idempotent: safe to re-run on partial state).
 #
@@ -909,6 +909,145 @@ module Bootstrap
 
     def build_setting(dump, key)
       dump[/^[ \t]*#{Regexp.escape(key)} = (.*)$/, 1]&.strip
+    end
+  end
+
+  # The two store-metadata files whose only writer is being retired (D-74, A-07).
+  #
+  # `bin/rename.sh:582` is the ONLY writer of fastlane/metadata/en-US/name.txt,
+  # and that script's Step A is the ONLY writer of fastlane/metadata/copyright.txt.
+  # Phase 5 retires both, so each file is handed a writer here rather than left
+  # with none — and "left with none" is not the neutral option it sounds like.
+  # fastlane/Fastfile:678 reads name.txt with a bare `File.read`, which RAISES if
+  # the file is absent, so deleting it would crash `make ship` rather than degrade
+  # it. There is no Deliverfile and no ASC_* override for `name` (the Fastfile's
+  # own comment lists it among the "disk-only fields ... left to deliver's own
+  # filesystem loader"), so name.txt simply IS the App Store listing name. That is
+  # how UL-044 shipped a stale display name past three phases of green gates.
+  #
+  # ONE step for both files, not two: they are the same problem — a store-metadata
+  # file whose only writer is retiring — and one step keeps one rule in one place.
+  # The two differ in exactly one respect, recorded here rather than left implied:
+  # ASC_COPYRIGHT DOES override copyright.txt at submit time (Fastfile:613), while
+  # nothing anywhere overrides `name`.
+  #
+  # MIN_TIER = 2, and that is not a rounding-up. This step's `:done` claims the
+  # tracked file's CONTENT equals what it would write from app/Identity.xcconfig,
+  # which is the tier-2 question. A presence-only `:done` here would be the icon
+  # defect exactly: the file was in place and nothing ever looked inside it. The
+  # guard lives in `Runner#render_result`, not here (D-64).
+  #
+  # Placed immediately after `IdentityAdopted` in `PIPELINE`: identity is verified
+  # before anything is generated from it, and every tree mutation still lands
+  # before `InitialPush`, the way `Icon1024` does.
+  class StoreMetadataGenerated < Step
+    MIN_TIER = 2
+
+    def name; "Store metadata files generated from app/Identity.xcconfig"; end
+
+    # Delegates to `Bootstrap.identity_xcconfig_path`, the ONE resolver, so the
+    # announcing IDENTITY_XCCONFIG fixture knob covers this step exactly as it
+    # covers `IdentityPresent` and `IdentityAdopted`. A second path resolver here
+    # is precisely how one of the three would quietly stop being covered.
+    def xcconfig_path
+      Bootstrap.identity_xcconfig_path
+    end
+
+    def name_txt;      REPO_ROOT.join("fastlane", "metadata", "en-US", "name.txt"); end
+    def copyright_txt; REPO_ROOT.join("fastlane", "metadata", "copyright.txt");     end
+
+    # D-74's fallback rule. `.to_s.empty?` — not `.nil?`, not `&&` — mirroring the
+    # ASC-record instruction in `VerifyAscApp#do_it` character for character on the
+    # ternary, with the same `Bootstrap.identity!('DISPLAY_NAME')` right-hand side.
+    # THERE IS EXACTLY ONE SUCH RULE IN THIS TREE AND THESE ARE ITS TWO SITES: if
+    # they ever disagree, the listing name a forker is told to type into App Store
+    # Connect and the one `deliver` actually uploads disagree too. ASC_APP_NAME is
+    # in `Config::OPTIONAL` and .bootstrap.env.example documents it as "the
+    # human-readable App Store name ... can equal DISPLAY_NAME"; it was not
+    # invented for this.
+    #
+    # `identity!` is what makes the refusal NAMED rather than blank: `nil` and `""`
+    # both raise IdentityUnavailable naming the key and app/Identity.xcconfig, so
+    # neither value can ever resolve to nothing and be written. An empty name.txt
+    # IS the App Store listing name, and a fallback silently re-reading a key that
+    # A-01 deleted is how it would become one.
+    #
+    # Lazily evaluated on purpose, exactly as the ternary at the other site is:
+    # with ASC_APP_NAME set, DISPLAY_NAME is never read, so the two sites agree
+    # about which key must resolve as well as about which value wins.
+    def desired
+      {
+        name_txt      => (config['ASC_APP_NAME'].to_s.empty? ? Bootstrap.identity!('DISPLAY_NAME') : config['ASC_APP_NAME']),
+        copyright_txt => Bootstrap.identity!('COPYRIGHT')
+      }
+    end
+
+    def check
+      values = begin
+                 desired
+               rescue IdentityUnavailable, Xcconfig::MissingInclude => e
+                 # A gate that cannot read its subject has NO VERDICT, and no
+                 # verdict is not a pass — `IdentityPresent`'s shape. Blocked
+                 # rather than pending, because `do_it` would raise the same way.
+                 return [:blocked, "cannot generate store metadata from #{xcconfig_path}: #{e.message}"]
+               end
+
+      absent = values.keys.reject(&:file?)
+      unless absent.empty?
+        return [:pending, "#{absent.map { |p| rel(p) }.join(', ')} " \
+                          "#{absent.length == 1 ? 'is' : 'are'} missing; " \
+                          "`make bootstrap-fork` regenerates from #{rel(xcconfig_path)}."]
+      end
+      @tier_reached = 1
+
+      drifted = values.reject { |path, value| read(path) == value }
+      unless drifted.empty?
+        named = drifted.map { |path, value| "#{rel(path)} (file=#{read(path).inspect}, identity=#{value.inspect})" }
+        return [:pending, "#{drifted.length} store-metadata file(s) disagree with " \
+                          "#{rel(xcconfig_path)}:\n  - #{named.join("\n  - ")}\n" \
+                          "`make bootstrap-fork` rewrites them from the identity config."]
+      end
+      @tier_reached = 2
+      :done
+    end
+
+    def detail
+      return nil if tier_reached.nil?
+      "verified to tier #{tier_reached}: #{rel(name_txt)} and #{rel(copyright_txt)} " \
+        "match #{rel(xcconfig_path)}"
+    end
+
+    def do_it
+      desired.each do |path, value|
+        FileUtils.mkdir_p(path.dirname)
+        # UTF-8 pinned on the write, never inherited. COPYRIGHT carries the
+        # copyright sign U+00A9 (UTF-8 bytes c2 a9); with LANG unset Ruby defaults
+        # Encoding.default_external to US-ASCII and writing that string through an
+        # unpinned handle raises Encoding::UndefinedConversionError. UL-012 /
+        # commit 3b1efb9 is this repository's own instance of the inherited-encoding
+        # defect, so it is spelled out rather than assumed.
+        #
+        # Exactly one trailing newline, which is the shape both files carry today
+        # (verified with `od -c`: name.txt is 14 bytes ending 0a, copyright.txt 54
+        # bytes ending 0a). A shape change here would show up as a spurious diff on
+        # every forker's tree.
+        File.write(path, "#{value}\n", encoding: "UTF-8")
+      end
+    end
+
+    private
+
+    # Read side pinned to UTF-8 for the same reason the write side is.
+    def read(path)
+      File.read(path, encoding: "UTF-8").strip
+    end
+
+    def rel(path)
+      Pathname.new(path).relative_path_from(REPO_ROOT).to_s
+    rescue ArgumentError
+      # An IDENTITY_XCCONFIG fixture lives outside the repository; print it whole
+      # rather than raising inside a message about something else.
+      path.to_s
     end
   end
 
@@ -1942,6 +2081,7 @@ module Bootstrap
       RemoteMatches,
       IdentityPresent,       # tier 1: the four keys exist and resolve (A-01)
       IdentityAdopted,       # tiers 2-3: and they are not the template's (D-64)
+      StoreMetadataGenerated, # identity verified FIRST, then generated from (D-74/A-07)
       BrewBootstrap,
       Icon1024,              # tree mutations land before InitialPush
       MakeIcons,

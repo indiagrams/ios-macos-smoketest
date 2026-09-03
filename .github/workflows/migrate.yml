@@ -31,6 +31,13 @@ on:
     # and a filter naming only deleted paths is a job that never fires.
     paths:
       - tools/migrate-identity.rb
+      # Added 2026-09-03 (05-17). This suite is no longer only a unit test of the
+      # command: its fixture xcodebuild now REFUSES a -showBuildSettings that arrives
+      # without the platform's destination flags, which is what makes the pin in
+      # tools/migrate-identity.rb falsifiable rather than a string somebody could
+      # delete with nothing going red. A filter that could not see this file would let
+      # that gate be weakened while this job never fired.
+      - test/migrate_identity_test.rb
       - ci/test-migrate-identity.sh
       - .github/workflows/migrate.yml
       - app/project.yml
@@ -100,6 +107,25 @@ jobs:
       # never turn into a skipped build.
       - name: install xcodegen
         run: brew install xcodegen
+
+      # A STEP IN THIS JOB, deliberately not a job of its own: a new job would be a new
+      # status context that branch protection does not require, and an unrequired
+      # context runs, reports and blocks nothing — the failure class this repository
+      # already has a ledger row for. Inside `migrate` it inherits this job's fate.
+      #
+      # It runs BEFORE the end-to-end below because it takes seconds where that takes
+      # minutes, and because the two ask different questions: this one drives the
+      # command against stub xcodebuild/xcodegen binaries and can therefore assert the
+      # REFUSALS — including that the settings dump arrives destination-pinned — while
+      # the end-to-end builds a real fixture and reads a real artefact.
+      #
+      # Ruby-core only (tmpdir, fileutils, rbconfig, digest, plus a require_relative of
+      # bin/lib/xcconfig.rb, which has zero requires of its own), and it configures a
+      # git identity per command with `-c user.email` rather than relying on the
+      # runner's global config. Measured 2026-09-03: 191 assertions, ~9s locally under
+      # both pinned interpreters.
+      - name: run test/migrate_identity_test.rb (the command's unit contract)
+        run: ruby test/migrate_identity_test.rb
 
       - name: run ci/test-migrate-identity.sh
         env:

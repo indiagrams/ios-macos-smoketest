@@ -1039,12 +1039,19 @@ module Bootstrap
     def do_it
       desired.each do |path, value|
         FileUtils.mkdir_p(path.dirname)
-        # UTF-8 pinned on the write, never inherited. COPYRIGHT carries the
-        # copyright sign U+00A9 (UTF-8 bytes c2 a9); with LANG unset Ruby defaults
-        # Encoding.default_external to US-ASCII and writing that string through an
-        # unpinned handle raises Encoding::UndefinedConversionError. UL-012 /
-        # commit 3b1efb9 is this repository's own instance of the inherited-encoding
-        # defect, so it is spelled out rather than assumed.
+        # UTF-8 on the write. COPYRIGHT carries the copyright sign U+00A9 (UTF-8
+        # bytes c2 a9), and the keyword is kept for symmetry with the read below and
+        # with every other file this module writes.
+        #
+        # THE REASON THAT USED TO BE WRITTEN HERE WAS FALSE, and is corrected in place
+        # rather than quietly deleted. It said an unpinned write of that string raises
+        # Encoding::UndefinedConversionError under a cleared locale. Measured
+        # 2026-09-03 under 3.3.12 and 4.0.6 with LANG, LC_ALL and LC_CTYPE all unset:
+        # it does not. Ruby writes a String's own bytes and does not transcode to
+        # Encoding.default_external. UL-012 / commit 3b1efb9 and 05-09's Config.parse
+        # are both READ-side instances — an unpinned File.read followed by a strip, a
+        # concatenation or a regex. That is where the pin earns its place; see
+        # LocalSigningTeam#do_it, which drives exactly that control red.
         #
         # Exactly one trailing newline, which is the shape both files carry today
         # (verified with `od -c`: name.txt is 14 bytes ending 0a, copyright.txt 54
@@ -1067,6 +1074,225 @@ module Bootstrap
       # An IDENTITY_XCCONFIG fixture lives outside the repository; print it whole
       # rather than raising inside a message about something else.
       path.to_s
+    end
+  end
+
+  # The Apple Team ID, from `.bootstrap.env` into the gitignored file the build
+  # actually reads (UP-04).
+  #
+  # WHY THIS STEP EXISTS. `app/Identity.xcconfig` ends with
+  # `#include? "Local.xcconfig"` and `.bootstrap.env.example` ships
+  # `FASTLANE_TEAM_ID`, but between 05-07 (which removed the rename step from the
+  # pipeline) and 05-11 (which retired the flag that used to write the file) NOTHING
+  # in this repository wrote the file in between. Enumerated rather than assumed, with
+  # a positive control so a zero is a measured zero: on 2026-09-03 this file named
+  # `Local.xcconfig` ZERO times (`grep_raw=1`, the only exit that means absence) while
+  # the same predicate found 14 in `tools/migrate-identity.rb`, 13 in
+  # `bin/preflight-identity.rb` and 4 in `bin/rename.sh`. A fresh fork's first signed
+  # iOS build was the discovery mechanism. `bin/preflight-identity.rb --require-team`
+  # already names the gap at exit 4 and prints the exact line to write (D-50), so this
+  # was never a silent corruption — but "fails loudly" is not the same as "is done for
+  # you", and every forker met it.
+  #
+  # AN EMPTY WRITE WOULD BE WORSE THAN NO WRITE, which is why every path below refuses
+  # by name instead. An UNDEFINED `DEVELOPMENT_TEAM` and an EMPTY one are different
+  # things: measured on this tree 2026-09-03 with `xcodebuild -showBuildSettings
+  # -target`, an absent file produces NO `DEVELOPMENT_TEAM` line at all (macOS shows
+  # only `_DEVELOPMENT_TEAM_IS_EMPTY = YES`), while an empty value lets a macOS build
+  # SUCCEED with "Sign to Run Locally" and say nothing — a loud failure turned into a
+  # silent wrong one.
+  #
+  # AND IT REFUSES TO OVERWRITE. `tools/migrate-identity.rb`'s `move_team_id` already
+  # declines to "overwrite a Team ID a forker put there by hand", and
+  # `docs/APPLE-ACCOUNT-STATE.md:99` records that the two consumers — this key in
+  # `.bootstrap.env` and `DEVELOPMENT_TEAM` in `app/Local.xcconfig` — are meant to hold
+  # the SAME value. A divergence is therefore a finding, not an inconvenience: this
+  # step surfaces it and declines to choose, which makes it a drift check as well as a
+  # writer.
+  #
+  # THE TRACKED IDENTITY CONFIG IS WHAT INCLUDES WHAT THIS STEP WRITES — and that fact
+  # is stated here, without either half being spelled within two lines of the write
+  # itself. test/doctor_identity_test.rb's A-01 predicate matches a write FORM and an
+  # identity-config reference inside one window, and it does not care whether either is
+  # code or a comment: the first draft of this very paragraph named both and turned the
+  # gate red by existing. Sixth costume of the hazard 05-12..05-15 met five times — any
+  # region a content gate sweeps is a region that cannot spell what the gate looks for,
+  # including the comment explaining why.
+  class LocalSigningTeam < Step
+    MIN_TIER = 2
+
+    # The key inside the gitignored file, and the key in `.bootstrap.env` it comes
+    # from. Two different names for one value, which is exactly why the drift check
+    # below is worth having.
+    TEAM_KEY   = "DEVELOPMENT_TEAM"
+    SOURCE_KEY = "FASTLANE_TEAM_ID"
+
+    # Ten upper-case alphanumerics. Apple's own format, and the shape
+    # `docs/APPLE-PREREQS.md:48` already tells a forker to expect. Anchored on both
+    # ends: an unanchored match would accept `Team ID: ABCDE12345` and write the whole
+    # string, and a value carrying a stray space is the shape a pasted line or an
+    # unstripped inline comment leaves behind.
+    TEAM_ID_SHAPE = /\A[A-Z0-9]{10}\z/
+
+    # Written above the assignment so a forker who opens the file knows what put it
+    # there and that it must stay out of git. The em dash is this repository's house
+    # style, and it is NOT what makes the encoding pins below matter — saying so here
+    # is a correction rather than a flourish. See the read in `do_it`.
+    HEADER = "// This clone's Apple signing team — written by `make bootstrap-fork` from\n" \
+             "// #{SOURCE_KEY} in .bootstrap.env. Gitignored under IDENT-08 and never\n" \
+             "// tracked. Delete it and the build resolves no team at all; empty it and a\n" \
+             "// macOS build silently succeeds with an ad-hoc signature instead.\n"
+
+    def name; "Signing team present (app/Local.xcconfig)"; end
+
+    # THE ONE PATH RESOLVER for this step. `check` and `do_it` both go through it, so a
+    # test that substitutes a fixture covers both; a second resolver is precisely how
+    # one of the two would quietly stop being covered (the shape `StoreMetadataGenerated`
+    # records for `xcconfig_path`).
+    def local_xcconfig_path
+      REPO_ROOT.join("app", "Local.xcconfig")
+    end
+
+    def team_id
+      config[SOURCE_KEY].to_s.strip
+    end
+
+    # nil when the configured value is usable; a NAMED refusal otherwise. One method,
+    # so `check`'s blocked message and `do_it`'s exception can never drift apart.
+    def refusal
+      id = team_id
+      if id.empty?
+        return "#{SOURCE_KEY} is absent or empty in .bootstrap.env, so there is no Apple " \
+               "Team ID to write into #{rel(local_xcconfig_path)}. Writing an empty " \
+               "#{TEAM_KEY} would be worse than writing nothing: an absent file leaves the " \
+               "setting UNDEFINED and iOS signing fails by name, while an EMPTY value lets a " \
+               "macOS build succeed with an ad-hoc signature and say nothing. Fill " \
+               "#{SOURCE_KEY} (ten upper-case alphanumerics, from " \
+               "https://developer.apple.com/account under Membership Details) and re-run."
+      end
+      unless TEAM_ID_SHAPE.match?(id)
+        return "#{SOURCE_KEY} = #{id.inspect} in .bootstrap.env is not an Apple Team ID: they " \
+               "are exactly ten upper-case letters and digits (/#{TEAM_ID_SHAPE.source}/). " \
+               "Nothing was written to #{rel(local_xcconfig_path)} — a malformed value in " \
+               "there resolves into the build as itself and fails at signing time with " \
+               "Apple's message rather than this one."
+      end
+      nil
+    end
+
+    def check
+      reason = refusal
+      return [:blocked, reason] unless reason.nil?
+
+      path = local_xcconfig_path
+      unless path.file?
+        return [:pending, "#{rel(path)} is missing; `make bootstrap-fork` writes it from " \
+                          "#{SOURCE_KEY}. It is gitignored and never committed."]
+      end
+      @tier_reached = 1
+
+      # Read back through `Xcconfig` — the ONE parser (D-57), the same one Xcode's
+      # `#include?` and `bin/preflight-identity.rb --require-team` resolve through.
+      # `own` rather than `value` because this file has no includes of its own and
+      # following them would answer a different question. A text compare here would
+      # pass on a file whose value the parser cannot actually see, which is UL-031's
+      # shape: `KEY = // disabled` satisfies a presence regex and resolves to nothing.
+      current = Xcconfig.own(path.to_s)[TEAM_KEY].to_s.strip
+      if current.empty?
+        return [:pending, "#{rel(path)} exists but assigns no #{TEAM_KEY} that resolves to a " \
+                          "value; `make bootstrap-fork` appends it from #{SOURCE_KEY}."]
+      end
+
+      unless current == team_id
+        return [:blocked, "#{rel(path)} assigns #{TEAM_KEY} = #{current.inspect} while " \
+                          ".bootstrap.env's #{SOURCE_KEY} says #{team_id.inspect}. These are " \
+                          "the two halves of one identity — the build reads the first, " \
+                          "fastlane reads the second — and this step will not choose between " \
+                          "them. Reconcile the two and re-run; nothing was written."]
+      end
+
+      @tier_reached = 2
+      :done
+    end
+
+    def detail
+      return nil if tier_reached.nil?
+      return "verified to tier #{tier_reached}: #{rel(local_xcconfig_path)} exists" if tier_reached < 2
+      "verified to tier #{tier_reached}: #{rel(local_xcconfig_path)} resolves the same " \
+        "#{TEAM_KEY} that #{SOURCE_KEY} carries"
+    end
+
+    def do_it
+      reason = refusal
+      raise reason unless reason.nil?
+
+      path = local_xcconfig_path
+      # UTF-8 PINNED, AND THIS ONE IS LOAD-BEARING — measured, not inherited. A forker's
+      # own app/Local.xcconfig may legitimately carry a non-ASCII byte in a comment (an
+      # accented org name, a smart quote, this project's own house-style dash). Read
+      # without the pin under a cleared locale those bytes arrive tagged US-ASCII, and
+      # the append path below raises `Encoding::CompatibilityError: incompatible
+      # character encodings: US-ASCII and UTF-8` out of the very first `+=`. Driven both
+      # ways on 2026-09-03 with the two discriminators this class needs — the crash
+      # requires the non-ASCII bytes AND the missing locale, and either alone is green —
+      # under 3.3.12 and 4.0.6:
+      #   RESULT control=team-id-read-locale exit_pinned=0 exit_unpinned=7
+      #          exit_unpinned_with_locale=0 restored=ok
+      #
+      # And the honest limit of that control: the path that raises is the APPEND path.
+      # A re-run against a file this step itself wrote returns early on the equality
+      # check above before `existing` is ever concatenated, so it does not reach the
+      # crash — measured too, rather than claimed as extra coverage.
+      existing = path.file? ? File.read(path.to_s, encoding: "UTF-8") : nil
+      current  = existing.nil? ? "" : Xcconfig.own(path.to_s)[TEAM_KEY].to_s.strip
+
+      if !current.empty? && current != team_id
+        raise "#{rel(path)} already assigns #{TEAM_KEY} = #{current.inspect} while " \
+              "#{SOURCE_KEY} says #{team_id.inspect}. This step will not overwrite a Team ID " \
+              "somebody else put there — reconcile the two and re-run."
+      end
+      return if current == team_id
+
+      # APPEND, never truncate. This file is the forker's own per-clone config and may
+      # carry settings that are none of this step's business; `move_team_id` in
+      # tools/migrate-identity.rb takes the same care for the same reason.
+      body  = existing.to_s
+      body += "\n" unless body.empty? || body.end_with?("\n")
+      body += "\n" unless body.empty?
+      body += HEADER
+      body += "#{TEAM_KEY} = #{team_id}\n"
+
+      FileUtils.mkdir_p(path.dirname)
+      # UTF-8 on the write, for symmetry with the read above and with every other file
+      # this module writes — but MEASURED, and the measurement corrects what this
+      # repository had been saying about it. With LANG, LC_ALL and LC_CTYPE all cleared
+      # (`Encoding.default_external == US-ASCII`) under BOTH pinned interpreters, every
+      # write form — this one, and an explicit-mode File.open used with #write or #puts —
+      # emits a UTF-8 String's own bytes and raises NOTHING. Ruby does not transcode a
+      # String to the external encoding on the way out. The locale-inheritance defect
+      # (UL-012 / commit 3b1efb9, and 05-09's second instance) is a READ-side defect:
+      # it is an unpinned `File.read` followed by a `strip`, a concatenation or a regex
+      # that raises. So this keyword is hygiene; the one on the read is the guard.
+      #
+      # DO NOT NAME THE TRACKED IDENTITY CONFIG IN THE FIVE LINES AROUND THIS WRITE.
+      # test/doctor_identity_test.rb's A-01 offender predicate reads a two-line window
+      # either side of every write form and reports a match as "bootstrap writes the
+      # identity config" — which this is not; this file is gitignored per-clone signing
+      # configuration, not identity. The explanation belongs in the class header above,
+      # which is outside that window. The token is deliberately not spelled here, for
+      # the same reason a gate's own configuration file cannot spell what it forbids.
+      File.write(path.to_s, body, encoding: "UTF-8")
+    end
+
+    private
+
+    def rel(pathname)
+      Pathname.new(pathname).relative_path_from(REPO_ROOT).to_s
+    rescue ArgumentError
+      # A fixture path substituted for local_xcconfig_path lives outside the
+      # repository; print it whole rather than raising inside a message about
+      # something else.
+      pathname.to_s
     end
   end
 
@@ -2101,6 +2327,7 @@ module Bootstrap
       IdentityPresent,       # tier 1: the four keys exist and resolve (A-01)
       IdentityAdopted,       # tiers 2-3: and they are not the template's (D-64)
       StoreMetadataGenerated, # identity verified FIRST, then generated from (D-74/A-07)
+      LocalSigningTeam,      # the Team ID reaches the build; refuses rather than writing blank (UP-04)
       BrewBootstrap,
       Icon1024,              # tree mutations land before InitialPush
       MakeIcons,

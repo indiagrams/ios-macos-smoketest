@@ -839,16 +839,25 @@ Dir.mktmpdir do |dir|
   assert_eq(step.check, :done, "a written, agreeing file is :done")
   assert_eq(step.tier_reached, 2, "and it reached tier 2 — the VALUE agrees, not merely the file exists")
 
-  # UTF-8 on the write, never inherited. The header this step writes carries an em
-  # dash (U+2014), so an unpinned File.write raises Encoding::UndefinedConversionError
-  # with LANG unset. UL-012 / commit 3b1efb9 was this repository's first instance of
-  # inherited encoding and 05-09's Config.parse was the second; the pin is what keeps
-  # this from being the third. Driven red with LC_ALL/LANG/LC_CTYPE cleared, recorded
-  # in the phase evidence file rather than asserted from the comment.
+  # ENCODING, and what was actually MEASURED about it. The header this step writes
+  # carries an em dash (U+2014). That byte does NOT make the WRITE pin load-bearing:
+  # measured 2026-09-03 under 3.3.12 and 4.0.6 with LANG, LC_ALL and LC_CTYPE all
+  # cleared, every write form emits a UTF-8 String's own bytes and raises nothing,
+  # because Ruby does not transcode a String to Encoding.default_external on the way
+  # out. The claim that it does was written in this repository in two places and is
+  # false; both were corrected in place rather than softened.
+  #
+  # What the byte DOES buy is the READ pin, which is where UL-012 / commit 3b1efb9 and
+  # 05-09's Config.parse both actually bit. `do_it` reads an existing file before
+  # appending to it, and an unpinned read of non-ASCII bytes under a cleared locale
+  # raises Encoding::CompatibilityError out of the first concatenation. Driven both
+  # ways with both discriminators (the bytes AND the missing locale; either alone is
+  # green) and recorded in the phase evidence file rather than asserted here, because
+  # this suite runs on a runner whose locale is not the one under test.
   assert(File.read(target, encoding: "UTF-8").valid_encoding?,
          "the file it wrote is valid UTF-8")
   assert(File.read(target, encoding: "UTF-8").include?("—"),
-         "and carries the non-ASCII byte that makes the write's UTF-8 pin load-bearing")
+         "and carries the non-ASCII byte that the READ pin protects on the append path")
 end
 
 # An ABSENT value is a NAMED refusal, never an empty write. app/Identity.xcconfig:39-44

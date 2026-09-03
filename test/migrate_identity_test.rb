@@ -584,10 +584,42 @@ def xcodebuild_stub(ios_product:, macos_product:, blocks: 1, exit_code: 0,
 
   lines << 'scheme=""'
   lines << 'want=""'
+  lines << 'dest=""'
+  lines << 'dwant=""'
+  lines << 'sdk=""'
+  lines << 'swant=""'
   lines << 'for a in "$@"; do'
   lines << '  if [ "$want" = "1" ]; then scheme="$a"; want=""; fi'
+  lines << '  if [ "$dwant" = "1" ]; then dest="$a"; dwant=""; fi'
+  lines << '  if [ "$swant" = "1" ]; then sdk="$a"; swant=""; fi'
   lines << '  if [ "$a" = "-scheme" ]; then want="1"; fi'
+  lines << '  if [ "$a" = "-destination" ]; then dwant="1"; fi'
+  lines << '  if [ "$a" = "-sdk" ]; then swant="1"; fi'
   lines << 'done'
+  # THE DESTINATION GATE. This is what makes the pin in tools/migrate-identity.rb
+  # FALSIFIABLE rather than a string somebody could delete with nothing going red.
+  # A text assertion on that file would only prove the flags are spelled; this
+  # refuses the dump unless the flags actually ARRIVE, so every one of this suite's
+  # assertions that depends on a settings read becomes a witness for the pin.
+  #
+  # Exit 64 and a named message, matching what real xcodebuild does when a
+  # destination does not resolve — measured on this machine 2026-09-03: the pinned
+  # form against `generic/platform=watchOS` exits 64 with zero target blocks.
+  #
+  # Driven red by REMOVING the pin from the tool and watching this suite fail, not
+  # asserted; see the phase evidence file.
+  lines << 'case "$scheme" in'
+  lines << '  *-macOS)'
+  lines << '    if [ "$dest" != "platform=macOS" ]; then'
+  lines << '      echo "fixture xcodebuild: -showBuildSettings for $scheme arrived with destination \'$dest\' (expected platform=macOS). An UNPINNED dump takes whatever destination heads the list and can report an EMPTY PRODUCT_NAME at exit 0." >&2'
+  lines << '      exit 64'
+  lines << '    fi ;;'
+  lines << '  *)'
+  lines << '    if [ "$dest" != "generic/platform=iOS" ] || [ "$sdk" != "iphoneos" ]; then'
+  lines << '      echo "fixture xcodebuild: -showBuildSettings for $scheme arrived with sdk \'$sdk\' destination \'$dest\' (expected -sdk iphoneos -destination generic/platform=iOS). An UNPINNED dump takes whatever destination heads the list and can report an EMPTY PRODUCT_NAME at exit 0." >&2'
+  lines << '      exit 64'
+  lines << '    fi ;;'
+  lines << 'esac'
   # pwd, never $PWD: Process.spawn(chdir:) does not update the child's PWD
   # variable, so $PWD would name the caller's directory instead of the tree the
   # command was pointed at. Measured while writing this fixture.

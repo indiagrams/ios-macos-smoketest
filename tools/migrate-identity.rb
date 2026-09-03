@@ -267,6 +267,44 @@ MUST_NOT_TOUCH = %w[
 PLATFORMS     = %w[iOS macOS].freeze
 CONFIGURATION = "Debug"
 
+# The destination each platform's settings dump is PINNED to, and the reason it has
+# to be pinned at all.
+#
+# `xcodebuild -showBuildSettings` with no `-destination` warns "Using the first of
+# multiple matching destinations" and takes whatever heads that list. Measured
+# 2026-09-03 (plan 05-05) on a project whose iOS scheme resolved only macOS
+# destinations, the unpinned dump returned
+#
+#     PRODUCT_NAME =
+#     FULL_PRODUCT_NAME = .app
+#
+# at **exit 0**, while the same read pinned to `generic/platform=iOS` refused at exit
+# 64 and listed what was available. This command is the ONLY reader of a migrating
+# fork's real identity, and `build_value` turns an empty read into a named exit-2
+# refusal rather than a blank line in the xcconfig — so the unpinned form was never
+# silent corruption. But "scheme X resolves no value" is a diagnosis a forker cannot
+# act on, and a wrong-destination read of an iOS scheme is reading the wrong thing
+# regardless of whether it happens to come back non-empty. Pinned, the refusal names
+# the destination.
+#
+# These are the same flags `ci/test-migrate-identity.sh:760-761` already passes to its
+# own pre-migration dumps. The harness and the tool it exercises now agree; before
+# this they did not, which is how a dump the harness had pinned reached this file
+# unpinned.
+#
+# Measured on this tree 2026-09-03, read-only (`-showBuildSettings` builds nothing):
+# pinned and unpinned agree here — exit 0, one target block, identical PRODUCT_NAME,
+# FULL_PRODUCT_NAME and PRODUCT_BUNDLE_IDENTIFIER on both platforms — so the pin is a
+# no-op on a healthy tree; and the pinned form against a destination that cannot
+# resolve exits **64** with zero blocks, which is the loud refusal it exists for.
+# The empty-at-exit-0 shape itself was NOT reproduced here: 05-05 induced it with an
+# artificial PATH, and this project's iOS scheme resolves from a macOS destination.
+# That is recorded rather than papered over — the pin rests on 05-05's measurement.
+DESTINATION_FLAGS = {
+  "iOS"   => ["-sdk", "iphoneos", "-destination", "generic/platform=iOS"],
+  "macOS" => ["-destination", "platform=macOS"]
+}.freeze
+
 # The literal bin/rename.sh Step H substitutes away, and refuses to write when it
 # is still present. A fork that never passed --team-id still carries it.
 TEAM_ID_PLACEHOLDER = "TEAM_ID_PLACEHOLDER"
@@ -922,13 +960,32 @@ def resolve_identity(root, token)
 
   PLATFORMS.each_with_object({}) do |platform, resolved|
     scheme = "#{token}-#{platform}"
+
+    # A platform with no pinned destination is a REFUSAL, not a fallback to the
+    # unpinned form. Adding a third entry to PLATFORMS and forgetting to add its
+    # flags would otherwise silently reopen the exact hole this pin closes, and a
+    # `KeyError` backtrace is not a diagnosis either.
+    flags = DESTINATION_FLAGS[platform]
+    if flags.nil?
+      fail_with 2, "no destination flags are pinned for platform #{platform.inspect} " \
+                   "(DESTINATION_FLAGS knows #{DESTINATION_FLAGS.keys.inspect}). An unpinned " \
+                   "-showBuildSettings can resolve a foreign destination and report an EMPTY " \
+                   "PRODUCT_NAME at exit 0, so this refuses rather than reading the fork's " \
+                   "identity from whatever destination happens to head the list."
+    end
+
     out, err, status = capture(
       [tool_path("xcodebuild"), "-project", project_rel, "-scheme", scheme,
-       "-configuration", CONFIGURATION, "-showBuildSettings"], chdir: root
+       "-configuration", CONFIGURATION, *flags, "-showBuildSettings"], chdir: root
     )
     unless status.zero?
       fail_with 2, "xcodebuild -showBuildSettings exited #{status} for scheme #{scheme} " \
-                   "configuration #{CONFIGURATION} in #{project_rel}: #{err.strip}"
+                   "configuration #{CONFIGURATION} destination #{flags.join(' ')} in " \
+                   "#{project_rel}: #{err.strip}\n" \
+                   "Exit 64 here means the destination did not resolve — xcodebuild lists what " \
+                   "it did find above. That is deliberate: the unpinned form would have taken " \
+                   "the first destination on the list instead and could report an EMPTY " \
+                   "identity at exit 0."
     end
 
     # The ambiguity guard from tools/identity-parity.rb:530-535. If a scheme's

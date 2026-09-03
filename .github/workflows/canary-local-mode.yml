@@ -539,16 +539,28 @@ jobs:
 
       - name: Populate .bootstrap.env from secrets + repo introspection
         # bin/verify-testflight.rb (called below) reads `.bootstrap.env` via
-        # Bootstrap::Config.load!, which requires 12 fields for local mode.
-        # The file is gitignored (never committed; per-fork user state), so
-        # it doesn't exist on a fresh CI checkout.
+        # Bootstrap::Config.load!, whose validate! requires 9 fields in local
+        # mode (Config::REQUIRED_ALWAYS). The file is gitignored (never
+        # committed; per-fork user state), so it doesn't exist on a fresh CI
+        # checkout.
         #
         # Strategy: synthesize a `.bootstrap.env` from a mix of GH Secrets
-        # (the 4 fields verify-testflight actually USES — BUNDLE_ID, ASC
-        # creds — must have real values) plus repo-extracted values
-        # (GENERATOR from filesystem, GH_ORG/GH_APP_REPO from git remote)
-        # plus presence-only placeholders for fields validate! requires but
-        # verify-testflight doesn't read.
+        # (the 3 fields verify-testflight actually USES — ASC_API_KEY_ID,
+        # ASC_API_KEY_ISSUER_ID and ASC_API_KEY_P8_PATH, every one of them
+        # consumed by Bootstrap.ensure_asc_token! — must have real values)
+        # plus repo-extracted values (GENERATOR from filesystem,
+        # GH_ORG/GH_APP_REPO from git remote) plus presence-only placeholders
+        # for fields validate! requires but verify-testflight doesn't read.
+        #
+        # THE BUNDLE ID IS NO LONGER ONE OF THEM. Since Phase 5 (A-01)
+        # app/Identity.xcconfig is the source of truth, and verify-testflight
+        # resolves the bundle id from it through Bootstrap.identity! rather
+        # than from this synthesized file. The three identity lines written
+        # below are inert: Config ignores a key nothing requires, and the
+        # retired-key tripwire fires only on a key that is READ and ABSENT.
+        # They are left in place rather than deleted because that is a change
+        # only a full canary run can validate, and this workflow is not this
+        # plan's to edit — see the phase's deferred-items.md.
         #
         # The .p8 cert is base64-encoded in the secret; decode to a tmpfile
         # so Bootstrap.ensure_asc_token! can read it via ASC_API_KEY_P8_PATH.

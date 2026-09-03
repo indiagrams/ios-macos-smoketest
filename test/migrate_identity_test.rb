@@ -347,8 +347,18 @@ end
 # values, and never the template's two literals (tools/check-contamination.rb
 # would be right to fail this file if it carried either).
 FIXTURE_BUNDLE_ID   = "com.fixture.migratefixture"
-FIXTURE_DISPLAY     = "Migrate Fixture"
-FIXTURE_COPYRIGHT   = "Copyright © 2026 Fixture Org. All rights reserved."
+# The ampersand and the angle brackets are deliberate. A generated Info.plist is
+# XML, so these arrive at the reader as &amp;, &lt; and &gt; — and MEASURED in
+# the ground-truth fixture, e773cfc's own copyright placeholder is
+# "TODO Copyright © <Your Org>. All rights reserved.", which the macOS plist
+# carries as &lt;Your Org&gt;. Without them the suite passed against a command
+# whose XML unescape had been deleted: the control could not go red because the
+# fixture had nothing to unescape. Copyright is additionally the one value that
+# arrives from a DIFFERENT source on each platform — an INFOPLIST_KEY_ build
+# setting on iOS, a plist property on macOS — so a missing unescape makes the two
+# platforms disagree and the run refuses.
+FIXTURE_DISPLAY     = "Migrate & Fixture"
+FIXTURE_COPYRIGHT   = "Copyright © 2026 <Fixture Org>. All rights reserved."
 # Ten upper-case alphanumerics, the Apple Team ID shape, and obviously synthetic.
 FIXTURE_TEAM_ID     = "FIXTURE001"
 TEAM_ID_PLACEHOLDER = "TEAM_ID_PLACEHOLDER"
@@ -491,11 +501,20 @@ end
 # XcodeGen's generated plist, tab-indented like the real one. The display name
 # lives ONLY here — it is not a build setting in a pre-#281 fork, which is why
 # the command needs a plist read at all.
+
+# XcodeGen writes a plist, and a plist is XML, so a value carrying &, < or >
+# arrives escaped. The fixture escapes on the way in for the same reason the
+# command unescapes on the way out; asserting the round trip is what makes the
+# unescape load-bearing.
+def xml_escape(text)
+  text.gsub("&", "&amp;").gsub("<", "&lt;").gsub(">", "&gt;")
+end
+
 def generated_plist(display:, copyright: nil)
-  rows = ["\t<key>CFBundleDisplayName</key>", "\t<string>#{display}</string>"]
+  rows = ["\t<key>CFBundleDisplayName</key>", "\t<string>#{xml_escape(display)}</string>"]
   unless copyright.nil?
     rows << "\t<key>NSHumanReadableCopyright</key>"
-    rows << "\t<string>#{copyright}</string>"
+    rows << "\t<string>#{xml_escape(copyright)}</string>"
   end
   <<~XML
     <?xml version="1.0" encoding="UTF-8"?>
@@ -546,6 +565,23 @@ def build_migration_fixture(dir, branch: "main", team_id: FIXTURE_TEAM_ID,
   return "fixture tree is not clean after the base commit: #{porcelain.inspect}" unless porcelain.to_s.strip.empty?
 
   nil
+end
+
+# nil when the file is not there, rather than an exception.
+#
+# MEASURED, and the reason this helper exists rather than a bare File.binread:
+# with the -x variant substituted for -fd in the rollback's clean — the one-character
+# change T-05-12 is about — the suite exited 1 with ZERO `FAIL` lines, because
+# the assertion raised Errno::ENOENT on the file the rollback had just deleted.
+# Exit 1 is the right code by luck, and a red control that greps for `^FAIL`
+# would have recorded "no failure detected" against a rollback that destroyed the
+# forker's gitignored secrets. A missing file is now a named FAIL line.
+def bytes_of(path)
+  File.file?(path) ? File.binread(path) : nil
+end
+
+def text_of(path)
+  File.file?(path) ? File.read(path, encoding: "UTF-8") : nil
 end
 
 def head_of(dir)
@@ -893,33 +929,77 @@ Dir.mktmpdir("migrate-placeholder") do |box|
   else
     bin  = build_tool_dir(box)
     head = head_of(repo)
-    local_before = File.binread(File.join(repo, "app/Local.xcconfig"))
+    local_before = bytes_of(File.join(repo, "app/Local.xcconfig"))
 
     assert_exit ["--root", repo], EXIT_MUTATION, [TEAM_ID_PLACEHOLDER, "app/project.yml"],
                 "M7-team-id", "an unsubstituted placeholder is refused by name, not written anywhere",
                 env: { TOOL_DIR_ENV => bin }
 
-    assert File.binread(File.join(repo, "app/Local.xcconfig")) == local_before &&
+    assert bytes_of(File.join(repo, "app/Local.xcconfig")) == local_before &&
            porcelain_of(repo).to_s.strip.empty? && head_of(repo) == head,
            "M7-team-id", "the placeholder refusal wrote nothing and rolled the tree back"
   end
 end
 
-Dir.mktmpdir("migrate-notignored") do |box|
+Dir.mktmpdir("migrate-norow") do |box|
   repo = File.join(box, "repo")
-  # No app/Local.xcconfig on disk and no .gitignore row for it: git check-ignore
-  # exits 1, which is "not ignored" and must be a refusal rather than a write.
+  # MEASURED on e773cfc:.gitignore — a pre-#281 fork has NO app/Local.xcconfig
+  # row, because that file is a post-#281 concept. Refusing on a missing row
+  # would refuse the entire population this command exists for, so the row is
+  # added and git is asked AGAIN. git stays the arbiter.
   if (why = build_migration_fixture(repo, ignore_local_xcconfig: false, with_local_xcconfig: false))
     fail_line("M7-team-id", why)
     @checks += 1
   else
     bin = build_tool_dir(box)
-    assert_exit ["--root", repo], EXIT_MUTATION, ["check-ignore", "app/Local.xcconfig"],
-                "M7-team-id", "a Local.xcconfig git does not confirm as ignored exits 4 naming check-ignore",
+    assert_exit ["--root", repo], EXIT_MUTATION,
+                ["added app/Local.xcconfig to .gitignore", "PARTIAL MIGRATION LEFT IN PLACE"],
+                "M7-team-id",
+                "a tree with no .gitignore row gains one and the migration proceeds",
                 env: { TOOL_DIR_ENV => bin }
 
-    assert !File.exist?(File.join(repo, "app/Local.xcconfig")),
-           "M7-team-id", "the refusal created no app/Local.xcconfig — the Team ID went nowhere"
+    assert text_of(File.join(repo, ".gitignore")).to_s.include?("app/Local.xcconfig"),
+           "M7-team-id", ".gitignore gained the row, so the write happened behind a real ignore"
+
+    local = File.join(repo, "app/Local.xcconfig")
+    assert File.file?(local) && Xcconfig.own(local)["DEVELOPMENT_TEAM"] == FIXTURE_TEAM_ID,
+           "M7-team-id", "and the Team ID then landed in it"
+
+    # The row is what makes the write safe, so prove git agrees rather than
+    # trusting that the text was appended.
+    _, ignored = git(repo, "check-ignore", "-q", "--", "app/Local.xcconfig")
+    assert ignored&.zero?, "M7-team-id",
+           "git itself now reports app/Local.xcconfig as ignored (check-ignore exit #{ignored.inspect})"
+  end
+end
+
+Dir.mktmpdir("migrate-tracked-local") do |box|
+  repo = File.join(box, "repo")
+  # The refusal that still has to fire, and the one that matters. MEASURED: git
+  # reports a TRACKED path as not-ignored whatever .gitignore says, so a fork
+  # that already committed app/Local.xcconfig cannot be given a Team ID by
+  # adding a row — the file would go into the next commit (T-05-11).
+  if (why = build_migration_fixture(repo, ignore_local_xcconfig: false, with_local_xcconfig: true))
+    fail_line("M7-team-id", why)
+    @checks += 1
+  else
+    bin  = build_tool_dir(box)
+    head = head_of(repo)
+    tracked, ls_code = git(repo, "ls-files", "--", "app/Local.xcconfig")
+    assert ls_code&.zero? && tracked.to_s.strip == "app/Local.xcconfig",
+           "M7-team-id", "the fixture really did commit app/Local.xcconfig (ls-files: #{tracked.to_s.strip.inspect})"
+
+    assert_exit ["--root", repo], EXIT_MUTATION,
+                ["check-ignore", "app/Local.xcconfig", "TRACKED", "git rm --cached"],
+                "M7-team-id",
+                "a TRACKED Local.xcconfig is refused by name and told how to fix it",
+                env: { TOOL_DIR_ENV => bin }
+
+    assert Xcconfig.own(File.join(repo, "app/Local.xcconfig"))["DEVELOPMENT_TEAM"].nil?,
+           "M7-team-id", "no Team ID was written into the tracked file"
+
+    assert porcelain_of(repo).to_s.strip.empty? && head_of(repo) == head,
+           "M7-team-id", "and the .gitignore edit the refusal made on the way was rolled back"
   end
 end
 
@@ -946,9 +1026,9 @@ puts "M7 — the rollback, demonstrated against an injected failure:"
     bin              = build_tool_dir(box)
     before_head      = head_of(repo)
     before_porcelain = porcelain_of(repo)
-    before_bootstrap = File.binread(File.join(repo, ".bootstrap.env"))
-    before_local     = File.binread(File.join(repo, "app/Local.xcconfig"))
-    before_yml       = File.binread(File.join(repo, "app/project.yml"))
+    before_bootstrap = bytes_of(File.join(repo, ".bootstrap.env"))
+    before_local     = bytes_of(File.join(repo, "app/Local.xcconfig"))
+    before_yml       = bytes_of(File.join(repo, "app/project.yml"))
 
     out = assert_exit ["--root", repo], EXIT_MUTATION,
                       ["MIGRATE_IDENTITY_FAIL_AFTER override in effect: will raise after #{stage}",
@@ -957,11 +1037,12 @@ puts "M7 — the rollback, demonstrated against an injected failure:"
                       env: { TOOL_DIR_ENV => bin, FAIL_AFTER_ENV => stage }
 
     after_porcelain  = porcelain_of(repo)
+    after_bootstrap  = bytes_of(File.join(repo, ".bootstrap.env"))
+    after_local      = bytes_of(File.join(repo, "app/Local.xcconfig"))
     head_unchanged   = head_of(repo) == before_head && !before_head.nil?
     worktree_clean   = after_porcelain.to_s.strip.empty?
-    ignored_intact   = File.binread(File.join(repo, ".bootstrap.env")) == before_bootstrap &&
-                       File.binread(File.join(repo, "app/Local.xcconfig")) == before_local
-    tracked_restored = File.binread(File.join(repo, "app/project.yml")) == before_yml
+    ignored_intact   = after_bootstrap == before_bootstrap && after_local == before_local
+    tracked_restored = bytes_of(File.join(repo, "app/project.yml")) == before_yml
     identity_gone    = !File.exist?(File.join(repo, "app/Identity.xcconfig"))
     # THE TWO FIELDS THAT KEEP THIS CONTROL FROM BEING VACUOUS, and they were
     # added because the RED run proved it: against a command with no mutation
@@ -983,7 +1064,9 @@ puts "M7 — the rollback, demonstrated against an injected failure:"
            "now #{after_porcelain.inspect})"
     assert ignored_intact, "M7-rollback",
            "#{stage}: the gitignored .bootstrap.env and app/Local.xcconfig survived byte-identical — " \
-           "this is what -fd rather than -fdx buys, and what a Team-ID move has to snapshot"
+           "this is what -fd rather than the -x variant buys, and what a Team-ID move has to " \
+           "snapshot (still on disk after the rollback: .bootstrap.env=" \
+           "#{!after_bootstrap.nil?}, app/Local.xcconfig=#{!after_local.nil?})"
     assert tracked_restored, "M7-rollback", "#{stage}: app/project.yml is byte-identical to its committed state"
     assert identity_gone, "M7-rollback", "#{stage}: the half-written app/Identity.xcconfig was removed"
 
@@ -1024,7 +1107,7 @@ Dir.mktmpdir("migrate-write") do |box|
     @checks += 1
   else
     bin              = build_tool_dir(box)
-    before_bootstrap = File.binread(File.join(repo, ".bootstrap.env"))
+    before_bootstrap = bytes_of(File.join(repo, ".bootstrap.env"))
 
     out = assert_exit ["--root", repo], EXIT_MUTATION,
                       ["PARTIAL MIGRATION LEFT IN PLACE", "05-04",
@@ -1055,7 +1138,7 @@ Dir.mktmpdir("migrate-write") do |box|
                "(resolved: #{resolved.inspect})"
       end
 
-      assert File.read(identity, encoding: "UTF-8").include?('#include? "Local.xcconfig"'),
+      assert text_of(identity).to_s.include?('#include? "Local.xcconfig"'),
              "M7-xcconfig", "the written file ends with the optional include of the gitignored Local.xcconfig"
     end
 
@@ -1067,7 +1150,7 @@ Dir.mktmpdir("migrate-write") do |box|
 
     %w[app/project.yml app/Project.swift].each do |manifest|
       @checks += 1
-      body = File.read(File.join(repo, manifest), encoding: "UTF-8")
+      body = text_of(File.join(repo, manifest)).to_s
       assert !body.include?("DEVELOPMENT_TEAM = ") && !body.include?("DEVELOPMENT_TEAM\": ") &&
              !body.include?("DEVELOPMENT_TEAM: "),
              "M7-team-id", "#{manifest} no longer assigns DEVELOPMENT_TEAM"
@@ -1075,7 +1158,7 @@ Dir.mktmpdir("migrate-write") do |box|
              "M7-team-id", "#{manifest} carries no Team-ID-shaped value at all"
     end
 
-    assert File.binread(File.join(repo, ".bootstrap.env")) == before_bootstrap,
+    assert bytes_of(File.join(repo, ".bootstrap.env")) == before_bootstrap,
            "M7-team-id", ".bootstrap.env was not touched"
 
     # A-05, and the one thing this command must never say. The notice states the

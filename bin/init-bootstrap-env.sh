@@ -53,4 +53,5 @@ if [ -n "$remote" ]; then
 fi
 
 echo "Created $DST."
-echo "Next: \$EDITOR .bootstrap.env  (fill APP_NAME, BUNDLE_ID, Apple credentials, RELEASE_MODE), then \`make doctor\`."
+echo "Next: \$EDITOR .bootstrap.env  (fill APP_EMAIL, Apple credentials, RELEASE_MODE), then \`make doctor\`."
+echo "App identity (bundle id, product name, display name, copyright) lives in app/Identity.xcconfig, not here."

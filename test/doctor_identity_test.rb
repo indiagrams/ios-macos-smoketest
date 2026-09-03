@@ -114,6 +114,14 @@ missing << "IdentityAdopted not defined" unless Bootstrap.const_defined?(:Identi
 missing << "Step#detail not defined" unless Bootstrap::Step.method_defined?(:detail)
 missing << "Step#tier_reached not defined" unless Bootstrap::Step.method_defined?(:tier_reached)
 missing << "Runner#render_result not defined" unless Bootstrap::Runner.method_defined?(:render_result)
+# 05-17. app/Identity.xcconfig:39-44 carries `#include? "Local.xcconfig"` and
+# .bootstrap.env.example ships FASTLANE_TEAM_ID, but until this step existed NOTHING
+# wrote the file in between: 05-11 enumerated bin/lib/bootstrap.rb's file-write call
+# sites and found zero, with a positive control proving the predicate could see
+# (re-measured 2026-09-03 — bootstrap 0 / grep_raw 1, against 14 in
+# tools/migrate-identity.rb, 13 in bin/preflight-identity.rb, 4 in bin/rename.sh).
+# A fresh forker's first signed iOS build was the discovery mechanism.
+missing << "LocalSigningTeam not defined — nothing writes app/Local.xcconfig from FASTLANE_TEAM_ID" unless Bootstrap.const_defined?(:LocalSigningTeam)
 unless missing.empty?
   missing.each { |m| puts "  FAIL DR bin/lib/bootstrap.rb: #{m}" }
   puts
@@ -758,6 +766,205 @@ _probe_out, probe_exit =
 assert_eq(probe_exit, 0,
           "precondition: git grep with this pathspec DOES find config reads under " \
           "bin/ ci/ fastlane/ (probe exit=#{probe_exit}), so exit 1 above is absence")
+# ─── Bootstrap::LocalSigningTeam — the app/Local.xcconfig writer (05-17, UP-04) ────
+#
+# WHAT THIS GROUP CAN AND CANNOT SEE, stated because the distinction is the whole
+# reason these assertions are shaped the way they are.
+#
+# These are UNIT assertions on the WRITER, run against a tmpdir fixture. They do NOT
+# run xcodebuild. This suite's CI caller is the `review notes` job — ubuntu-latest,
+# no Xcode, no generated app/App.xcodeproj (see this file's header) — so an
+# `xcodebuild -showBuildSettings` here would either fail the required context on
+# every pull request or need an if-present guard, and an if-present guard is silent
+# on precisely the runner it would be guarding. That is the same
+# `each`-over-an-empty-collection shape R3 in test/rename_scope_test.rb was just
+# strengthened against; importing it here to satisfy a plan sentence would have been
+# trading one vacuity for another.
+#
+# The RESOLVED-BUILD-SETTING half is a LOCAL measurement, recorded as evidence rather
+# than asserted here, and it was taken both ways on 2026-09-03 with
+# `xcodebuild -showBuildSettings -target` (a TARGET, not a scheme: 05-07 measured that
+# a target reads its own SDKROOT and does not go through destination resolution):
+#
+#   app/Local.xcconfig absent  -> App-macOS reports NO DEVELOPMENT_TEAM line at all,
+#                                 only `_DEVELOPMENT_TEAM_IS_EMPTY = YES`; App-iOS
+#                                 reports none either. Undefined, not empty — which is
+#                                 what app/Identity.xcconfig:39-43 claims, now measured
+#                                 rather than repeated from its comment.
+#   written by this step       -> both targets report `DEVELOPMENT_TEAM = <the value>`
+#                                 and macOS flips to `_DEVELOPMENT_TEAM_IS_EMPTY = NO`.
+#
+# So: this group pins the writer's behaviour and its refusals; the evidence file pins
+# that what it writes is what the build resolves. Neither claims to be the other.
+
+puts
+puts "Bootstrap::LocalSigningTeam — the Team ID reaches the build without a hand-created file"
+
+# The step with its ONE path resolver substituted, exactly as check_identity substitutes
+# xcodeproj_path above. A second resolver inside the step is how one of check/do_it
+# would quietly stop being covered, so both go through this method.
+def local_team_step(config, path)
+  step   = Bootstrap::LocalSigningTeam.new(config)
+  target = Pathname.new(path)
+  step.define_singleton_method(:local_xcconfig_path) { target }
+  step
+end
+
+# PLACEHOLD9 is ten upper-case alphanumerics — the shape Apple issues and the shape
+# docs/APPLE-PREREQS.md:48 tells a forker to expect. config_for already uses it, so
+# nothing here introduces a new Team-ID-shaped token into the tree.
+FIXTURE_TEAM  = "PLACEHOLD9"
+OTHER_TEAM    = "OTHERTEAM1"
+
+Dir.mktmpdir do |dir|
+  target = File.join(dir, "Local.xcconfig")
+  step   = local_team_step(config_for, target)
+
+  assert_eq(step.check.is_a?(Array) ? step.check[0] : step.check, :pending,
+            "an absent app/Local.xcconfig is :pending — the file is written, not demanded")
+  assert(step.check[1].to_s.include?(target),
+         "and the pending message names the file it is going to write")
+
+  step.do_it
+  assert(File.file?(target), "do_it creates the file")
+
+  # Read back through Xcconfig — the ONE parser (D-57), the same one Xcode's
+  # `#include?` and bin/preflight-identity.rb --require-team resolve through. A text
+  # compare here would pass on a file whose value the parser cannot actually see,
+  # which is UL-031's exact shape (`KEY = // disabled` satisfies a presence regex and
+  # resolves to nothing).
+  assert_eq(Xcconfig.own(target)["DEVELOPMENT_TEAM"], FIXTURE_TEAM,
+            "and the parser resolves the value that came from FASTLANE_TEAM_ID")
+
+  assert_eq(step.check, :done, "a written, agreeing file is :done")
+  assert_eq(step.tier_reached, 2, "and it reached tier 2 — the VALUE agrees, not merely the file exists")
+
+  # UTF-8 on the write, never inherited. The header this step writes carries an em
+  # dash (U+2014), so an unpinned File.write raises Encoding::UndefinedConversionError
+  # with LANG unset. UL-012 / commit 3b1efb9 was this repository's first instance of
+  # inherited encoding and 05-09's Config.parse was the second; the pin is what keeps
+  # this from being the third. Driven red with LC_ALL/LANG/LC_CTYPE cleared, recorded
+  # in the phase evidence file rather than asserted from the comment.
+  assert(File.read(target, encoding: "UTF-8").valid_encoding?,
+         "the file it wrote is valid UTF-8")
+  assert(File.read(target, encoding: "UTF-8").include?("—"),
+         "and carries the non-ASCII byte that makes the write's UTF-8 pin load-bearing")
+end
+
+# An ABSENT value is a NAMED refusal, never an empty write. app/Identity.xcconfig:39-44
+# records that an UNDEFINED DEVELOPMENT_TEAM and an EMPTY one differ, and .continue-here.md
+# records the measurement behind it: a macOS build SUCCEEDS on an empty value with
+# "Sign to Run Locally" and says nothing. So an empty write would convert a loud
+# failure into a silent wrong one — worse than no write at all.
+Dir.mktmpdir do |dir|
+  target = File.join(dir, "Local.xcconfig")
+  step   = local_team_step(config_for(extra: { "FASTLANE_TEAM_ID" => "" }), target)
+
+  assert_blocked(step.check, "FASTLANE_TEAM_ID",
+                 "an absent FASTLANE_TEAM_ID is blocked, and the message names the key")
+  assert(step.check[1].to_s.include?(".bootstrap.env"),
+         "and names the file the value has to come from")
+  assert(!File.exist?(target), "and NOTHING was written — an empty DEVELOPMENT_TEAM is worse than none")
+
+  raised = begin
+             step.do_it
+             nil
+           rescue StandardError => e
+             e.message
+           end
+  assert(!raised.nil? && raised.include?("FASTLANE_TEAM_ID"),
+         "do_it RAISES rather than writing a blank (message: #{raised.inspect})")
+  assert(!File.exist?(target), "and still nothing was written after do_it")
+end
+
+# A MALFORMED value is a named refusal too, and each case says what it found.
+# Ten upper-case alphanumerics: `abcde12345` (case), `ABCDE1234` (short),
+# `ABCDE123456` (long), `ABCDE 1234` (a space — the shape a trailing dotenv comment
+# or a pasted "Team ID: X" leaves behind).
+%w[abcde12345 ABCDE1234 ABCDE123456].each do |bad|
+  Dir.mktmpdir do |dir|
+    target = File.join(dir, "Local.xcconfig")
+    step   = local_team_step(config_for(extra: { "FASTLANE_TEAM_ID" => bad }), target)
+    assert_blocked(step.check, bad.inspect,
+                   "a malformed FASTLANE_TEAM_ID (#{bad.inspect}) is blocked, and the message quotes it")
+    assert(!File.exist?(target), "and #{bad.inspect} produced no file")
+  end
+end
+
+Dir.mktmpdir do |dir|
+  target = File.join(dir, "Local.xcconfig")
+  step   = local_team_step(config_for(extra: { "FASTLANE_TEAM_ID" => "ABCDE 1234" }), target)
+  assert_blocked(step.check, "ABCDE 1234",
+                 "a value with an embedded space is blocked rather than written")
+  assert(!File.exist?(target), "and produced no file")
+end
+
+# DISAGREEMENT is a refusal, not an overwrite. tools/migrate-identity.rb's move_team_id
+# already refuses at exit 4 rather than "overwrite a Team ID a forker put there by
+# hand", and docs/APPLE-ACCOUNT-STATE.md:99 records that the two consumers
+# (.bootstrap.env's FASTLANE_TEAM_ID, app/Local.xcconfig's DEVELOPMENT_TEAM) are meant
+# to hold the SAME value. So a divergence is a real finding: this step surfaces it and
+# declines to choose, which makes it a drift check as well as a writer.
+Dir.mktmpdir do |dir|
+  target = File.join(dir, "Local.xcconfig")
+  File.write(target, "DEVELOPMENT_TEAM = #{OTHER_TEAM}\n", encoding: "UTF-8")
+  before = File.read(target, encoding: "UTF-8")
+  step   = local_team_step(config_for, target)
+
+  result = step.check
+  assert_blocked(result, OTHER_TEAM, "a file assigning a DIFFERENT team is blocked, naming what is there")
+  assert(result[1].to_s.include?(FIXTURE_TEAM), "and naming what .bootstrap.env says")
+  assert_eq(File.read(target, encoding: "UTF-8"), before,
+            "and check changed nothing on disk")
+
+  raised = begin
+             step.do_it
+             nil
+           rescue StandardError => e
+             e.message
+           end
+  assert(!raised.nil?, "do_it refuses to overwrite a Team ID somebody else put there")
+  assert_eq(File.read(target, encoding: "UTF-8"), before, "and the existing value survived")
+end
+
+# A file that exists but assigns nothing is :pending, and do_it APPENDS rather than
+# truncating — a forker's other per-clone settings are not this step's to delete.
+Dir.mktmpdir do |dir|
+  target = File.join(dir, "Local.xcconfig")
+  File.write(target, "// my own note\nOTHER_LOCAL_SETTING = keep-me\n", encoding: "UTF-8")
+  step = local_team_step(config_for, target)
+
+  assert_eq(step.check.is_a?(Array) ? step.check[0] : step.check, :pending,
+            "a file with no DEVELOPMENT_TEAM assignment is :pending")
+  step.do_it
+  after = File.read(target, encoding: "UTF-8")
+  assert(after.include?("OTHER_LOCAL_SETTING = keep-me"),
+         "and do_it APPENDS — the forker's other settings survive")
+  assert_eq(Xcconfig.own(target)["DEVELOPMENT_TEAM"], FIXTURE_TEAM,
+            "and the team now resolves")
+end
+
+# In PIPELINE, and positioned after identity is verified. The ORDER is the assertion,
+# not the membership: a writer that ran before IdentityAdopted would be generating
+# from an identity nothing had checked.
+pipeline_17 = Bootstrap::Runner::PIPELINE
+assert(pipeline_17.include?(Bootstrap::LocalSigningTeam), "LocalSigningTeam is in PIPELINE")
+assert(pipeline_17.index(Bootstrap::LocalSigningTeam).to_i > pipeline_17.index(Bootstrap::IdentityAdopted).to_i,
+       "and it runs AFTER IdentityAdopted (at #{pipeline_17.index(Bootstrap::LocalSigningTeam).inspect}, " \
+       "IdentityAdopted at #{pipeline_17.index(Bootstrap::IdentityAdopted).inspect})")
+assert(pipeline_17.index(Bootstrap::LocalSigningTeam).to_i < pipeline_17.index(Bootstrap::LocalKeychainCerts).to_i,
+       "and BEFORE LocalKeychainCerts, the first step that cares which team signs")
+
+# docs/BOOTSTRAP.md states the step count as a NUMBER. A doc that says 22 while the
+# constant says 23 is the inferring-a-fact-from-a-doc class this project has been
+# bitten by eight times, so the number is asserted against the constant rather than
+# left to be noticed.
+doc_bootstrap = read_utf8("docs/BOOTSTRAP.md")
+assert(doc_bootstrap.include?("The pipeline has #{pipeline_17.length} step classes"),
+       "docs/BOOTSTRAP.md states the pipeline's real step count (#{pipeline_17.length})")
+assert(doc_bootstrap.include?("| #{pipeline_17.length} | `#{pipeline_17.last.name.split('::').last}`"),
+       "and its numbered table's last row is the constant's last step at ##{pipeline_17.length}")
+
 puts
 if @failures.zero?
   puts "PASSED"

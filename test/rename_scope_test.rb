@@ -143,6 +143,10 @@ SLUG_KEEP_TEMPLATE_SITES = [
   "AGENTS.md",
   "docs/CONTRIBUTING-UPSTREAM.md"
 ].freeze
+# The expected SIZE of that array, spelled as a literal rather than derived from it.
+# `SLUG_KEEP_TEMPLATE_SITES.length` compared against itself is trivially true, and a
+# derived count moves with the array it is supposed to pin.
+SLUG_KEEP_TEMPLATE_SITE_COUNT = 2
 
 # ─── harness (test/identity_test.rb:161-194, adopted unchanged) ──────────────
 
@@ -246,11 +250,41 @@ assert !marker_hits.empty?, "R3", RENAME_SH,
        "carries the `#{SLUG_EXCLUSION_MARKER}` marker, so the slug step's scope is " \
        "greppable rather than implicit#{marker_hits.empty? ? ' — found at no line' : suffix(marker_hits)}"
 
+# NON-VACUITY, asserted BEFORE the loop and unconditionally. `Array#each` runs its
+# block once per element, so on an EMPTY array it runs ZERO times and this group
+# reports a clean pass while asserting nothing about its subject. Measured on THIS
+# file 2026-09-03 (05-17): emptying the constant took the suite from 13 assertions to
+# 11 and it still exited 0 under both pinned interpreters —
+# `RESULT control=r3-vacuous exit=0 fail_lines=0`. Same family as 05-13's finding that
+# an absence-only group is silent when its subject is deleted.
+#
+# The count is compared against a literal so that DELETING one entry is as loud as
+# emptying the whole list; a bare `.empty?` check would let a two-site list quietly
+# become a one-site list.
+assert SLUG_KEEP_TEMPLATE_SITES.length == SLUG_KEEP_TEMPLATE_SITE_COUNT, "R3", RENAME_SH,
+       "the site list this group iterates still carries its expected " \
+       "#{SLUG_KEEP_TEMPLATE_SITE_COUNT} entries — found #{SLUG_KEEP_TEMPLATE_SITES.length} " \
+       "(#{SLUG_KEEP_TEMPLATE_SITES.inspect}). An `each` over an emptied or shortened list " \
+       "asserts nothing and passes, which is the defect this line exists to make loud"
+
 SLUG_KEEP_TEMPLATE_SITES.each do |site|
-  hits = line_numbers(text) { |line| line.include?(site) }
+  # An ARRAY ELEMENT, not a mention. The prose immediately above
+  # SLUG_KEEP_TEMPLATE_PATHS in bin/rename.sh explains each of these paths BY NAME, so
+  # `line.include?(site)` is satisfied by the COMMENT and stays green when the entry
+  # itself is deleted. Measured 2026-09-03 (05-17): dropping `AGENTS.md` from the array
+  # left the prose standing and all 13 assertions passing —
+  # `RESULT control=r3-weak-include-vs-element exit=0 fail_lines=0`. 05-15 found the
+  # same defect while strengthening the copy it upstreamed and recorded the fork-side
+  # fix as having no owner; this is that fix.
+  #
+  # Inside a bash array literal an entry is a line that is ONLY the path, so that is
+  # what is matched — leading and trailing whitespace tolerated, nothing else.
+  element = /\A[ \t]*#{Regexp.escape(site)}[ \t]*\z/
+  hits    = line_numbers(text) { |line| line.chomp.match?(element) }
   assert !hits.empty?, "R3", RENAME_SH,
-         "names `#{site}` as a site whose slug must keep pointing at the template " \
-         "repository#{hits.empty? ? ' — found at no line' : suffix(hits)}"
+         "lists `#{site}` as an ARRAY ELEMENT of the slug step's keep-template scope, " \
+         "not merely as a mention in the prose that explains it" \
+         "#{hits.empty? ? ' — matched at no line' : suffix(hits)}"
 end
 
 # ─── verdict ─────────────────────────────────────────────────────────────────

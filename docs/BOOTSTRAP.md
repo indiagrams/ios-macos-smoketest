@@ -144,7 +144,7 @@ Mode key: ⚪ both, 🅒 ci-only, 🅛 local-only, 🍎 macOS-only.
 | 1 | `CheckAppleCreds` | ⚪ | Validates `.p8` + key id + issuer id by probing ASC API |
 | 2 | `CheckGHCreds` | ⚪ | CI mode: probes `gh auth status`. Local mode: no-op (gh CLI not used at ship time). |
 | 3 | `RemoteMatches` | ⚪ | Verifies `git remote get-url origin` matches `GH_ORG/GH_APP_REPO` |
-| 4 | `RenameStub` | ⚪ | Runs `bin/rename.sh` (SmokeApp → APP_NAME) + `bin/verify-rename.sh` |
+| 4 | `IdentityPresent` | ⚪ | **Verifies, changes nothing.** Reads the four keys of `app/Identity.xcconfig` through `bin/lib/xcconfig.rb`, the one parser: `:pending` when the file is absent, blocked naming every key that resolves to nothing (`nil` and `""` alike, so a `//`-commented value is caught), `:done` otherwise. Read-only — bootstrap no longer writes identity, so its `do_it` refuses and points a pre-migration fork at `ruby tools/migrate-identity.rb` ([MIGRATING-FROM-RENAME.md](MIGRATING-FROM-RENAME.md)) |
 | 5 | `IdentityAdopted` | ⚪ | **Verifies, changes nothing.** Climbs the three tiers below against `app/Identity.xcconfig` and names the tier it reached, or the tier that failed and the offending value. Read-only: its `do_it` refuses, because there is no automatic answer to "your app still carries the template's identity" |
 | 6 | `BrewBootstrap` | ⚪ | `make bootstrap` (brew bundle + lefthook + xcodegen/tuist + bundler) |
 | 7 | `Icon1024` | ⚪ | If `ICON_1024_PATH` set, copies it to the iOS asset catalog (tree mutation lands before `InitialPush`), then runs `ci/check-app-icon.sh` on the result — copying a placeholder into place is not adoption |
@@ -300,7 +300,7 @@ worth keeping out of source control.
 
 The orchestrator. Pure Ruby, depends only on the gems already in this
 template's `Gemfile` (fastlane + spaceship). Every step lives as a
-separate class (`RenameStub`, `BrewBootstrap`, `LocalKeychainCerts`, …) so
+separate class (`IdentityPresent`, `BrewBootstrap`, `LocalKeychainCerts`, …) so
 adding new steps or skipping ones is a one-class change. `bin/doctor.rb`
 and `bin/bootstrap-fork.rb` are thin wrappers on `Bootstrap::Runner`. The
 canonical step order lives in the `PIPELINE` constant near the bottom of

@@ -478,8 +478,13 @@ puts "Registration"
 
 pipeline = Bootstrap::Runner::PIPELINE
 assert(pipeline.include?(Bootstrap::IdentityAdopted), "IdentityAdopted is in PIPELINE")
-assert_eq(pipeline[pipeline.index(Bootstrap::RenameStub) + 1], Bootstrap::IdentityAdopted,
-          "IdentityAdopted sits immediately after RenameStub")
+assert(pipeline.include?(Bootstrap::IdentityPresent), "IdentityPresent is in PIPELINE")
+assert_eq(pipeline[pipeline.index(Bootstrap::IdentityPresent) + 1], Bootstrap::IdentityAdopted,
+          "IdentityAdopted sits immediately after IdentityPresent")
+assert_eq(Bootstrap::IdentityPresent.const_get(:MIN_TIER), 1,
+          "IdentityPresent declares MIN_TIER = 1 — presence-plus-resolution, not content")
+assert(!Bootstrap.const_defined?(:RenameStub),
+       "RenameStub is gone: nothing in the pipeline renames any more (A-01)")
 
 puts
 puts "Config — BOOTSTRAP_ENV fixture override, equally loud"

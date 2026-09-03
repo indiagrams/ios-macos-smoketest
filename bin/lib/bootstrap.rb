@@ -35,6 +35,86 @@ module Bootstrap
   REPO_ROOT = Pathname.new(__dir__).join("..", "..").expand_path
   ENV_FILE  = REPO_ROOT.join(".bootstrap.env")
 
+  # ─── The one identity resolver (A-01) ───────────────────────────────────────
+  #
+  # app/Identity.xcconfig is the SOURCE OF TRUTH for app identity, and
+  # `.bootstrap.env` no longer carries APP_NAME / BUNDLE_ID / DISPLAY_NAME at
+  # all. Bootstrap READS and VERIFIES; it never writes identity. (Phase 5, A-01
+  # — which REVERSED the draft decision that would have had bootstrap generate
+  # the xcconfig from the env file, because the tier-2 check further down was
+  # already a live BLOCKING check saying the opposite.)
+  #
+  # Everything in this file that displays or uses an identity value goes through
+  # `identity!`, so there is one reader and one failure message. The alternative —
+  # a `Config#[]` read of a key that is no longer required — returns "" and renders
+  # as a BLANK, which is the silent degradation this project refuses. The three
+  # acceptance greps that keep this true forbid those literal shapes anywhere in
+  # this file, comments included, so nothing below spells them.
+
+  # Raised when app/Identity.xcconfig cannot answer for a key. Named rather than
+  # generic so a caller that legitimately treats absence as "cannot tell" (an
+  # advisory step) can rescue exactly this and nothing else.
+  class IdentityUnavailable < StandardError; end
+
+  # The ONE path resolver. `IDENTITY_XCCONFIG` is a FIXTURE KNOB, for driving
+  # identity checks red against a file this repository does not carry. It
+  # announces itself on stderr every time it is honoured (T-04-42) — the shape
+  # `bin/preflight-identity.rb --config PATH` established. A run against a
+  # fixture that could be mistaken for a real one would be worse than no fixture
+  # at all. Deliberately module-level and deliberately SINGULAR: `IdentityPresent`
+  # and `IdentityAdopted` must be redirectable by the same knob, and a second
+  # resolver is how one of them quietly stops being.
+  def self.identity_xcconfig_path
+    override = ENV["IDENTITY_XCCONFIG"].to_s.strip
+    return REPO_ROOT.join("app", "Identity.xcconfig") if override.empty?
+    $stderr.puts "!! IDENTITY_XCCONFIG override in effect: reading #{override}"
+    $stderr.puts "!! This run is reading a FIXTURE. It says nothing about app/Identity.xcconfig."
+    Pathname.new(override).expand_path
+  end
+
+  # The resolved value of `key`, or a refusal that NAMES the key and the file.
+  #
+  # There is no placeholder tier and no `|| default` fallback. A default would
+  # let a fork with a missing value proceed under a plausible FAKE identity —
+  # the shape test/fastlane_identity_test.rb already forbids in the Fastfile,
+  # where 04-04 deleted four template fallbacks rather than updating them
+  # (D-58, IDENT-05).
+  #
+  # nil and "" are the SAME failure here: never-assigned, `KEY =`, and
+  # `KEY = // disabled` all resolve to nothing in Xcode, and a caller that told
+  # them apart would be drawing a distinction the build does not. WHICH of the
+  # two it was is reported in the message, because a forker needs to know
+  # whether they deleted the line or commented it out.
+  def self.identity!(key)
+    path = identity_xcconfig_path
+    unless path.file?
+      raise IdentityUnavailable,
+            "#{key} is unavailable: #{path} does not exist. app/Identity.xcconfig is the " \
+            "source of truth for app identity. A fork created before the identity work " \
+            "migrates with `ruby tools/migrate-identity.rb`; a fresh fork writes the four " \
+            "keys by hand. See docs/MIGRATING-FROM-RENAME.md."
+    end
+    raw = Xcconfig.value(path.to_s, key)
+    if raw.nil? || raw.strip.empty?
+      state = raw.nil? ? "never assigned" : "assigned, but resolves to nothing (empty, `//`-commented, or an undefined $(VAR))"
+      raise IdentityUnavailable,
+            "#{key} is #{state} in #{path}. Set it and re-run — there is no default, " \
+            "because a default is how a fork ships under someone else's identity."
+    end
+    raw.strip
+  end
+
+  # The same read, for a DIAGNOSTIC line that must still print when identity is
+  # broken: doctor's Configuration header and bootstrap-fork's closing summary.
+  # It substitutes the REASON, never a value — `<unresolved …>` cannot be
+  # mistaken for an app name, where a blank or a plausible default can. NEVER
+  # use this where the value is consumed; use `identity!`.
+  def self.identity_for_display(key)
+    identity!(key)
+  rescue IdentityUnavailable, Xcconfig::MissingInclude => e
+    "<unresolved #{key}: #{e.message.lines.first.to_s.strip}>"
+  end
+
   # The 5 GH Secrets the release pipeline needs. Order: stable for doctor.
   REQUIRED_SECRETS = %w[
     KEYCHAIN_PASSWORD
@@ -82,8 +162,12 @@ module Bootstrap
   # ─── Config loader ──────────────────────────────────────────────────────────
 
   class Config
+    # APP_NAME, BUNDLE_ID and DISPLAY_NAME are NOT here: A-01 retired them from
+    # `.bootstrap.env` entirely and made app/Identity.xcconfig the source of
+    # truth. APP_EMAIL STAYS — it is the git author and fastlane Appfile
+    # address, not identity.
     REQUIRED_ALWAYS = %w[
-      APP_NAME BUNDLE_ID DISPLAY_NAME APP_EMAIL GENERATOR RELEASE_MODE
+      APP_EMAIL GENERATOR RELEASE_MODE
       FASTLANE_TEAM_ID ASC_API_KEY_ID ASC_API_KEY_ISSUER_ID ASC_API_KEY_P8_PATH
       GH_ORG GH_APP_REPO
     ].freeze
@@ -168,7 +252,51 @@ module Bootstrap
       @values = values
     end
 
+    # ─── the retired-key tripwire ────────────────────────────────────────────
+    #
+    # These three are gone from REQUIRED_ALWAYS, so `validate!` no longer
+    # notices their absence — and `Config#[]` returns "" for an absent key,
+    # which renders as a BLANK in every consumer rather than as a failure. That
+    # silent degradation is the exact class this project refuses.
+    #
+    # This is a TRIPWIRE, not a compatibility shim. It fires only when a retired
+    # key is READ **and** ABSENT. A fork that still carries the key in its own
+    # `.bootstrap.env` keeps working unchanged — policing THAT case is what
+    # `IdentityAdopted::ENV_AGREEMENT` is for — while a fork scaffolded from the
+    # post-A-01 `.bootstrap.env.example` gets a named refusal pointing at the
+    # source of truth instead of a blank.
+    #
+    # This file's own fifteen reads moved to `Bootstrap.identity!` in the same
+    # change that removed the keys. The nine remaining reads in
+    # bin/compute-release-tag.rb, bin/ship.rb, bin/submit.rb and
+    # bin/verify-testflight.rb are a later plan's; until they move, this is what
+    # stands between them and a blank on a freshly-scaffolded fork.
+    RETIRED_IDENTITY_KEYS = {
+      "APP_NAME"     => "APP_PRODUCT_NAME",
+      "BUNDLE_ID"    => "BUNDLE_ID",
+      "DISPLAY_NAME" => "DISPLAY_NAME"
+    }.freeze
+
     def [](key)
+      xc_key = RETIRED_IDENTITY_KEYS[key]
+      if xc_key && !set?(key)
+        UI.fail!(<<~MSG)
+          #{key} was read from .bootstrap.env, and .bootstrap.env does not carry it.
+
+          app/Identity.xcconfig is the source of truth for app identity, and
+          #{RETIRED_IDENTITY_KEYS.keys.join(', ')} were removed from
+          .bootstrap.env.example. Returning the empty string here would have
+          rendered as a blank somewhere downstream instead of failing.
+
+          Read `#{xc_key}` from app/Identity.xcconfig instead:
+
+            Bootstrap.identity!("#{xc_key}")
+            ruby bin/lib/xcconfig.rb app/Identity.xcconfig #{xc_key}
+
+          If this fork has not migrated yet, run `ruby tools/migrate-identity.rb`
+          (see docs/MIGRATING-FROM-RENAME.md).
+        MSG
+      end
       @values[key].to_s
     end
 
@@ -531,30 +659,77 @@ module Bootstrap
     end
   end
 
-  class RenameStub < Step
-    def name; "Rename HelloApp → #{config['APP_NAME']}"; end
+  # Is app/Identity.xcconfig present, and does every key it owns resolve to
+  # something? (A-01, IDENT-10.)
+  #
+  # This replaced the rename step, whose `do_it` shelled out to the two rename
+  # scripts this phase retires, and whose `check` matched
+  # `APP_PRODUCT_NAME = <the env key>` with a regex that did NOT cut at
+  # `//`, so `APP_PRODUCT_NAME = // disabled` satisfied it. That is UL-031's hole
+  # in a second file, and reading through the ONE parser (D-57) is what closes it:
+  # `Xcconfig.value` cuts at `//` and returns "" for a comment-only value, which
+  # this step treats exactly as it treats nil.
+  #
+  # MIN_TIER = 1 ON PURPOSE, and it is not a rounding-down. This step answers "the
+  # file exists, and its keys resolve" — tier 1, plus the resolution that is what
+  # makes a presence check mean anything at all. The tier-2 question, "is the
+  # content still the template's?", belongs to `IdentityAdopted`, which runs
+  # immediately after this and declares MIN_TIER = 2. Two steps, two depths, one
+  # claim each — and the guard that enforces the claim lives in
+  # `Runner#render_result`, not here (D-64: a step's own discipline is precisely
+  # what failed in the icon story).
+  class IdentityPresent < Step
+    MIN_TIER = 1
+
+    def name; "Identity config present (app/Identity.xcconfig)"; end
+
+    # The four keys app/Identity.xcconfig owns. Deliberately REFERENCED rather
+    # than re-spelled: a fifth key added to one list and forgotten in the other is
+    # how the two identity steps would start disagreeing about what identity is.
+    def keys; IdentityAdopted::KEYS; end
 
     def check
-      # Done iff app/Identity.xcconfig already carries this fork's product name.
-      # The project structure (app/App.xcodeproj, app/Shared/App.swift, …) is a
-      # constant that the rename never touches; identity is what it writes.
-      identity = REPO_ROOT.join("app", "Identity.xcconfig")
-      return :pending unless identity.file?
-      text = identity.read(encoding: "UTF-8")
-      text.match?(/^\s*APP_PRODUCT_NAME\s*=\s*#{Regexp.escape(config['APP_NAME'])}\s*$/) ? :done : :pending
+      path  = Bootstrap.identity_xcconfig_path
+      @path = path
+
+      # tier 1: the thing exists. `:pending` rather than blocked — doctor should
+      # report the rest of the pipeline rather than stopping at the first gap, and
+      # `do_it` below explains what to do about it.
+      return :pending unless path.file?
+      @tier_reached = 1
+
+      values = {}
+      begin
+        keys.each { |key| values[key] = Xcconfig.value(path.to_s, key) }
+      rescue Xcconfig::MissingInclude => e
+        # A gate that cannot read its subject has NO VERDICT, and no verdict is
+        # not a pass — the same refusal shape as IdentityAdopted's tier 3.
+        return [:blocked, "#{path} could not be read: #{e.message}"]
+      end
+
+      unresolved = keys.reject { |k| !values[k].nil? && !values[k].strip.empty? }
+      return :done if unresolved.empty?
+
+      named = unresolved.map do |k|
+        reason = values[k].nil? ? "never assigned" : "assigned, but resolves to nothing — empty, `//`-commented, or an undefined $(VAR)"
+        "#{k} (#{reason})"
+      end
+      [:blocked, "#{path} is present but #{unresolved.length} of #{keys.length} keys resolve " \
+                 "to nothing:\n  - #{named.join("\n  - ")}\n" \
+                 "Every one of them must carry a value; there is no default."]
     end
 
+    def detail
+      return nil if tier_reached.nil?
+      "verified to tier #{tier_reached}: #{keys.length} keys present and resolving in #{@path}"
+    end
+
+    # Bootstrap does not write identity under A-01 — it reads and verifies. Same
+    # refusing shape as IdentityAdopted#do_it and CheckGHCreds#do_it.
     def do_it
-      args = [
-        "bin/rename.sh",
-        config["APP_NAME"], config["BUNDLE_ID"], config["DISPLAY_NAME"],
-        "--email=#{config['APP_EMAIL']}",
-        "--generator=#{config['GENERATOR']}",
-        "--platforms=#{config.platforms.join(',')}",
-        "--team-id=#{config['FASTLANE_TEAM_ID']}"
-      ]
-      Sh.run!(*args)
-      Sh.run!("bin/verify-rename.sh")
+      raise "nothing to do automatically — a fork created before the identity work migrates " \
+            "with `ruby tools/migrate-identity.rb`; a fresh fork edits app/Identity.xcconfig. " \
+            "See docs/MIGRATING-FROM-RENAME.md."
     end
   end
 
@@ -562,12 +737,13 @@ module Bootstrap
   # (D-64, IDENT-13.) See `Step`'s tier comment for what tier 1/2/3 mean and why
   # the concept exists at all.
   #
-  # It sits immediately after `RenameStub` because that is the step whose `do_it`
-  # writes identity, and because `RenameStub#check` is itself only tier-2-ish:
-  # upstream's post-#281 body matches `APP_PRODUCT_NAME = <APP_NAME>` with a
-  # regex that does NOT cut at `//`, so `APP_PRODUCT_NAME = // disabled` would
-  # satisfy it (the UL-031 hole, in a second file). This step asks the harder
-  # question through the one parser.
+  # It sits immediately after `IdentityPresent`, which resolves the same four keys
+  # through the same parser but asks only whether they resolve at all. This step
+  # asks the harder question: are the values that resolved still the template's?
+  # The step `IdentityPresent` replaced — and upstream's post-#281 copy of it —
+  # matched `APP_PRODUCT_NAME = <the env key>` with a regex that does NOT cut at
+  # `//`, so `APP_PRODUCT_NAME = // disabled` satisfied it (the UL-031 hole, in a
+  # second file).
   class IdentityAdopted < Step
     MIN_TIER = 2
 
@@ -596,17 +772,13 @@ module Bootstrap
 
     def name; "App identity adopted (tiers 1-3)"; end
 
-    # `IDENTITY_XCCONFIG` is a FIXTURE KNOB, for driving the tiers red against a
-    # file this repository does not carry. It announces itself on stderr every
-    # time it is honoured (T-04-42) — the shape bin/preflight-identity.rb's
-    # `--config PATH` banner established. A doctor run against a fixture that
-    # could be mistaken for a real one would be worse than no fixture at all.
+    # Delegates to `Bootstrap.identity_xcconfig_path`, the ONE resolver, so the
+    # announcing `IDENTITY_XCCONFIG` fixture knob covers this step and
+    # `IdentityPresent` identically — one knob, one banner, both steps. Kept as an
+    # instance method because test/doctor_identity_test.rb drives this step through
+    # it.
     def xcconfig_path
-      override = ENV["IDENTITY_XCCONFIG"].to_s.strip
-      return REPO_ROOT.join("app", "Identity.xcconfig") if override.empty?
-      $stderr.puts "!! IDENTITY_XCCONFIG override in effect: reading #{override}"
-      $stderr.puts "!! This run is reading a FIXTURE. It says nothing about app/Identity.xcconfig."
-      Pathname.new(override).expand_path
+      Bootstrap.identity_xcconfig_path
     end
 
     def xcodeproj_path
@@ -749,16 +921,26 @@ module Bootstrap
     def check
       out, ok = Sh.run("git", "ls-remote", "--heads", "origin", "main")
       return :pending unless ok && !out.strip.empty?
-      # main exists on origin. Has rename landed?
+      # main exists on origin. Has this fork's first commit landed? (Nothing
+      # renames any more — this only asks whether app/Shared has been pushed.)
       out2, _ = Sh.run("git", "diff", "--stat", "origin/main", "--", "app/Shared")
       out2.strip.empty? ? :done : :pending
     end
 
     def do_it
+      # `dirty` is `git diff --quiet`'s exit status, so it is TRUE when the tree is
+      # CLEAN. Both statements below were already `unless dirty`; they are nested
+      # now only so identity is resolved when it is actually needed.
       _out, dirty = Sh.run("git", "diff", "--quiet")
-      Sh.run!("git", "add", "-A") unless dirty
-      Sh.run!("git", "-c", "user.email=#{config['APP_EMAIL']}", "-c", "user.name=#{config['APP_NAME']} bootstrap",
-              "commit", "-m", "Bootstrap fork: rename HelloApp -> #{config['APP_NAME']}") unless dirty
+      unless dirty
+        # No rename in the author or the message: this phase retires the rename
+        # script, and identity is already in app/Identity.xcconfig by the time this
+        # step runs. The commit carries generated and copied files, not a rebranding.
+        product = Bootstrap.identity!("APP_PRODUCT_NAME")
+        Sh.run!("git", "add", "-A")
+        Sh.run!("git", "-c", "user.email=#{config['APP_EMAIL']}", "-c", "user.name=#{product} bootstrap",
+                "commit", "-m", "Bootstrap fork: initial commit for #{product}")
+      end
       Sh.run!("git", "push", "-u", "origin", "main")
     end
   end
@@ -913,7 +1095,7 @@ module Bootstrap
     def check
       require "spaceship"
       Bootstrap.ensure_asc_token!(config)
-      Spaceship::ConnectAPI::BundleId.find(config["BUNDLE_ID"]) ? :done : :pending
+      Spaceship::ConnectAPI::BundleId.find(Bootstrap.identity!("BUNDLE_ID")) ? :done : :pending
     rescue StandardError => e
       [:blocked, "ASC probe failed: #{e.message}"]
     end
@@ -931,7 +1113,7 @@ module Bootstrap
     def check
       require "spaceship"
       Bootstrap.ensure_asc_token!(config)
-      Spaceship::ConnectAPI::App.find(config["BUNDLE_ID"]) ? :done : [:blocked, asc_creation_msg]
+      Spaceship::ConnectAPI::App.find(Bootstrap.identity!("BUNDLE_ID")) ? :done : [:blocked, asc_creation_msg]
     rescue StandardError => e
       [:blocked, "ASC probe failed: #{e.message}"]
     end
@@ -943,7 +1125,8 @@ module Bootstrap
     private
 
     # Human-readable label of the active platforms — for display in the
-    # ASC creation hint. Mirrors bin/rename.sh's PLATFORMS_LABEL.
+    # ASC creation hint. Mirrors the PLATFORMS_LABEL the retired rename script
+    # built, which is where this wording came from.
     def platforms_label
       ios   = config.ios?
       macos = config.macos?
@@ -954,16 +1137,16 @@ module Bootstrap
     end
     def asc_creation_msg
       <<~MSG
-        ASC App record for #{config['BUNDLE_ID']} not found.
+        ASC App record for #{Bootstrap.identity!('BUNDLE_ID')} not found.
 
         The App Store Connect API does not allow POST /apps. Create the App
         record once via the web UI:
 
           1. Open https://appstoreconnect.apple.com/apps  →  + (New App)
           2. Platforms:        #{platforms_label}
-             Name:             #{config['ASC_APP_NAME'].to_s.empty? ? config['DISPLAY_NAME'] : config['ASC_APP_NAME']}
+             Name:             #{config['ASC_APP_NAME'].to_s.empty? ? Bootstrap.identity!('DISPLAY_NAME') : config['ASC_APP_NAME']}
              Primary Language: English (U.S.)
-             Bundle ID:        #{config['BUNDLE_ID']}
+             Bundle ID:        #{Bootstrap.identity!('BUNDLE_ID')}
              SKU:              #{config['ASC_APP_SKU'].to_s.empty? ? '(any unique string)' : config['ASC_APP_SKU']}
              User Access:      Full Access
           3. Re-run `make bootstrap` — this step will pass.
@@ -1143,8 +1326,19 @@ module Bootstrap
       # configured, the user is plausibly adopting an existing live app. Surface
       # `make adopt` so they don't overwrite their live App Store listing.
       # Greenfield forks (BUNDLE_ID is the placeholder) just edit the files.
-      bundle_id = config["BUNDLE_ID"].to_s
-      if !bundle_id.empty? && bundle_id != "com.example.helloapp" && ENV["ASC_API_KEY_ID"]
+      #
+      # ADVISORY ONLY, so an unreadable identity SKIPS the hint and SAYS SO rather
+      # than guessing — a hint that guessed would be worse than one that admits it
+      # could not tell. The GATE for a missing identity is `IdentityPresent`,
+      # several steps earlier, not this line.
+      bundle_id = begin
+        Bootstrap.identity!("BUNDLE_ID")
+      rescue IdentityUnavailable, Xcconfig::MissingInclude => e
+        msg << "\n\n  (Could not read BUNDLE_ID from app/Identity.xcconfig, so the live-app " \
+               "adoption warning was skipped: #{e.message.lines.first.to_s.strip})"
+        nil
+      end
+      if bundle_id && bundle_id != "com.example.helloapp" && ENV["ASC_API_KEY_ID"]
         msg << "\n\n  If your fork is adopting a LIVE App Store app, do NOT just edit these files —"
         msg << "\n  running `make submit` would overwrite your real App Store listing with"
         msg << "\n  the local placeholders. Instead, run `make adopt` first to pull your"
@@ -1189,7 +1383,7 @@ module Bootstrap
       return :done if ENV["ASC_APP_PRIVACY_ACK"].to_s.strip.downcase == "true"
       require "spaceship"
       Bootstrap.ensure_asc_token!(config)
-      app = Spaceship::ConnectAPI::App.find(config["BUNDLE_ID"])
+      app = Spaceship::ConnectAPI::App.find(Bootstrap.identity!("BUNDLE_ID"))
       return [:warn, "ASC App record not found (covered by VerifyAscApp); App Privacy check skipped."] unless app
       state = Spaceship::ConnectAPI::AppDataUsagesPublishState.get(app_id: app.id)
       if state.nil?
@@ -1259,7 +1453,7 @@ module Bootstrap
       return :done if ENV["ASC_SUBMISSION_PREREQS_ACK"].to_s.strip.downcase == "true"
       require "spaceship"
       Bootstrap.ensure_asc_token!(config)
-      app = Spaceship::ConnectAPI::App.find(config["BUNDLE_ID"])
+      app = Spaceship::ConnectAPI::App.find(Bootstrap.identity!("BUNDLE_ID"))
       return [:warn, "ASC App record not found (covered by VerifyAscApp); submission prerequisites skipped."] unless app
 
       missing = []
@@ -1735,8 +1929,8 @@ module Bootstrap
       CheckAppleCreds,
       CheckGHCreds,
       RemoteMatches,
-      RenameStub,
-      IdentityAdopted,       # verifies what RenameStub writes, to depth (D-64)
+      IdentityPresent,       # tier 1: the four keys exist and resolve (A-01)
+      IdentityAdopted,       # tiers 2-3: and they are not the template's (D-64)
       BrewBootstrap,
       Icon1024,              # tree mutations land before InitialPush
       MakeIcons,
@@ -1790,7 +1984,7 @@ module Bootstrap
     def doctor
       @config.validate!
       UI.section "Configuration"
-      puts "  app:     #{@config['APP_NAME']} (#{@config['BUNDLE_ID']})"
+      puts "  app:     #{Bootstrap.identity_for_display('APP_PRODUCT_NAME')} (#{Bootstrap.identity_for_display('BUNDLE_ID')})"
       puts "  mode:    RELEASE_MODE=#{UI.bold @config.release_mode}"
       puts "  apple:   team #{@config['FASTLANE_TEAM_ID']}, ASC key #{@config['ASC_API_KEY_ID']}"
       gh_line = "  gh:      app=#{@config.repo_slug}"
@@ -1904,7 +2098,7 @@ module Bootstrap
       puts UI.bold "✅ Bootstrap complete."
       puts
       puts "What just happened on #{@config.repo_slug}:"
-      puts "  - #{@config['APP_NAME']} (#{@config['BUNDLE_ID']}) project files committed"
+      puts "  - #{Bootstrap.identity_for_display('APP_PRODUCT_NAME')} (#{Bootstrap.identity_for_display('BUNDLE_ID')}) project files committed"
       puts "  - Pushed directly to main (no GitHub PR opened — bootstrap-fork pushes straight)"
       if @config.ci_mode?
         puts

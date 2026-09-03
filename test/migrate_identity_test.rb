@@ -90,6 +90,30 @@
 #                                only way to reach the rollback path from a test
 #                                without breaking the command on purpose.
 #
+# THE STRUCTURAL HALF (group M8, plan 05-04)
+#
+# M8 asserts the other half of the transformation: the five history-preserving
+# renames, the two declaration rewrites, both manifests rewired onto $(VAR), the
+# .gitignore project paths, the stale generated project's proven absence, and the
+# identity gate's GREEN half — the pair whose red half ci/test-migrate-identity.sh
+# already records as `RESULT baseline=preflight-unmigrated-fixture exit=2`.
+#
+# Two of its assertions are shaped by defects this project has already shipped
+# rather than by a style preference:
+#
+#   * MUST-NOT-TOUCH is asserted by SHA-256 DIGEST, not by a grep for the fork
+#     token. In a pre-#281 fork structure and identity are the same token, so a
+#     reverse sweep that rewrites every occurrence eats the forker's own
+#     choices — the accessibility selector "<N>.title" is a UI-test contract and
+#     the Localizable.xcstrings key is user-visible. A grep for the token would
+#     go green on a file that had been rewritten some other way; a digest will
+#     not, and the failure names both digests.
+#
+#   * HISTORY is asserted from `git diff --cached -M --name-status`. A
+#     copy-and-delete produces exactly the same end state as a `git mv` and
+#     leaves the migration unreviewable, and only the R-versus-A/D status
+#     distinguishes them.
+#
 # The fixture xcodebuild emits a -showBuildSettings dump shaped like the real one
 # (four-space indent, "KEY = value", one "Build settings for action" header),
 # carrying the values a PRE-#281 renamed fork actually resolves: PRODUCT_NAME is
@@ -102,6 +126,11 @@
 require "tmpdir"
 require "fileutils"
 require "rbconfig"
+# Ruby core, no gem. Group M8 compares the must-not-touch files by SHA-256
+# DIGEST rather than by a grep for the fork token: a grep would pass on a file
+# that had been rewritten in some other way, and "this file was not touched" is
+# a statement about its bytes.
+require "digest"
 
 # The one xcconfig reader (D-57). M7 asserts the command's written
 # app/Identity.xcconfig THROUGH it rather than by grepping the file: a writer
@@ -286,6 +315,136 @@ ENTITLEMENTS = <<~XML
   <plist version="1.0"><dict/></plist>
 XML
 
+# The two entitlement files carry DIFFERENT bytes on purpose. With identical
+# content git's exact-rename detection is free to pair iOS's old blob with macOS's
+# new path and still report two R lines, so the pairing assertion below would be
+# satisfied by a migration that had crossed the two platforms over.
+ENTITLEMENTS_IOS = <<~XML
+  <?xml version="1.0" encoding="UTF-8"?>
+  <plist version="1.0">
+  <dict>
+  \t<key>com.apple.developer.applesignin</key>
+  \t<array><string>Default</string></array>
+  </dict>
+  </plist>
+XML
+
+ENTITLEMENTS_MACOS = <<~XML
+  <?xml version="1.0" encoding="UTF-8"?>
+  <plist version="1.0">
+  <dict>
+  \t<key>com.apple.security.app-sandbox</key>
+  \t<true/>
+  \t<key>com.apple.security.network.client</key>
+  \t<true/>
+  </dict>
+  </plist>
+XML
+
+# ─── the MUST-NOT-TOUCH files ────────────────────────────────────────────────
+#
+# In a pre-#281 fork structure and identity are the SAME TOKEN, so each of these
+# carries it — and in each of them it is the FORKER'S OWN CHOICE rather than
+# structure. Measured at e773cfc (2026-09-03), which is what these fixtures
+# reproduce:
+#
+#   app/Shared/AccessibilityIdentifiers.swift:25,28,33  "<N>.title" — a UI-test
+#     selector, i.e. a contract between the views and the UI tests. Rewriting it
+#     breaks every `app.otherElements[...]` query the forker wrote.
+#   app/Shared/Localizable.xcstrings:4,10               a catalog KEY whose value
+#     is user-visible on screen.
+#   app/Shared/PrivacyInfo.xcprivacy:4                  a comment.
+#   app/Shared/ContentView.swift:14                     Text("<N>") — the string
+#     the running app actually renders. Not on the plan's list of three; asserted
+#     anyway, because it is the most visible one of the four.
+
+def a11y_identifiers_swift(token)
+  <<~SWIFT
+    import Foundation
+
+    /// Stable accessibility identifiers, shared by the views and the UI tests.
+    ///
+    /// The leading scope is the SCREEN, not the app: `#{token}.title`,
+    /// `Settings.signIn`, `Trends.chart`.
+    public enum A11y {
+        /// The "#{token}" title text — stable selector for UI tests across locales.
+        public static let title = "#{token}.title"
+    }
+  SWIFT
+end
+
+def localizable_xcstrings(token)
+  <<~JSON
+    {
+      "sourceLanguage" : "en",
+      "strings" : {
+        "#{token} greeting" : {
+          "extractionState" : "manual",
+          "localizations" : {
+            "en" : {
+              "stringUnit" : {
+                "state" : "translated",
+                "value" : "Hello from #{token}"
+              }
+            }
+          }
+        }
+      },
+      "version" : "1.0"
+    }
+  JSON
+end
+
+def privacy_info_xcprivacy(token)
+  <<~XML
+    <?xml version="1.0" encoding="UTF-8"?>
+    <plist version="1.0">
+    <!--
+        Apple Privacy Manifest for the #{token} app.
+    -->
+    <dict>
+    \t<key>NSPrivacyTracking</key>
+    \t<false/>
+    </dict>
+    </plist>
+  XML
+end
+
+def content_view_swift(token)
+  <<~SWIFT
+    import SwiftUI
+
+    struct ContentView: View {
+        var body: some View {
+            VStack {
+                Text("#{token}")
+                    .accessibilityIdentifier(A11y.title)
+            }
+        }
+    }
+  SWIFT
+end
+
+# ─── the two token-named test files (structural, and they DO move) ───────────
+
+def unit_tests_swift(token, suffix)
+  <<~SWIFT
+    // Stub unit tests. Forks should add real tests here.
+    //
+    // CI runs this on every PR.
+
+    import XCTest
+
+    final class #{token}#{suffix}: XCTestCase {
+        func testSmoke() {
+            // Sanity: the unit-test target compiles, links, and the bundle
+            // launches under xcodebuild test.
+            XCTAssertEqual(2 + 2, 4)
+        }
+    }
+  SWIFT
+end
+
 def identity_xcconfig(omit: [])
   rows = {
     "BUNDLE_ID"        => "com.indiagram.migratefixture.ios",
@@ -449,10 +608,34 @@ end
 # A fixture bin directory for MIGRATE_IDENTITY_TOOL_DIR. `parent` must NOT be the
 # fixture repository root: these files are not part of the tree under test and
 # would make it dirty.
+# The fixture xcodegen READS ./project.yml's `name:` and creates
+# <name>.xcodeproj — it does not hardcode the answer. That is what makes the
+# post-generation assertion load-bearing: a migration that failed to rewrite
+# `name:` produces a project directory under the OLD token, and the command's
+# own "app/App.xcodeproj exists" check then refuses. A stub that always created
+# App.xcodeproj would have made that check green regardless.
+#
+# Single-quoted heredoc terminator: nothing in the body is Ruby-interpolated, so
+# every shell $ below survives. A double-quoted heredoc would have eaten them and
+# the stub would have silently generated the wrong directory.
+XCODEGEN_STUB = <<~'SH'
+  #!/bin/sh
+  # fixture xcodegen — regenerates from the manifest, writes nothing else.
+  name=$(sed -n 's/^name: *//p' project.yml | head -1)
+  if [ -z "$name" ]; then
+    echo "fixture xcodegen: no top-level name: in project.yml" >&2
+    exit 1
+  fi
+  mkdir -p "$name.xcodeproj" || exit 1
+  printf '// fixture generated project for %s\n' "$name" > "$name.xcodeproj/project.pbxproj"
+  echo "Created $name.xcodeproj"
+  exit 0
+SH
+
 def build_tool_dir(parent, xcodegen: true, **stub_options)
   bin = File.join(parent, "fixture-bin")
   FileUtils.mkdir_p(bin)
-  write_exec(File.join(bin, "xcodegen"), "#!/bin/sh\necho 'Version: 0.0.0-fixture'\nexit 0\n") if xcodegen
+  write_exec(File.join(bin, "xcodegen"), XCODEGEN_STUB) if xcodegen
   unless stub_options[:absent]
     body = xcodebuild_stub(ios_product: stub_options.fetch(:ios_product, "#{TOKEN}-iOS"),
                            macos_product: stub_options.fetch(:macos_product, "#{TOKEN}-macOS"),
@@ -464,27 +647,177 @@ def build_tool_dir(parent, xcodegen: true, **stub_options)
   bin
 end
 
+# The XcodeGen manifest of a pre-#281 renamed fork, in the shape e773cfc:app/project.yml
+# actually has (read 2026-09-03, not assumed): six token-named targets, six
+# token-named scheme references, per-target PRODUCT_BUNDLE_IDENTIFIER literals with
+# the four test-bundle suffixes, entitlement paths carrying the token,
+# TEST_TARGET_NAME carrying the token, the display name as a LITERAL in each plist
+# block, and copyright arriving as an INFOPLIST_KEY_ build setting on iOS but as a
+# plist property on macOS. No configFiles:, no PRODUCT_NAME anywhere, no
+# preGenCommand — every one of those is a post-#281 concept.
+#
+# A minimal two-target stub would have made every rewrite assertion below vacuous:
+# a rewriter that only knew how to change `name:` would have passed it.
 def fixture_project_yml(token, team_id)
   <<~YML
-    # Fixture manifest, shaped like a pre-#281 renamed fork's.
+    # Fixture manifest, shaped like a pre-#281 renamed fork's #{token} project.
     name: #{token}
+
+    options:
+      bundleIdPrefix: com.fixture
+      deploymentTarget:
+        iOS: "17.0"
+        macOS: "14.0"
+      developmentLanguage: en
+      defaultConfig: Release
 
     settings:
       base:
+        SWIFT_VERSION: "6.0"
         MARKETING_VERSION: "0.0.1"
+        CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: "#{team_id}"   # substituted at fork creation by the retired script
         CODE_SIGN_STYLE: Automatic
 
     targets:
       #{token}-iOS:
         type: application
+        platform: iOS
+        sources:
+          - path: Shared
+          - path: iOS
+        info:
+          path: iOS/Generated-Info.plist
+          properties:
+            CFBundleDisplayName: "#{FIXTURE_DISPLAY}"
+            CFBundleShortVersionString: $(MARKETING_VERSION)
+            CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+            ITSAppUsesNonExemptEncryption: false
+        settings:
+          base:
+            PRODUCT_BUNDLE_IDENTIFIER: #{FIXTURE_BUNDLE_ID}
+            TARGETED_DEVICE_FAMILY: "1,2"
+            CODE_SIGN_ENTITLEMENTS: iOS/#{token}.entitlements
+            INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+            INFOPLIST_KEY_NSHumanReadableCopyright: "#{FIXTURE_COPYRIGHT}"
+
       #{token}-macOS:
         type: application
+        platform: macOS
+        sources:
+          - path: Shared
+          - path: macOS
+        info:
+          path: macOS/Generated-Info.plist
+          properties:
+            CFBundleDisplayName: "#{FIXTURE_DISPLAY}"
+            CFBundleShortVersionString: $(MARKETING_VERSION)
+            NSHumanReadableCopyright: "#{FIXTURE_COPYRIGHT}"
+            NSPrincipalClass: NSApplication
+        settings:
+          base:
+            PRODUCT_BUNDLE_IDENTIFIER: #{FIXTURE_BUNDLE_ID}
+            CODE_SIGN_ENTITLEMENTS: macOS/#{token}.entitlements
+            ASSETCATALOG_COMPILER_APPICON_NAME: ""
+
+      #{token}UITests:
+        type: bundle.ui-testing
+        platform: iOS
+        sources:
+          - path: UITests
+          - path: Shared/AccessibilityIdentifiers.swift
+        settings:
+          base:
+            PRODUCT_BUNDLE_IDENTIFIER: #{FIXTURE_BUNDLE_ID}.uitests
+            TEST_TARGET_NAME: #{token}-iOS
+            GENERATE_INFOPLIST_FILE: YES
+        dependencies:
+          - target: #{token}-iOS
+
+      #{token}Tests:
+        type: bundle.unit-test
+        platform: iOS
+        sources:
+          - path: Tests
+        settings:
+          base:
+            PRODUCT_BUNDLE_IDENTIFIER: #{FIXTURE_BUNDLE_ID}.tests
+            TEST_TARGET_NAME: #{token}-iOS
+            GENERATE_INFOPLIST_FILE: YES
+        dependencies:
+          - target: #{token}-iOS
+
+      #{token}MacOSUITests:
+        type: bundle.ui-testing
+        platform: macOS
+        sources:
+          - path: MacOSUITests
+          - path: Shared/AccessibilityIdentifiers.swift
+        settings:
+          base:
+            PRODUCT_BUNDLE_IDENTIFIER: #{FIXTURE_BUNDLE_ID}.macuitests
+            TEST_TARGET_NAME: #{token}-macOS
+            GENERATE_INFOPLIST_FILE: YES
+        dependencies:
+          - target: #{token}-macOS
+
+      #{token}MacOSTests:
+        type: bundle.unit-test
+        platform: macOS
+        sources:
+          - path: MacOSTests
+        settings:
+          base:
+            PRODUCT_BUNDLE_IDENTIFIER: #{FIXTURE_BUNDLE_ID}.mactests
+            TEST_TARGET_NAME: #{token}-macOS
+            GENERATE_INFOPLIST_FILE: YES
+        dependencies:
+          - target: #{token}-macOS
+
+    schemes:
+      #{token}-iOS:
+        build:
+          targets:
+            #{token}-iOS: all
+            #{token}UITests: [test]
+            #{token}Tests: [test]
+        run:
+          config: Debug
+          executable: #{token}-iOS
+        test:
+          config: Debug
+          targets:
+            - #{token}UITests
+            - #{token}Tests
+        archive:
+          config: Release
+
+      #{token}-macOS:
+        build:
+          targets:
+            #{token}-macOS: all
+            #{token}MacOSUITests: [test]
+            #{token}MacOSTests: [test]
+        run:
+          config: Debug
+          executable: #{token}-macOS
+        test:
+          config: Debug
+          targets:
+            - #{token}MacOSUITests
+            - #{token}MacOSTests
+        archive:
+          config: Release
   YML
 end
 
+# The Tuist equivalent, in the shape e773cfc:app/Project.swift actually has: no
+# productName: on any target (Tuist then writes a per-target PRODUCT_NAME equal to
+# the target name, which is D-49's whole subject), and a Project(settings:) with a
+# base dictionary and NO configurations:, so there is no xcconfig attached at all.
 def fixture_project_swift(token, team_id)
   <<~SWIFT
+    // Fixture Tuist manifest, shaped like a pre-#281 renamed fork's #{token} project.
     import ProjectDescription
 
     let baseSettings: SettingsDictionary = [
@@ -494,7 +827,131 @@ def fixture_project_swift(token, team_id)
         "CODE_SIGN_STYLE": "Automatic",
     ]
 
-    let project = Project(name: "#{token}")
+    let iosInfoPlist: [String: Plist.Value] = [
+        "CFBundleDisplayName": "#{FIXTURE_DISPLAY}",
+        "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+        "ITSAppUsesNonExemptEncryption": false,
+    ]
+
+    let iosTarget = Target.target(
+        name: "#{token}-iOS",
+        destinations: [.iPhone, .iPad],
+        product: .app,
+        bundleId: "#{FIXTURE_BUNDLE_ID}",
+        deploymentTargets: .iOS("17.0"),
+        infoPlist: .extendingDefault(with: iosInfoPlist),
+        sources: ["Shared/**", "iOS/**"],
+        entitlements: .file(path: "iOS/#{token}.entitlements"),
+        settings: .settings(base: [
+            "PRODUCT_BUNDLE_IDENTIFIER": "#{FIXTURE_BUNDLE_ID}",
+            "TARGETED_DEVICE_FAMILY": "1,2",
+            "INFOPLIST_KEY_NSHumanReadableCopyright": "#{FIXTURE_COPYRIGHT}",
+        ])
+    )
+
+    let macInfoPlist: [String: Plist.Value] = [
+        "CFBundleDisplayName": "#{FIXTURE_DISPLAY}",
+        "NSHumanReadableCopyright": "#{FIXTURE_COPYRIGHT}",
+        "NSPrincipalClass": "NSApplication",
+    ]
+
+    let macTarget = Target.target(
+        name: "#{token}-macOS",
+        destinations: [.mac],
+        product: .app,
+        bundleId: "#{FIXTURE_BUNDLE_ID}",
+        deploymentTargets: .macOS("14.0"),
+        infoPlist: .extendingDefault(with: macInfoPlist),
+        sources: ["Shared/**", "macOS/**"],
+        entitlements: .file(path: "macOS/#{token}.entitlements"),
+        settings: .settings(base: [
+            "PRODUCT_BUNDLE_IDENTIFIER": "#{FIXTURE_BUNDLE_ID}",
+            "ASSETCATALOG_COMPILER_APPICON_NAME": "",
+        ])
+    )
+
+    let iosUITestTarget = Target.target(
+        name: "#{token}UITests",
+        destinations: [.iPhone, .iPad],
+        product: .uiTests,
+        bundleId: "#{FIXTURE_BUNDLE_ID}.uitests",
+        infoPlist: .default,
+        sources: ["UITests/**", "Shared/AccessibilityIdentifiers.swift"],
+        dependencies: [.target(name: "#{token}-iOS")],
+        settings: .settings(base: [
+            "TEST_TARGET_NAME": "#{token}-iOS",
+        ])
+    )
+
+    let macUITestTarget = Target.target(
+        name: "#{token}MacOSUITests",
+        destinations: [.mac],
+        product: .uiTests,
+        bundleId: "#{FIXTURE_BUNDLE_ID}.macuitests",
+        infoPlist: .default,
+        sources: ["MacOSUITests/**", "Shared/AccessibilityIdentifiers.swift"],
+        dependencies: [.target(name: "#{token}-macOS")],
+        settings: .settings(base: [
+            "TEST_TARGET_NAME": "#{token}-macOS",
+        ])
+    )
+
+    let iosUnitTestTarget = Target.target(
+        name: "#{token}Tests",
+        destinations: [.iPhone, .iPad],
+        product: .unitTests,
+        bundleId: "#{FIXTURE_BUNDLE_ID}.tests",
+        infoPlist: .default,
+        sources: ["Tests/**"],
+        dependencies: [.target(name: "#{token}-iOS")],
+        settings: .settings(base: [
+            "TEST_TARGET_NAME": "#{token}-iOS",
+        ])
+    )
+
+    let macUnitTestTarget = Target.target(
+        name: "#{token}MacOSTests",
+        destinations: [.mac],
+        product: .unitTests,
+        bundleId: "#{FIXTURE_BUNDLE_ID}.mactests",
+        infoPlist: .default,
+        sources: ["MacOSTests/**"],
+        dependencies: [.target(name: "#{token}-macOS")],
+        settings: .settings(base: [
+            "TEST_TARGET_NAME": "#{token}-macOS",
+        ])
+    )
+
+    let iosScheme: Scheme = .scheme(
+        name: "#{token}-iOS",
+        shared: true,
+        buildAction: .buildAction(targets: ["#{token}-iOS"]),
+        testAction: .targets(
+            ["#{token}UITests", "#{token}Tests"],
+            configuration: .debug
+        ),
+        runAction: .runAction(configuration: .debug, executable: "#{token}-iOS"),
+        archiveAction: .archiveAction(configuration: .release)
+    )
+
+    let macScheme: Scheme = .scheme(
+        name: "#{token}-macOS",
+        shared: true,
+        buildAction: .buildAction(targets: ["#{token}-macOS"]),
+        testAction: .targets(
+            ["#{token}MacOSUITests", "#{token}MacOSTests"],
+            configuration: .debug
+        ),
+        runAction: .runAction(configuration: .debug, executable: "#{token}-macOS"),
+        archiveAction: .archiveAction(configuration: .release)
+    )
+
+    let project = Project(
+        name: "#{token}",
+        settings: .settings(base: baseSettings, defaultSettings: .recommended),
+        targets: [iosTarget, macTarget, iosUITestTarget, macUITestTarget, iosUnitTestTarget, macUnitTestTarget],
+        schemes: [iosScheme, macScheme]
+    )
   SWIFT
 end
 
@@ -528,8 +985,15 @@ def generated_plist(display:, copyright: nil)
   XML
 end
 
-def fixture_gitignore(ignore_local_xcconfig)
-  rows = ["app/*.xcodeproj/", "app/*.xcworkspace/", "app/*/Generated-Info.plist", ".bootstrap.env"]
+# The two project rows name the TOKEN, exactly as a renamed fork's do — measured
+# on e773cfc:.gitignore:18-19, which reads `app/<N>.xcodeproj` and
+# `app/<N>.xcworkspace` and carries no glob that would cover them. That is what
+# makes the .gitignore rewrite load-bearing rather than cosmetic: without it the
+# regenerated app/App.xcodeproj is an UNIGNORED directory and the migrated tree
+# cannot be committed clean.
+def fixture_gitignore(ignore_local_xcconfig, token = TOKEN)
+  rows = ["app/#{token}.xcodeproj", "app/#{token}.xcworkspace",
+          "app/*/Generated-Info.plist", ".bootstrap.env"]
   rows << "app/Local.xcconfig" if ignore_local_xcconfig
   "#{rows.join("\n")}\n"
 end
@@ -545,8 +1009,20 @@ def build_migration_fixture(dir, branch: "main", team_id: FIXTURE_TEAM_ID,
   write_file(dir, "app/project.yml", fixture_project_yml(TOKEN, team_id))
   write_file(dir, "app/Project.swift", fixture_project_swift(TOKEN, team_id))
   write_file(dir, "app/Shared/#{TOKEN}.swift", main_swift(TOKEN))
-  write_file(dir, "app/iOS/#{TOKEN}.entitlements", ENTITLEMENTS)
-  write_file(dir, "app/macOS/#{TOKEN}.entitlements", ENTITLEMENTS)
+  write_file(dir, "app/iOS/#{TOKEN}.entitlements", ENTITLEMENTS_IOS)
+  write_file(dir, "app/macOS/#{TOKEN}.entitlements", ENTITLEMENTS_MACOS)
+  # The two token-named test files, which MOVE and whose class declarations are
+  # rewritten in the same operation — a move without the rewrite stops the
+  # project compiling.
+  write_file(dir, "app/Tests/#{TOKEN}Tests.swift", unit_tests_swift(TOKEN, "Tests"))
+  write_file(dir, "app/MacOSTests/#{TOKEN}MacOSTests.swift", unit_tests_swift(TOKEN, "MacOSTests"))
+  # The four must-not-touch files. Seeded with fork-token content SPECIFICALLY so
+  # the digest assertions cannot be satisfied by absence — a guard that passes
+  # because the file it protects is not there protects nothing.
+  write_file(dir, "app/Shared/AccessibilityIdentifiers.swift", a11y_identifiers_swift(TOKEN))
+  write_file(dir, "app/Shared/Localizable.xcstrings", localizable_xcstrings(TOKEN))
+  write_file(dir, "app/Shared/PrivacyInfo.xcprivacy", privacy_info_xcprivacy(TOKEN))
+  write_file(dir, "app/Shared/ContentView.swift", content_view_swift(TOKEN))
   write_file(dir, ".gitignore", fixture_gitignore(ignore_local_xcconfig))
   # Gitignored, exactly as they are in a real tree.
   write_file(dir, "app/iOS/Generated-Info.plist", generated_plist(display: FIXTURE_DISPLAY))
@@ -582,6 +1058,14 @@ end
 
 def text_of(path)
   File.file?(path) ? File.read(path, encoding: "UTF-8") : nil
+end
+
+# SHA-256, or the literal string "<absent>" when the file is not there — never an
+# exception, and never nil, so an absent file compares UNEQUAL to a present one
+# rather than equal to another absent one. A migration that DELETED a
+# must-not-touch file would otherwise satisfy an absent==absent comparison.
+def digest_of(path)
+  File.file?(path) ? Digest::SHA256.file(path).hexdigest : "<absent>"
 end
 
 def head_of(dir)
@@ -1109,12 +1593,18 @@ Dir.mktmpdir("migrate-write") do |box|
     bin              = build_tool_dir(box)
     before_bootstrap = bytes_of(File.join(repo, ".bootstrap.env"))
 
-    out = assert_exit ["--root", repo], EXIT_MUTATION,
-                      ["PARTIAL MIGRATION LEFT IN PLACE", "05-04",
-                       "app/Identity.xcconfig", "app/Local.xcconfig"],
+    # Plan 05-03 left this case at exit 4 with a `PARTIAL MIGRATION LEFT IN PLACE`
+    # report, because the structural half did not exist yet. Plan 05-04 supplies
+    # it, so a completed run is now the contract's exit 0 with a report — and the
+    # partial-migration refusal is GONE rather than merely unreached.
+    out = assert_exit ["--root", repo], EXIT_OK,
+                      ["MIGRATION COMPLETE", "app/Identity.xcconfig", "app/Local.xcconfig"],
                       "M7-xcconfig",
-                      "the value half completes and the structural half is refused by name",
+                      "the value half completes and the run now reports success, not a boundary refusal",
                       env: { TOOL_DIR_ENV => bin }
+    @checks += 1
+    assert !out.to_s.include?("PARTIAL MIGRATION LEFT IN PLACE"), "M7-xcconfig",
+           "the plan-boundary refusal is gone, not just unreached"
 
     identity = File.join(repo, "app/Identity.xcconfig")
     assert File.file?(identity), "M7-xcconfig", "the tree gained app/Identity.xcconfig"
@@ -1255,6 +1745,262 @@ Dir.mktmpdir("migrate-noproject") do |box|
                 "M7-identity",
                 "no generated project to read the build from exits 4 naming the path and the fix",
                 env: { TOOL_DIR_ENV => bin }
+  end
+end
+
+# ─── M8: the structural half — five renames, two manifests, one proven removal ─
+#
+# One migration, then everything is read off the tree it produced. The digests are
+# taken BEFORE the run, which is the only order in which they mean anything.
+
+puts
+puts "M8 — the structural un-rename, the manifests, and the boundary it must not cross:"
+
+MUST_NOT_TOUCH = [
+  "app/Shared/AccessibilityIdentifiers.swift",
+  "app/Shared/Localizable.xcstrings",
+  "app/Shared/PrivacyInfo.xcprivacy",
+  "app/Shared/ContentView.swift"
+].freeze
+
+# old path => new path. Five, and the plan's enumerated list is where they come
+# from — not a glob, not a guess.
+EXPECTED_RENAMES = {
+  "app/Shared/#{TOKEN}.swift"                  => "app/Shared/App.swift",
+  "app/iOS/#{TOKEN}.entitlements"              => "app/iOS/App.entitlements",
+  "app/macOS/#{TOKEN}.entitlements"            => "app/macOS/App.entitlements",
+  "app/Tests/#{TOKEN}Tests.swift"              => "app/Tests/AppTests.swift",
+  "app/MacOSTests/#{TOKEN}MacOSTests.swift"    => "app/MacOSTests/AppMacOSTests.swift"
+}.freeze
+
+Dir.mktmpdir("migrate-structural") do |box|
+  repo = File.join(box, "repo")
+  if (why = build_migration_fixture(repo))
+    fail_line("M8-structure", why)
+    @checks += 1
+  else
+    bin = build_tool_dir(box)
+
+    # BEFORE. A digest taken after the run would compare the file to itself.
+    before_digests = MUST_NOT_TOUCH.to_h { |rel| [rel, digest_of(File.join(repo, rel))] }
+
+    out = assert_exit ["--root", repo], EXIT_OK,
+                      ["MIGRATION COMPLETE",
+                       "app/Shared/#{TOKEN}.swift", "app/Shared/App.swift",
+                       "app/project.yml", "app/Project.swift",
+                       "docs/MIGRATING-FROM-RENAME.md"],
+                      "M8-structure",
+                      "a never-migrated fork migrates to exit 0 and the report names the renames",
+                      env: { TOOL_DIR_ENV => bin }
+
+    # ── the five moves, and the two declarations that had to move with them ──
+
+    %w[app/Shared/App.swift app/iOS/App.entitlements app/macOS/App.entitlements
+       app/Tests/AppTests.swift app/MacOSTests/AppMacOSTests.swift].each do |rel|
+      assert File.file?(File.join(repo, rel)), "M8-structure", "#{rel} exists after the migration"
+    end
+
+    EXPECTED_RENAMES.each_key do |rel|
+      assert !File.exist?(File.join(repo, rel)), "M8-structure", "#{rel} is gone"
+    end
+
+    app_swift = text_of(File.join(repo, "app/Shared/App.swift")).to_s
+    assert app_swift.include?("struct AppMain: App {"), "M8-structure",
+           "app/Shared/App.swift declares `struct AppMain: App {` (found: " \
+           "#{app_swift.lines.find { |l| l.include?('struct') }.to_s.strip.inspect})"
+    assert !app_swift.include?("#{TOKEN}Main"), "M8-structure",
+           "app/Shared/App.swift no longer declares #{TOKEN}Main"
+
+    unit = text_of(File.join(repo, "app/Tests/AppTests.swift")).to_s
+    assert unit.include?("final class AppTests"), "M8-structure",
+           "app/Tests/AppTests.swift declares `final class AppTests`"
+    mac_unit = text_of(File.join(repo, "app/MacOSTests/AppMacOSTests.swift")).to_s
+    assert mac_unit.include?("final class AppMacOSTests"), "M8-structure",
+           "app/MacOSTests/AppMacOSTests.swift declares `final class AppMacOSTests`"
+
+    # ── history: R, never A+D ────────────────────────────────────────────────
+    #
+    # The end state above is IDENTICAL for a copy-and-delete. Only the status
+    # letters tell the two apart, and a migration whose history is lost is a
+    # migration nobody can review (T-05-20).
+
+    _, add_code = git(repo, "-c", "user.email=#{FIXTURE_GIT_EMAIL}", "-c", "user.name=fixture",
+                      "add", "-A")
+    @checks += 1
+    if add_code&.zero?
+      status_out, status_code = git(repo, "diff", "--cached", "-M", "--name-status")
+      if status_code&.zero?
+        entries = status_out.to_s.lines.map(&:chomp).reject(&:empty?)
+        renames = entries.each_with_object({}) do |line, found|
+          parts = line.split("\t")
+          next unless parts[0].to_s.start_with?("R")
+
+          found[parts[1]] = parts[2]
+        end
+        EXPECTED_RENAMES.each do |old_path, new_path|
+          assert renames[old_path] == new_path, "M8-structure",
+                 "git recorded #{old_path} -> #{new_path} as a RENAME " \
+                 "(observed status letters for that path: " \
+                 "#{entries.select { |e| e.include?(old_path) || e.include?(new_path) }.inspect})"
+        end
+        assert renames.length == EXPECTED_RENAMES.length, "M8-structure",
+               "exactly #{EXPECTED_RENAMES.length} renames were recorded, no more " \
+               "(observed: #{renames.inspect})"
+
+        # ── the migration's own diff must not list the untouched files ───────
+        touched = entries.map { |line| line.split("\t")[1..].to_a }.flatten
+        MUST_NOT_TOUCH.each do |rel|
+          assert !touched.include?(rel), "M8-must-not-touch",
+                 "#{rel} does not appear in the migration's diff (diff listed: #{touched.inspect})"
+        end
+      else
+        fail_line("M8-structure", "git diff --cached failed in the migrated fixture")
+      end
+    else
+      fail_line("M8-structure", "git add -A failed in the migrated fixture")
+    end
+
+    # ── MUST NOT TOUCH, by digest ────────────────────────────────────────────
+
+    MUST_NOT_TOUCH.each do |rel|
+      before = before_digests.fetch(rel)
+      after  = digest_of(File.join(repo, rel))
+      assert before == after, "M8-must-not-touch",
+             "#{rel} is BYTE-IDENTICAL across the migration — sha256 before " \
+             "#{before}, after #{after}. This file carries the fork token as the " \
+             "forker's own choice, not as structure; a reverse token sweep rewrites " \
+             "it and this is the assertion that catches that."
+    end
+
+    # ── the manifests, rewired onto $(VAR) ───────────────────────────────────
+
+    yml = text_of(File.join(repo, "app/project.yml")).to_s
+    assert yml.include?("\nname: App\n"), "M8-manifest", "app/project.yml reads `name: App`"
+    assert !yml.include?(TOKEN), "M8-manifest",
+           "app/project.yml carries no remaining occurrence of #{TOKEN} " \
+           "(#{yml.lines.select { |l| l.include?(TOKEN) }.map(&:strip).inspect})"
+    %w[$(APP_PRODUCT_NAME) $(BUNDLE_ID) $(DISPLAY_NAME) $(COPYRIGHT)].each do |ref|
+      assert yml.include?(ref), "M8-manifest", "app/project.yml references #{ref}"
+    end
+    # XcodeGen EXPANDS ${VAR} from the environment at generation time and bakes a
+    # literal — the same generation-time-versus-build-time confusion that shipped
+    # the TEST_HOST defect. $(VAR) is resolved by the toolchain at build time.
+    assert !yml.include?("${"), "M8-manifest",
+           "app/project.yml contains no ${ sequence anywhere " \
+           "(#{yml.lines.select { |l| l.include?('${') }.map(&:strip).inspect})"
+    assert yml.include?("configFiles:") && yml.include?("Debug: Identity.xcconfig") &&
+           yml.include?("Release: Identity.xcconfig"),
+           "M8-manifest", "app/project.yml attaches Identity.xcconfig to both configurations"
+
+    # D-49: a project-level PRODUCT_NAME leaks into every target including the
+    # four test bundles, and the two iOS .xctest bundles then collide at one path.
+    product_name_lines = yml.lines.select { |line| line.match?(/\A\s*PRODUCT_NAME:/) }
+    indents = product_name_lines.map { |line| line[/\A */].length }
+    assert product_name_lines.length == 2, "M8-manifest",
+           "app/project.yml sets PRODUCT_NAME on exactly the two app targets " \
+           "(found #{product_name_lines.length}: #{product_name_lines.map(&:strip).inspect})"
+    assert indents.all? { |i| i >= 8 }, "M8-manifest",
+           "every PRODUCT_NAME sits at per-target settings depth, never at the " \
+           "project-level `settings: base:` depth of 4 (indents: #{indents.inspect}) — D-49"
+    assert product_name_lines.all? { |l| l.include?("$(APP_PRODUCT_NAME)") }, "M8-manifest",
+           "each PRODUCT_NAME resolves from $(APP_PRODUCT_NAME)"
+
+    # T-05-22: INFOPLIST_KEY_NSHumanReadableCopyright reaches the bundle only under
+    # GENERATE_INFOPLIST_FILE = YES, which an app target carrying its own plist
+    # does not set. This repository shipped that defect once (b8b1ac9).
+    assert !yml.include?("INFOPLIST_KEY_NSHumanReadableCopyright"), "M8-manifest",
+           "app/project.yml no longer carries the inert INFOPLIST_KEY_ copyright form"
+    assert yml.scan(/NSHumanReadableCopyright: \$\(COPYRIGHT\)/).length == 2, "M8-manifest",
+           "both plist blocks set NSHumanReadableCopyright: $(COPYRIGHT) " \
+           "(found #{yml.scan(/NSHumanReadableCopyright: \$\(COPYRIGHT\)/).length})"
+    assert yml.scan(/CFBundleDisplayName: \$\(DISPLAY_NAME\)/).length == 2, "M8-manifest",
+           "both plist blocks set CFBundleDisplayName: $(DISPLAY_NAME)"
+
+    swift = text_of(File.join(repo, "app/Project.swift")).to_s
+    assert swift.include?('name: "App"'), "M8-manifest", "app/Project.swift names the project App"
+    assert !swift.include?(TOKEN), "M8-manifest",
+           "app/Project.swift carries no remaining occurrence of #{TOKEN} " \
+           "(#{swift.lines.select { |l| l.include?(TOKEN) }.map(&:strip).inspect})"
+    assert !swift.include?("${"), "M8-manifest", "app/Project.swift contains no ${ sequence"
+    assert swift.scan(/productName: "\$\(APP_PRODUCT_NAME\)"/).length == 2, "M8-manifest",
+           "app/Project.swift gives both APP targets productName: $(APP_PRODUCT_NAME) and no others " \
+           "(found #{swift.scan(/productName: "\$\(APP_PRODUCT_NAME\)"/).length})"
+    assert swift.include?('xcconfig: "Identity.xcconfig"'), "M8-manifest",
+           "app/Project.swift attaches Identity.xcconfig per configuration"
+    assert !swift.include?("INFOPLIST_KEY_NSHumanReadableCopyright"), "M8-manifest",
+           "app/Project.swift no longer carries the inert INFOPLIST_KEY_ copyright form"
+    assert swift.scan(/"NSHumanReadableCopyright": "\$\(COPYRIGHT\)"/).length == 2, "M8-manifest",
+           "both Tuist plist dictionaries set NSHumanReadableCopyright to $(COPYRIGHT)"
+
+    # ── .gitignore ───────────────────────────────────────────────────────────
+
+    ignore = text_of(File.join(repo, ".gitignore")).to_s
+    assert ignore.match?(/^app\/App\.xcodeproj$/), "M8-manifest", ".gitignore names app/App.xcodeproj"
+    assert ignore.match?(/^app\/App\.xcworkspace$/), "M8-manifest", ".gitignore names app/App.xcworkspace"
+    assert !ignore.include?("app/#{TOKEN}."), "M8-manifest",
+           ".gitignore no longer names the token's project paths"
+    # Plan 05-03 added this row; adding it a second time would be a duplicate
+    # written by a plan that does not own it.
+    assert ignore.scan(%r{^app/Local\.xcconfig$}).length == 1, "M8-manifest",
+           "the app/Local.xcconfig row appears exactly once " \
+           "(found #{ignore.scan(%r{^app/Local\.xcconfig$}).length})"
+
+    # ── the stale project's absence is PROVEN, not assumed (T-05-19) ─────────
+
+    assert !File.exist?(File.join(repo, "app/#{TOKEN}.xcodeproj")), "M8-stale-project",
+           "the stale app/#{TOKEN}.xcodeproj is gone — it is gitignored, so git status " \
+           "cannot see it and it would make every post-migration check green against " \
+           "the identity being replaced"
+    assert File.file?(File.join(repo, "app/App.xcodeproj/project.pbxproj")), "M8-stale-project",
+           "app/App.xcodeproj was regenerated from the rewritten manifest"
+
+    # ── criterion 1's GREEN half ─────────────────────────────────────────────
+    #
+    # The RED half is already recorded by ci/test-migrate-identity.sh as
+    # `RESULT baseline=preflight-unmigrated-fixture exit=2`. This is the same gate,
+    # the same flag, the same fixture family — pointed at the migrated tree.
+
+    @checks += 1
+    pre_out, pre_code = run([RUBY, File.join(ROOT, "bin/preflight-identity.rb"),
+                             "--config", File.join(repo, "app/Identity.xcconfig")])
+    assert pre_code&.zero?, "M8-gate",
+           "bin/preflight-identity.rb --config <migrated>/app/Identity.xcconfig exits 0 " \
+           "(got #{pre_code.inspect}: #{pre_out.to_s.strip.inspect})"
+    puts "RESULT control=preflight-migrated-fixture exit=#{pre_code.inspect} expected=0"
+
+    # ── idempotency ──────────────────────────────────────────────────────────
+    #
+    # Committed first, so `git status --porcelain` empty afterwards means "the
+    # second run wrote nothing" rather than "the migration happened to be clean".
+
+    @checks += 1
+    if git_commit_all(repo, "migrated")
+      before_porcelain = porcelain_of(repo)
+      assert before_porcelain.to_s.strip.empty?, "M8-idempotent",
+             "the migrated tree commits clean (porcelain: #{before_porcelain.inspect})"
+      assert_exit ["--root", repo], EXIT_OK, [STATE_FULL, *ALL_SIGNALS],
+                  "M8-idempotent",
+                  "a second run reports `already fully migrated` LOUDLY and exits 0",
+                  env: { TOOL_DIR_ENV => bin }
+      assert porcelain_of(repo).to_s.strip.empty?, "M8-idempotent",
+             "the second run left git status --porcelain empty " \
+             "(#{porcelain_of(repo).inspect})"
+    else
+      fail_line("M8-idempotent", "could not commit the migrated fixture tree")
+    end
+
+    # ── A-05, restated in the closing report ─────────────────────────────────
+
+    @checks += 1
+    assert out.to_s.include?("#{TOKEN}-iOS") && out.to_s.include?("#{TOKEN}-macOS") &&
+           out.to_s.include?("APP_PRODUCT_NAME = #{TOKEN}"),
+           "M8-structure",
+           "the closing report names BOTH pre-migration PRODUCT_NAME values and the single new one"
+    @checks += 1
+    claim = out.to_s[/apple (allows|permits)|is safe|safe to change|permitted by apple/i]
+    assert claim.nil?, "M8-structure",
+           "a completed migration still asserts nothing about Apple's tolerance of the " \
+           "executable-name change (found: #{claim.inspect})"
   end
 end
 

@@ -77,6 +77,7 @@ ci/test-rename-gates.sh	14	2026-09-02	fixture: drives bin/rename.sh's refusal pa
 ci/test-verify-rename.sh	8	2026-09-02	fixture: embeds the pre-rename identity that bin/verify-rename.sh must report as still present (Phase 5, IDENT-10)
 ci/test-switch-to-tuist.sh	3	2026-09-02	fixture: asserts the generator switch preserves identity, which requires naming the identity it starts from (Phase 5, IDENT-10)
 ci/test-switch-to-xcodegen.sh	3	2026-09-02	fixture: asserts the generator switch preserves identity, which requires naming the identity it starts from (Phase 5, IDENT-10)
+ci/test-migrate-identity.sh	7	2026-09-03	fixture: builds a genuinely renamed fork from two pinned pre-#281 commits, so it must name each base's own pre-rename token in the base and renamed-shape assertions that prove the fixture really was renamed; a harness that could not spell them would assert nothing (Phase 5, IDENT-14). This reason cell deliberately does not quote the tokens — the gate scans this file too, and no other row quotes them either
 test/fastlane_identity_test.rb	7	2026-09-02	fixture: 04-04's D-58 controls assert the fallback chain is GONE from Appfile and Fastfile, which requires spelling the fallbacks that used to be there
 test/asc_probe_test.rb	1	2026-09-02	fixture: :454 builds a wrong-bundle-id App Store Connect response to drive tools/asc-probe.rb's C-05 guard red
 AGENTS.md	2	2026-09-02	template doc: the invariants and antipatterns tables tell a forker not to sed the template's literals, so they quote them

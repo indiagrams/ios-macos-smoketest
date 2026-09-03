@@ -70,6 +70,33 @@
 #   pin rather than to rely on that coincidence continuing to hold. The resolved interpreter
 #   is announced on every run.
 #
+# ── HOW THIS FILE'S OWN GUARDS WERE PROVEN ───────────────────────────────────
+#
+# A gate is trusted only after being observed RED against a deliberately broken input. All
+# three guards below were driven red on 2026-09-03 against ce6479e, each mutation reverted
+# from a copy taken before the edit, and each revert proven by an empty diff AND by
+# `git diff --quiet`. The full transcript is at
+#   .planning/phases/05-migration-rename-retirement-track-2-upstream/evidence/05-01-fixture-controls.txt
+# — which is gitignored (.gitignore:39) and will not survive a fresh clone. Hence this
+# summary lives here, in the tracked artifact, the way bin/preflight-identity.rb's header
+# records how its own exit paths were re-observed.
+#
+#   control=fixture-blob-pin — exit 1 at step 3/10, before the clone. The RENAME_SH_BLOB
+#     constant was replaced with an all-zero SHA and the script refused with the drift
+#     message naming e773cfc. Only the constant was mutated, not the copy of the SHA in the
+#     prose above: that is the tighter control, because it proves the ASSERTION reads the
+#     constant rather than proving that a find-and-replace can break a file.
+#   control=fixture-base-shape — exit 1 at step 6/10. The step-5 checkout was pointed at the
+#     repository's current commit, whose shape is app/Shared/App.swift, `name: App`, and a
+#     PRESENT app/Identity.xcconfig. The base assertions named the missing HelloApp.swift.
+#     Steps 0-5 stayed green, so the red is attributable to the base assertions alone and
+#     they are not vacuous.
+#   control=fixture-precondition-missing-command — exit 1 at step 10/10; no mutation needed,
+#     the command genuinely does not exist yet. The OTHER branch of that refusal (command
+#     present) was measured at exit 1 as well, in a scratchpad clone carrying an empty
+#     `chmod +x` file at tools/migrate-identity.rb — so this script's exit code is not a race
+#     against plan 05-02, which shares wave 1 and creates that file.
+#
 # ── THIS SCRIPT'S OWN EXIT CODES ─────────────────────────────────────────────
 #
 #   0  not reachable in waves 1-4 — see the precondition refusal at the end
@@ -100,10 +127,13 @@ RENAME_SH_BLOB="f9b58ca07875619dbae60fe7f64c829d19721190"
 
 # The identity the fixture is renamed TO when regenerating from e773cfc. Fixed, non-secret,
 # and .invalid / example.com by construction — no operator-supplied value reaches sed here.
+# The email is on local.invalid, not example.invalid: local.invalid is the domain
+# tools/domain-allowlist.txt already permits for "canary fixtures and throwaway git author
+# identities", and that fail-closed list should not gain a row for a use it already covers.
 FIXTURE_APP_NAME="MigrateFixture"
 FIXTURE_BUNDLE_ID="com.example.migratefixture"
 FIXTURE_DISPLAY_NAME="Migrate Fixture"
-FIXTURE_EMAIL="fixture@example.invalid"
+FIXTURE_EMAIL="fixture@local.invalid"
 FIXTURE_SLUG="example/fixture"
 
 # ── Fixture selection ────────────────────────────────────────────────────────

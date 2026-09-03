@@ -64,7 +64,7 @@
 #
 # path<TAB>count<TAB>date<TAB>reason
 CHANGELOG.md	*	2026-09-02	historical record: accumulates mentions every phase (33 when C-20 measured it, 35 today); D-65 gives this file the project's ONE path-level row so no future phase has to edit this list
-docs/UPSTREAM-LEDGER.md	6	2026-09-02	historical record: rows quote the literals of the learnings they record — UL-004 and UL-034 are about the template's own app-directory name; rewriting one would falsify the ledger
+docs/UPSTREAM-LEDGER.md	7	2026-09-03	historical record: rows quote the literals of the learnings they record — UL-004, UL-033 and UL-034 are about the template's own app-directory name; rewriting one would falsify the ledger. Re-measured 6 -> 7 on submission, when UL-033 was appended to: its new text names the app directory SCOPE.md wrongly pointed at, which IS that row's learning. The token is deliberately not spelled in this cell — this file is swept by the same gate it configures, so an explanatory mention here turns the check red by existing
 docs/APPLE-ACCOUNT-STATE.md	3	2026-09-02	historical record: the Against column of measurement triples taken before the rename; a triple whose measured-against value is edited afterwards records nothing
 test/gh_secrets_test.rb	1	2026-09-02	historical record: :26 names the value the now-deleted BUNDLE_ID repository variable held (C-16), which is what makes D-56's deletion checkable rather than remembered
 bin/adopt.rb	2	2026-09-02	guard: :66-68 refuses to adopt an existing App Store app while BUNDLE_ID is still the template placeholder, so the literal is the predicate

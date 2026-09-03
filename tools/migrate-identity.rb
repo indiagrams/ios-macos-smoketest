@@ -30,6 +30,15 @@
 # absence PROVEN, regeneration, and finally the tree's own identity gate run and
 # required to exit 0.
 #
+# The ENTRY-POINT half (plan 05-16): every OTHER tracked file outside app/ that
+# names the fork's generated project or one of its app schemes, so the migrated
+# fork can still run `make check`, `make ship` and `make screenshots`. Plan 05-06
+# measured what the command left behind without it — ci/local-check.sh:68 still
+# handing app/<N>.xcodeproj to `xcodebuild -project` on a tree that held only
+# app/App.xcodeproj — and criterion 1's "ONE documented command" does not survive
+# a command that leaves the fork's own tooling broken. See the block above
+# ENTRY_POINT_EXCLUDED for the two token classes, the exclusions and their reasons.
+#
 # All of it sits behind bin/rename.sh's gate order and on top of a port of its
 # atomic rollback, so a failure anywhere in that sequence restores the tree
 # rather than leaving it half migrated.
@@ -66,7 +75,7 @@
 #     rollback is a git operation and a knob that could substitute git would be
 #     a knob that could substitute the rollback.
 #
-#   MIGRATE_IDENTITY_FAIL_AFTER=xcconfig-write|team-id-move
+#   MIGRATE_IDENTITY_FAIL_AFTER=xcconfig-write|team-id-move|entry-points
 #     Raises after the named mutation stage, which is the only way to reach the
 #     rollback path from a test without breaking this command on purpose. An
 #     unknown stage is exit 1, not a silent no-op.
@@ -148,8 +157,10 @@
 #        | mutation (toolchain, clean tree, on main, no          | was not; for a manifest whose shape cannot
 #        | generated project, a Team ID that must not be         | be rewired, the rule and the count that fell
 #        | written), a must-not-touch file that is not there,     | short; for a surviving stale project, its
-#        | a manifest this command cannot rewire, a stale        | path; and always that the tree was rolled
-#        | generated project that survives its removal, a        | back
+#        | a manifest this command cannot rewire, a stale        | path; for an entry-point file, its path and
+#        | generated project that survives its removal, an       | the reference that survived the rewrite;
+#        | entry-point file this command enumerated and then     | and always that the tree was rolled back
+#        | could not rewrite or could not verify rewritten, a    |
 #        | failed git mv or generation, a migrated tree that     |
 #        | fails its own identity gate, or an injected fixture   |
 #        | failure                                               |
@@ -265,7 +276,7 @@ TEAM_ID_PLACEHOLDER = "TEAM_ID_PLACEHOLDER"
 # and a knob cannot be re-read into a different answer mid-run.
 FAIL_AFTER_ENV    = "MIGRATE_IDENTITY_FAIL_AFTER"
 TOOL_DIR_ENV      = "MIGRATE_IDENTITY_TOOL_DIR"
-FAIL_AFTER_STAGES = %w[xcconfig-write team-id-move].freeze
+FAIL_AFTER_STAGES = %w[xcconfig-write team-id-move entry-points].freeze
 FAIL_AFTER        = ENV[FAIL_AFTER_ENV].to_s.strip
 TOOL_DIR          = ENV[TOOL_DIR_ENV].to_s.strip.empty? ? "" : File.expand_path(ENV[TOOL_DIR_ENV].to_s.strip)
 
@@ -627,7 +638,12 @@ say "  3. app/iOS/#{token}.entitlements -> #{REL_ENTITLEMENTS}, and the macOS pa
 say "  4. #{REL_PROJECT_YML} and app/Project.swift onto the constant #{MIGRATED_TOKEN} — name,"
 say "     targets, schemes and entitlement paths — with every identity setting a $(VAR)"
 say "     reference into #{REL_IDENTITY} rather than a literal"
-say "  5. regenerate app/#{MIGRATED_TOKEN}.xcodeproj and drop app/#{token}.xcodeproj (both gitignored)"
+say "  5. every OTHER tracked file outside app/ that names app/#{token}.xcodeproj, the"
+say "     .xcworkspace beside it, or a #{token}-iOS / #{token}-macOS scheme — so make check,"
+say "     make ship and make screenshots still run afterwards. The set is enumerated from"
+say "     THIS tree at run time; a bare #{token} is never rewritten and CHANGELOG.md is"
+say "     excluded as historical record"
+say "  6. regenerate app/#{MIGRATED_TOKEN}.xcodeproj and drop app/#{token}.xcodeproj (both gitignored)"
 say "and leave #{MUST_NOT_TOUCH.join(', ')} and app/Shared/ContentView.swift"
 say "  BYTE-IDENTICAL: the token in those is your choice, not this template's structure"
 say "KNOWN BREAKING CHANGE (A-05): the built executable's filename changes, because a"
@@ -1996,6 +2012,219 @@ def rewrite_gitignore(root, token)
   counts
 end
 
+# --- the rest of the fork: the entry points outside app/ -----------------------
+#
+# WHY THIS EXISTS AT ALL. Plan 05-06 ran a real exit-0 migration on a real fixture
+# and then measured the tree it produced. bin/rename.sh had substituted the fork's
+# token across the whole tree; everything above rewrites app/ and .gitignore; and
+# ci/local-check.sh:68 was still handing app/<N>.xcodeproj to `xcodebuild -project`
+# while the tree held only app/App.xcodeproj with schemes App-iOS and App-macOS.
+# `make check`, `make ship` and `make screenshots` were all broken on a fork that
+# had run one documented command and done nothing else wrong. Criterion 1 says a
+# fork "migrates by running ONE documented command"; a command that leaves the
+# fork's own tooling broken satisfies the letter of that and not the sentence.
+#
+# EXACTLY TWO TOKEN CLASSES, BOTH ANCHORED, AND NOT A THIRD:
+#
+#   project path   <N>.xcodeproj  /  <N>.xcworkspace   ->  App.xcodeproj / App.xcworkspace
+#   scheme name    <N>-iOS        /  <N>-macOS         ->  App-iOS       / App-macOS
+#
+# The token must be preceded by a non-identifier character and followed IMMEDIATELY
+# by one of those four suffixes, with a non-identifier character after the scheme
+# suffix. A bare <N> is never rewritten by anything here. That is the whole-tree
+# sweep this phase exists to retire, and bin/rename.sh:518 carries its own comment
+# about why it is dangerous — the same reason app/Shared/AccessibilityIdentifiers.
+# swift, Localizable.xcstrings and ContentView.swift are on the frozen must-not-
+# touch list above: in a pre-#281 fork, structure and identity are the same token,
+# and only the SHAPE around an occurrence says which one it is.
+#
+# The two extensions are ONE class, not two. .gitignore lists them on adjacent
+# lines, rewrite_gitignore has always rewritten them under a single rule with a
+# single count, and they name the same generated project. Measured on a real
+# fixture: AGENTS.md's `fastlane scan --workspace app/<N>.xcworkspace --scheme
+# <N>-iOS` is one instruction, and rewriting half of it would be worse than
+# rewriting neither.
+#
+# WHAT IS EXCLUDED, AND WHY EACH ONE:
+#
+#   app/**                 already rewritten above, by name, from a frozen list.
+#   MUST_NOT_TOUCH         the forker's own choices; asserted byte-identical.
+#   .gitignore             rewrite_gitignore owns it and requires a COUNT of 2. If
+#                          this pass reached it first that count would fall short
+#                          and the migration would refuse — so the exclusion is
+#                          load-bearing, not tidiness, and the ordering in
+#                          perform_migration is load-bearing with it.
+#   CHANGELOG.md           historical record (05-CONTEXT A-08). Measured on a real
+#                          fixture: its occurrences sit inside a quoted CI failure
+#                          message from a dated 2026-05 entry and inside prose
+#                          describing what the upstream template used to be called.
+#                          Rewriting them would falsify a log line that was true
+#                          when it was written. It is also not an entry point —
+#                          nothing reads CHANGELOG.md to find a project.
+#
+# UNTRACKED AND GITIGNORED FILES ARE NOT REACHED, because the enumeration runs
+# through `git ls-files`. That is deliberate: .bootstrap.env and app/Local.xcconfig
+# are gitignored, the rollback restores tracked files with `git reset --hard`, and
+# a file this pass could write but the rollback could not restore would be a hole
+# in D-70's all-or-nothing property.
+ENTRY_POINT_EXCLUDED = [REL_GITIGNORE, "CHANGELOG.md"].freeze
+
+# Line-level markers used ONLY to REPORT what was left behind. Nothing in this
+# list drives a write. A line that still carries the token AND one of these is a
+# line that still names a project, a scheme or a target, and the forker is told
+# about it by path and line number rather than finding out from a red build.
+ENTRY_POINT_MARKERS = /xcodeproj|xcworkspace|-scheme|-project|scheme\(|project\(|-iOS|-macOS|\.xcarchive|only-testing|TEST_HOST/.freeze
+
+def entry_point_patterns(token)
+  escaped = Regexp.escape(token)
+  [
+    ["project-path",
+     /(?<![A-Za-z0-9_])#{escaped}(?=\.xcodeproj(?![A-Za-z0-9_])|\.xcworkspace(?![A-Za-z0-9_]))/],
+    ["scheme-name",
+     /(?<![A-Za-z0-9_])#{escaped}(?=-iOS(?![A-Za-z0-9_])|-macOS(?![A-Za-z0-9_]))/]
+  ]
+end
+
+# The tracked set, from git rather than from Dir.glob. NUL-separated because a
+# path may contain a newline and `git ls-files` without -z would then report one
+# file as two — a rewriter handed half a path writes nothing and says it wrote
+# something.
+def tracked_files(root)
+  out, err, status = capture(["git", "ls-files", "-z"], chdir: root)
+  unless status.zero?
+    fail_with 4, "git ls-files exited #{status} in #{root}: #{err.strip}. The entry-point pass " \
+                 "enumerates the fork's tracked files and cannot proceed on a tree git will not " \
+                 "list."
+  end
+  out.split("\0").reject(&:empty?)
+end
+
+# nil for anything this pass must not read as text: a directory, a symlink (whose
+# target may be outside the tree the rollback covers), or a file whose bytes are
+# not valid UTF-8. Never an exception — a PNG in the tracked set is an ordinary
+# fact about a template, not a failure.
+def entry_point_body(path)
+  return nil if File.symlink?(path) || !File.file?(path)
+
+  body = File.binread(path).force_encoding(Encoding::UTF_8)
+  body.valid_encoding? ? body : nil
+end
+
+def entry_point_candidates(root)
+  tracked_files(root).reject do |relative|
+    relative.start_with?("app/") ||
+      ENTRY_POINT_EXCLUDED.include?(relative) ||
+      MUST_NOT_TOUCH.include?(relative)
+  end
+end
+
+# ENUMERATED FROM THE FORK, AT RUN TIME, NEVER A LIST WRITTEN HERE. A file list
+# baked into this command would go stale by allocation the first time the template
+# gained or lost a consumer — the defect that bit four Phase 4 plans. The count is
+# reported so a run that enumerated NOTHING is visible in the log rather than
+# silently green.
+def enumerate_stale_entry_points(root, token)
+  patterns = entry_point_patterns(token)
+  entry_point_candidates(root).select do |relative|
+    body = entry_point_body(File.join(root, relative))
+    !body.nil? && patterns.any? { |_, pattern| body.match?(pattern) }
+  end.sort
+end
+
+# Returns { relative => { rule => count } } for every file it wrote.
+#
+# Every write is READ BACK OFF DISK before the file is accepted. A replacement
+# string that silently did not apply is this project's most-repeated mutation
+# defect — a double-quoted "#{...}" interpolates, String#sub takes only the first
+# occurrence — and "the gsub returned something" is not evidence that the bytes on
+# disk changed.
+def rewrite_entry_points(root, token)
+  patterns = entry_point_patterns(token)
+  rewritten = {}
+
+  enumerate_stale_entry_points(root, token).each do |relative|
+    path = File.join(root, relative)
+    body = entry_point_body(path)
+    if body.nil?
+      fail_with 4, "#{relative} was enumerated as carrying a stale project or scheme reference " \
+                   "and then could not be read back as text. The enumeration and the rewrite " \
+                   "disagree about the same file, and this command will not guess which one is " \
+                   "right."
+    end
+
+    counts  = {}
+    updated = body.dup
+    patterns.each do |name, pattern|
+      applied = 0
+      updated = updated.gsub(pattern) do
+        applied += 1
+        MIGRATED_TOKEN
+      end
+      counts[name] = applied
+    end
+
+    if counts.values.sum.zero?
+      fail_with 4, "#{relative} matched the stale-reference enumeration and then matched no " \
+                   "rewrite rule. That is the enumeration and the rewriter reading the same " \
+                   "file two different ways, which is a defect in this command rather than in " \
+                   "the fork — refusing rather than reporting a file as rewritten when nothing " \
+                   "was written to it."
+    end
+
+    File.binwrite(path, updated)
+
+    # Off disk, not out of the local variable.
+    reread = entry_point_body(path)
+    survivor = patterns.filter_map { |_, pattern| reread&.[](pattern) }.first
+    unless survivor.nil?
+      fail_with 4, "#{relative} still carries #{survivor.inspect} after being rewritten. The " \
+                   "write did not land, or it landed and the file was rewritten underneath this " \
+                   "command. Nothing about this tree should be inferred from a run that ended " \
+                   "this way; it has been rolled back."
+    end
+
+    rewritten[relative] = counts
+  end
+
+  rewritten
+end
+
+# REPORT ONLY. Every tracked file outside app/ that still carries the token on a
+# line that also names a project, a scheme or a target — after the rewrite has
+# run. Two kinds end up here and the report distinguishes them:
+#
+#   * the excluded files, above, which this command will not write to;
+#   * files where the token is not ADJACENT to a project path or a scheme suffix
+#     and so is not one of the two classes. Measured on a real fixture: GitHub
+#     Actions writes `app/${{ vars.APP_NAME || '<N>' }}.xcodeproj` and fastlane
+#     writes `IOS_SCHEME = "#{APP_NAME}-iOS"`, and in both the token is a FALLBACK
+#     VALUE that some other expression turns into a path. Rewriting either would
+#     mean teaching this command a third language's expression syntax, and a
+#     migration that half-fixes the entry points is worse than one that names what
+#     it did not touch.
+def residual_structural_references(root, token)
+  escaped = Regexp.escape(token)
+  # Left-anchored ONLY, and deliberately. A right boundary here would miss exactly
+  # the residuals worth naming: a target name (<N>UITests) and a generator-sanitised
+  # scheme (<N>_iOS) both continue with an identifier character, and both were
+  # measured surviving in docs/MIGRATING-TO-TUIST.md on a real fixture. This regex
+  # drives no write. Widening a report costs nothing; narrowing one hides things.
+  carries = /(?<![A-Za-z0-9_])#{escaped}/
+  residual = {}
+
+  tracked_files(root).reject { |relative| relative.start_with?("app/") }.sort.each do |relative|
+    body = entry_point_body(File.join(root, relative))
+    next if body.nil?
+
+    lines = body.lines.each_with_index.filter_map do |line, index|
+      index + 1 if line.match?(carries) && line.match?(ENTRY_POINT_MARKERS)
+    end
+    residual[relative] = lines unless lines.empty?
+  end
+
+  residual
+end
+
 # Pitfall 4, and T-05-19. A stale generated project is GITIGNORED, so git status
 # cannot see it, every post-migration check reads it happily, and every one of
 # them reports green against the identity being replaced. bin/rename.sh:816-828
@@ -2139,6 +2368,18 @@ def perform_migration(root:, token:)
     say "rewrote #{REL_GITIGNORE}: app/#{token}.xcodeproj -> app/#{MIGRATED_TOKEN}.xcodeproj " \
         "(and the .xcworkspace beside it)"
 
+    # AFTER rewrite_gitignore, and the order is load-bearing: that rewrite requires
+    # a COUNT of two on .gitignore, and a pass that reached those two lines first
+    # would leave it short and turn this whole migration into a refusal. The
+    # ENTRY_POINT_EXCLUDED list says the same thing a second way, so neither is the
+    # only thing standing between this command and that failure.
+    entry_points = rewrite_entry_points(root, token)
+    entry_substitutions = entry_points.values.sum { |counts| counts.values.sum }
+    say "rewrote #{entry_points.length} tracked file(s) outside app/ " \
+        "(#{entry_substitutions} substitution(s)) — the set was enumerated from THIS tree with " \
+        "git ls-files, never from a list written into this command"
+    fail_after_stage("entry-points")
+
     removed = remove_generated_projects(root, token)
     say(removed.empty? ? "no generated project was on disk to remove" :
         "removed #{removed.join(', ')} and PROVED the removal by listing the paths again")
@@ -2192,6 +2433,36 @@ def perform_migration(root:, token:)
   say "  #{REL_GITIGNORE}                  — app/#{token}.xcodeproj -> app/#{MIGRATED_TOKEN}.xcodeproj"
   say "identity, in #{REL_IDENTITY}: #{REQUIRED_VARS.join(', ')}, each read back through"
   say "  bin/lib/xcconfig.rb and compared to the value the build reported"
+  say "entry points, outside app/, pointed at the new project and schemes: " \
+      "#{entry_points.length} file(s), #{entry_substitutions} substitution(s)"
+  if entry_points.empty?
+    say "  none — every tracked file outside app/ was already on the constant #{MIGRATED_TOKEN}"
+  else
+    entry_points.each do |relative, counts|
+      detail = counts.reject { |_, n| n.zero? }.map { |name, n| "#{name} x#{n}" }.join(", ")
+      say "  #{relative}  (#{detail})"
+    end
+    say "  Two token classes only, both anchored: a generated project path"
+    say "  (#{token}.xcodeproj / #{token}.xcworkspace) and an app scheme name"
+    say "  (#{token}-iOS / #{token}-macOS). A bare #{token} was never rewritten anywhere —"
+    say "  that sweep is what this migration replaces, and it would take your own strings with it."
+  end
+  residual = residual_structural_references(root, token)
+  if residual.empty?
+    say "nothing outside app/ still names #{token} beside a project, a scheme or a target"
+  else
+    say "STILL NAMING #{token} BESIDE A PROJECT, A SCHEME OR A TARGET — not rewritten, and named"
+    say "here rather than left for you to find in a red build:"
+    residual.each do |relative, lines|
+      why = if ENTRY_POINT_EXCLUDED.include?(relative)
+              "excluded on purpose: historical record, and not an entry point"
+            else
+              "the token is not adjacent to a project path or a scheme suffix here"
+            end
+      say "  #{relative}:#{lines.join(',')}  — #{why}"
+    end
+    say "  Read #{MIGRATION_DOC} for what each of these needs, if anything."
+  end
   say "the Apple Team ID lives only in #{REL_LOCAL}, which git confirmed is ignored"
   say "generated project: #{generated} (the stale one was removed and its absence proven)"
   say "==== ONE BREAKING CHANGE, AND IT IS NOT REVERSIBLE BY THIS COMMAND (A-05) ===="

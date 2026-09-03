@@ -246,40 +246,84 @@ MIGRATE-IDENTITY: inspecting override /path/that/was/taken instead
 so a fixture run can never be mistaken for a real one in a log. A default run prints no
 banner at all. Migrate your own fork by running the command from inside it, with no flags.
 
-### 6. Point the rest of your fork at the new names
+### 6. What the command already did to the rest of your fork
 
-**This is the step the command cannot do for you, and skipping it will look like the
-migration broke your build.**
+**This used to be a manual step. It is not one any more, and this section says exactly what
+changed so you can check the diff rather than trust the claim.**
 
-`bin/rename.sh` substituted your name across the whole tree — measured on the pre-rename
-template, into **49** of its 135 tracked files. The migration rewrites the ones under `app/`
-plus `.gitignore`, and deliberately touches nothing under `bin/`, `ci/`, `fastlane/`,
-`.github/workflows/` or `Makefile`, because those are template-owned and yours to sync
-rather than to have rewritten underneath you.
+`bin/rename.sh` substituted your name across the whole tree. The migration rewrites the files
+under `app/`, `.gitignore`, and **every other tracked file that names your generated project
+or one of your app schemes** — so `make check`, `make ship` and `make screenshots` still run
+the moment the command exits.
 
-So immediately after a successful migration your project is `app/App.xcodeproj` with schemes
-`App-iOS` and `App-macOS`, while these still name the project and schemes you no longer have:
+Two token classes are rewritten, both anchored, and nothing else:
 
-| File | What it still says |
-|---|---|
-| `ci/local-check.sh` | `-project app/<N>.xcodeproj`, `-scheme <N>-iOS` / `<N>-macOS` — this is `make check` |
-| `ci/local-release-check.sh` | the same, plus name-derived archive and artefact paths — this is `make ship` |
-| `fastlane/Snapfile`, `fastlane/MacSnapfile` | `project("app/<N>.xcodeproj")`, `scheme("<N>-iOS")` — this is `make screenshots` |
-| `fastlane/Fastfile` | `APP_NAME` and everything derived from it: both scheme names and both artefact patterns |
-| `.github/workflows/pr.yml` | `app/${{ vars.APP_NAME \|\| '<N>' }}.xcodeproj` and the matching `-scheme` |
-| `bin/take-readme-screenshots.sh` | finds the built app by scheme name, which no longer matches the bundle name |
+| It was | It is now | Where that matters |
+|---|---|---|
+| `<N>.xcodeproj`, `<N>.xcworkspace` | `App.xcodeproj`, `App.xcworkspace` | `-project`, `project(…)`, `--workspace` |
+| `<N>-iOS`, `<N>-macOS` | `App-iOS`, `App-macOS` | `-scheme`, `scheme(…)`, archive names |
 
-Two ways to close it, and the first is the point of migrating at all:
+A **bare** `<N>` is never rewritten, anywhere, by anything. Your name is still your name in
+prose, in `README.md`, in your app's own strings. Only the shape around an occurrence says
+whether it is a project path or a product name, and only the first is structure.
 
-1. **Adopt the template's current copies of those files.** They already use the constant
-   `App` for the project, the schemes and the artefact names, which is what makes them stop
-   needing per-fork edits forever. This is the whole return on the migration.
-2. **Or edit them yourself** to say `App` where they say your name. Note that
-   `.github/workflows/pr.yml` reads a repository variable first, so setting the repository
-   variable `APP_NAME` to `App` fixes the workflow without touching the file.
+**The set is enumerated from your tree, not from a list inside the command.** It runs
+`git ls-files`, applies the two patterns, and reports what it rewrote with a per-file count:
 
-While you are there: the template's `app/project.yml` runs the identity gate before every
-generate.
+```
+MIGRATE-IDENTITY: entry points, outside app/, pointed at the new project and schemes: 14 file(s), 60 substitution(s)
+MIGRATE-IDENTITY:   ci/local-check.sh  (project-path x3, scheme-name x3)
+MIGRATE-IDENTITY:   ci/local-release-check.sh  (project-path x3, scheme-name x4)
+MIGRATE-IDENTITY:   fastlane/Snapfile  (project-path x1, scheme-name x1)
+…
+```
+
+That transcript is from a real fork. Yours will differ, because the count is a measurement of
+your tree rather than a number written into the command.
+
+**Untracked and gitignored files are not reached.** That is deliberate: the rollback restores
+tracked files with `git reset --hard`, and a file the migration could write but the rollback
+could not restore would be a hole in its all-or-nothing guarantee.
+
+#### What it did NOT rewrite, and why it tells you so by name
+
+At the end of the run the command lists every tracked file outside `app/` that still mentions
+your name on a line that also names a project, a scheme or a target:
+
+```
+MIGRATE-IDENTITY: STILL NAMING <N> BESIDE A PROJECT, A SCHEME OR A TARGET — not rewritten, and named
+MIGRATE-IDENTITY: here rather than left for you to find in a red build:
+MIGRATE-IDENTITY:   .github/workflows/pr.yml:247,248,268,269,285,286  — the token is not adjacent to a project path or a scheme suffix here
+MIGRATE-IDENTITY:   CHANGELOG.md:54,101,184,186  — excluded on purpose: historical record, and not an entry point
+```
+
+Two kinds end up in that list.
+
+- **`CHANGELOG.md` is excluded on purpose.** It is historical record. On a real fork its
+  occurrences sit inside a quoted CI failure message from a dated entry and inside prose
+  describing what the upstream template used to be called; rewriting either would falsify a
+  line that was true when it was written. Nothing reads `CHANGELOG.md` to find a project.
+- **Some files build a project path or a scheme name out of a value.** GitHub Actions writes
+  `app/${{ vars.APP_NAME || '<N>' }}.xcodeproj`; `fastlane/Fastfile` writes
+  `IOS_SCHEME = "#{APP_NAME}-iOS"`. In both, your name is a *fallback value* that some other
+  expression turns into a path. The command does not parse Actions expressions or Ruby, so it
+  names them instead of guessing at them.
+
+Close those two the way you would have closed the whole list before:
+
+1. **Adopt the template's current copies.** They use the constant `App` and the repository
+   variable, which is what makes them stop needing per-fork edits forever. This is the return
+   on migrating.
+2. **Or set the repository variable `APP_NAME` to `App`**, which fixes `pr.yml` without
+   touching the file, and edit `fastlane/Fastfile`'s `APP_NAME` fallback.
+
+Expect a few half-rewritten sentences in prose, and they are listed for you too. A line like
+`Tuist sanitizes <N>-iOS → <N>_iOS` becomes `Tuist sanitizes App-iOS → <N>_iOS`, because the
+underscore form is not one of the two classes. It is a comment; nothing depends on it.
+
+#### One thing that is still yours to add
+
+The template's `app/project.yml` runs the identity gate before every generate.
 
 ```yaml
 options:
@@ -304,8 +348,10 @@ preserved and something went wrong — reset and report it.
 
 ## What the command changes
 
-Grouped by kind. The list of sites is frozen in the command; there is no glob that writes,
-and no whole-tree sweep.
+Grouped by kind. Inside `app/` the list of sites is frozen in the command. Outside it, the
+set is enumerated from your tree at run time with `git ls-files` and two anchored patterns
+(step 6). Either way there is no glob that writes and no whole-tree sweep: a bare `<N>` is
+never rewritten anywhere.
 
 **Five history-preserving `git mv` renames**
 
@@ -384,6 +430,17 @@ your app's content.
 The command requires all three to be **present** before it starts, and refuses (exit 4) if
 any is missing — because "this migration did not touch `Localizable.xcstrings`" is trivially
 true of a tree that does not have one.
+
+**`CHANGELOG.md` is never written either**, and for the same reason one level out: it is
+historical record, its occurrences of your name sit inside quoted error messages and dated
+entries, and nothing reads it to find a project. Its digest is asserted unchanged across a
+migration in the test suite, exactly as the three above are. The command names it at the end
+of the run rather than leaving you to discover it.
+
+**And no bare `<N>` is rewritten anywhere outside `app/`.** The rewrite in step 6 requires
+your name to be followed immediately by `.xcodeproj`, `.xcworkspace`, `-iOS` or `-macOS`.
+`README.md` still says your name; so does your `SECURITY.md`, and so does every sentence
+that is about your app rather than about its project file.
 
 One consequence to expect: comments that mention the old project or scheme survive in the
 moved files. A migrated `app/Tests/AppTests.swift` keeps its `// xcodebuild test -project
@@ -500,6 +557,16 @@ plutil -extract NSHumanReadableCopyright raw -o - <built>.app/Info.plist
 
 On macOS the plist is at `<built>.app/Contents/Info.plist`.
 
+```bash
+# 5. your own entry points, RUN rather than read
+make check           # or: ci/local-check.sh --fast
+```
+
+That last one is the whole of step 6 in one command. If it resolves `app/App.xcodeproj` and
+`App-iOS`, the migration pointed your tooling at the project it just created. If it names a
+project that no longer exists, something in step 6's report did not land and the report will
+say which file.
+
 Step 4 is not optional and it is not paranoia. This template shipped two defects that every
 file-level check was green about: a `TEST_HOST` that pointed at an app which never got built,
 and an `INFOPLIST_KEY_` copyright that never reached the bundle. Both were found by reading
@@ -532,10 +599,11 @@ shows five `R100` lines.
 - **A fork that never passed a Team ID** still carries the unsubstituted placeholder in its
   manifests. The command refuses to "move" that, and tells you to put a real Team ID in
   `app/Local.xcconfig` yourself.
-- **Template-owned files are yours to sync.** See step 6. The migration is the structural
-  half; adopting the template's current `bin/`, `ci/`, `fastlane/`, `Makefile` and workflow
-  copies is the other half, and it is the half that stops the next upstream change from
-  needing hand-translation.
+- **Syncing template-owned files is still worth doing, even though you no longer have to.**
+  The command now points your `bin/`, `ci/`, `fastlane/` and `Makefile` copies at the new
+  project and schemes (step 6), so nothing is broken if you stop here. Adopting the
+  template's current copies is still what stops the *next* upstream change from needing
+  hand-translation — it is an upgrade rather than a repair now.
 - **This document is `docs/MIGRATING-FROM-RENAME.md`**, and it is what the command points at
   in its own output and in the comments it writes into your `app/Identity.xcconfig`. If you
   vendored the command, vendor this alongside it.

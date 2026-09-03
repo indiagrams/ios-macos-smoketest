@@ -1038,13 +1038,13 @@ def entry_point_files(token)
     "ci/local-check.sh" => <<~SH,
       #!/usr/bin/env bash
       set -euo pipefail
-      xcodebuild build \
-        -project app/#{token}.xcodeproj \
-        -scheme #{token}-iOS \
+      xcodebuild build \\
+        -project app/#{token}.xcodeproj \\
+        -scheme #{token}-iOS \\
         -configuration Debug
-      xcodebuild build \
-        -project app/#{token}.xcodeproj \
-        -scheme #{token}-macOS \
+      xcodebuild build \\
+        -project app/#{token}.xcodeproj \\
+        -scheme #{token}-macOS \\
         -configuration Debug
     SH
     # A help string, so the rewrite cannot be anchored to a flag.

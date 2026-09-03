@@ -89,7 +89,7 @@ docs/ADOPTING-EXISTING-APP.md	2	2026-09-02	template doc: walks a forker through 
 docs/BOOTSTRAP.md	1	2026-09-03	historical record: the surviving line is the GHSecrets row's account of D-56/UL-026 — it names the value the deleted BUNDLE_ID repository variable was measured carrying, which is what makes the deletion checkable rather than remembered. Count re-measured 2026-09-03 when plan 05-07 rewrote the step-4 row: that row described a rename this phase retires, so its example value went with it and the count fell 2 -> 1. Measured with the gate's own predicate, not predicted.
 docs/CONTINUOUS-VALIDATION.md	1	2026-09-02	template doc: G6 records an exportArchive failure verbatim, including the bundle id Apple's error named
 docs/CONTRIBUTING-UPSTREAM.md	1	2026-09-02	template doc: :44 explains that this fork's app directory and upstream's differ by name, which requires both names
-docs/GETTING-STARTED.md	5	2026-09-02	template doc: the first-ship walkthrough starts from the un-renamed template
+docs/GETTING-STARTED.md	4	2026-09-03	template doc: the first-ship walkthrough starts from the un-renamed template. Count re-measured 2026-09-03 with the gate's own predicate when plan 05-13 rewrote the `make all` transcript: that line printed a rename step this phase retires, so it went and the count fell 5 -> 4. Not predicted; the gate reported `expected 5 line(s), found 4` first.
 docs/MAINTAINING-A-FORK.md	1	2026-09-02	template doc: :201 gives entitlements paths as they exist before the rename
 docs/MIGRATING-TO-TUIST.md	23	2026-09-02	template doc: the largest single doc occurrence (23), all manifest and scheme examples for the pre-rename project
 docs/PRINCIPLES.md	1	2026-09-02	template doc: :26 states the rule that a change breaking the stub app does not land

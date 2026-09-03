@@ -10,11 +10,18 @@
 # Idempotent: skips bump/attach steps that are already at the target.
 #
 # Configuration:
-#   APP_BUNDLE_ID env var — defaults to "com.indiagram.smokeapp" (rename for your
-#   project; rename via bin/rename.sh).
+#   The bundle id is resolved from app/Identity.xcconfig — the one tracked file the
+#   BUILD resolves it from (D-45/D-58) — through bin/lib/xcconfig.rb, the one reader
+#   (D-57). APP_BUNDLE_ID and BUNDLE_ID remain explicit environment overrides, in that
+#   order. THERE IS NO THIRD TIER AND NO LITERAL DEFAULT: this script used to fall back
+#   to the template's placeholder bundle id, which meant a fork with a missing or
+#   commented-out value would silently ask App Store Connect about someone else's app
+#   record — and then bump ITS version — instead of failing. A named failure is the
+#   only safe outcome.
 
 require 'spaceship'
 require 'base64'
+require_relative '../bin/lib/xcconfig'
 
 if ARGV.empty?
   warn "Usage: ruby ci/bump-asc-version.rb <vX.Y.Z>"
@@ -30,7 +37,17 @@ token = Spaceship::ConnectAPI::Token.create(
 )
 Spaceship::ConnectAPI.token = token
 
-bundle_id = ENV.fetch("APP_BUNDLE_ID", "com.indiagram.smokeapp")
+identity  = ENV["IDENTITY_XCCONFIG"] || File.expand_path("../app/Identity.xcconfig", __dir__)
+# `.empty?` and not truthiness: Xcconfig.value returns "" for an assignment that is
+# present but empty or commented out (`BUNDLE_ID = // disabled` — `//` opens a comment
+# at any position, T-03-06/UL-031), and "" is TRUTHY in Ruby, so an `||` chain would
+# sail straight past it and send the empty string to Apple.
+bundle_id = ENV["APP_BUNDLE_ID"] || ENV["BUNDLE_ID"] || Xcconfig.value(identity, "BUNDLE_ID")
+if bundle_id.nil? || bundle_id.empty?
+  abort "IDENTITY: BUNDLE_ID is missing or empty in #{identity} " \
+        "(set it there, or export BUNDLE_ID to override)"
+end
+
 app = Spaceship::ConnectAPI::App.find(bundle_id) \
   or abort "error: app #{bundle_id} not found on ASC"
 

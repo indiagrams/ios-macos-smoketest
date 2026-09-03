@@ -19,10 +19,13 @@
 # PRESENT IS NOT REQUIRED. This file existing, and even this job going red, does
 # not by itself block a merge. Blocking requires `review notes` to be listed as a
 # required status check on `main`, which is live GitHub state rather than
-# anything in this repository — and `bin/setup-github.sh` recomputes and PUTs
-# that list from scratch, silently dropping this check on its next run.
-# `make setup-github` and `bin/refork-smoketest.sh` therefore turn the gate off
-# without failing or warning. The hazard, the exact PATCH that restores it, the
+# anything in this repository. `bin/setup-github.sh` used to recompute and PUT
+# that list from scratch, silently dropping this check on its next run; as of
+# 2026-09-02 (04-11) it reads the live array, appends only what is missing, and
+# asserts the result, so `make setup-github` and `make bootstrap-fork` now
+# preserve this context. `bin/refork-smoketest.sh` still recreates this
+# repository from the TEMPLATE, whose copy of that script is unfixed until
+# UL-003 merges upstream. The hazard, the exact PATCH that restores it, the
 # verification command, and the expected context count of nine are in
 # docs/CONTRIBUTING-UPSTREAM.md §6 "Fork operations that `make setup-github`
 # reverts". Ledger row UL-003 proposes the upstream fix.
@@ -71,6 +74,22 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # FULL HISTORY, for the secret scan at the end of this job. The default
+          # is a depth-1 checkout, and on one of those gitleaks reports
+          # `1 commits scanned … no leaks found` and exits 0 with a
+          # committed-then-deleted credential sitting in history (measured on a
+          # --depth 1 clone of this repository; recorded in
+          # .planning/…/evidence/04-09-T2-gitleaks-controls.txt). A shallow
+          # checkout does not make that scan fail, it makes it VACUOUS.
+          #
+          # THIS LINE IS NOT THE GATE. It is a config line anybody can delete
+          # with nothing going red, so tools/gitleaks.rb asserts
+          # `git rev-parse --is-shallow-repository` = false itself and exits 2
+          # if it is not. Deleting this line therefore breaks the job loudly
+          # instead of silently blinding it — which is the only reason it is
+          # safe to write a gate's precondition in YAML.
+          fetch-depth: 0
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: '3.3'
@@ -108,10 +127,14 @@ jobs:
           # pre-generation hook, and a guard embedded in Project.swift is skipped
           # whenever the manifest cache is warm — whereas XcodeGen runs it itself via
           # options.preGenCommand. test/identity_test.rb is criterion 1's and
-          # criterion 4's durable guard: the five named files carry no SmokeApp
-          # literal, the Team ID is in no tracked build config, preGenCommand is wired
-          # and cache-proof, and Local.xcconfig is gitignored while Identity.xcconfig
-          # is not. Both are Ruby core with zero require lines, which is what keeps
+          # criterion 4's durable guard: the five named files carry no template
+          # identity literal, the Team ID is in no tracked build config, preGenCommand
+          # is wired and cache-proof, and Local.xcconfig is gitignored while Identity.xcconfig
+          # is not. All three Ruby files in this step are Ruby core: each has exactly
+          # one `require`-family line and it is a require_relative of
+          # bin/lib/xcconfig.rb, which itself has ZERO require lines (asserted by
+          # test/xcconfig_test.rb below, so it cannot rot).
+          # Nothing outside Ruby core is loaded on any path here, which is what keeps
           # bundler-cache: false above honest. WHAT THIS STEP CANNOT DO: this runner
           # is ubuntu-latest with no Xcode, so it runs the preflight's text checks and
           # the Ruby assertions but cannot run the -showBuildSettings parity diff
@@ -119,5 +142,97 @@ jobs:
           # output is recorded as dated evidence, because all three macos-15 jobs live
           # in template-owned pr.yml and this repository has no fork-owned macOS CI
           # surface. A green badge here says nothing about generator parity.
-          ruby tools/preflight-identity.rb
+          ruby bin/preflight-identity.rb
+          # bin/lib/xcconfig.rb is the single xcconfig reader (D-57) that the preflight,
+          # fastlane and the release workflows are being repointed onto, replacing the three
+          # mutually incompatible readers C-17 measured. Its contract test is Ruby core only.
+          ruby test/xcconfig_test.rb
           ruby test/identity_test.rb
+          # test/fastlane_identity_test.rb is D-58's guard: fastlane/Appfile and
+          # fastlane/Fastfile resolve identity through that same parser, with ENV as the
+          # only override, no .bootstrap.env tier and NO fallback default — the shape
+          # that lets a fork ship under a plausible fake identity instead of failing.
+          # It reads text, which is all this runner can do: fastlane is a gem and
+          # `bundler-cache: false` above means there are none here. That the guard's
+          # abort actually fires through fastlane is observed LOCALLY, both directions,
+          # in .planning/…/evidence/04-04-T2-fastlane-integration-controls.txt.
+          ruby test/fastlane_identity_test.rb
+          # IDENT-11's gate (D-65, D-69). tools/check-contamination.rb asks whether the
+          # TEMPLATE's identity — BOTH of them, this fork's original placeholder and the one
+          # 04-01's sync brought in from upstream, spelled out in the gate's own header and its
+          # frozen LITERALS constant and deliberately not here — still appears in any tracked
+          # file outside tools/identity-allowlist.txt, whose every row carries a
+          # path, an expected COUNT, an ISO date and a reason. The count is what catches a
+          # regression standing next to a legitimate guard literal, which a path-level
+          # exemption would swallow; the allowlist is therefore a gate itself, and its stale,
+          # short, undated, duplicate and wildcard failures were each observed on the live tree
+          # before it was trusted (.planning/…/evidence/04-07-T3-contamination-live-controls.txt).
+          #
+          # DO NOT CONFUSE THIS WITH ci/check-identity.sh, which pr.yml's non-required `config`
+          # job runs. That is upstream's COMPLETENESS check — is the fork's own identity present
+          # and non-empty where the build needs it. This is a CONTAMINATION check — is the
+          # template's identity absent where it is not permitted. Opposite questions; a green
+          # run of one says nothing about the other.
+          #
+          # It is fork-owned and lives in tools/, NOT at IDENT-11's literal bin/check-identity.sh,
+          # because bin/ and ci/ are template-owned and bin/refork-smoketest.sh recreates this
+          # repository from the template — a fork-authored file at a template-owned path is
+          # deleted wholesale on the next refork, which would silently remove this gate (D-69,
+          # the UL-003 failure class). Zero require lines, so bundler-cache: false still holds.
+          ruby tools/check-contamination.rb
+          ruby test/contamination_test.rb
+          # .gitleaks.toml's own gate (IDENT-12, D-62). The secret scan below can
+          # only report what its allowlist does not swallow, and one
+          # [[allowlists]] entry with a match-everything regex was observed
+          # turning an injected high-entropy token from exit 42 into exit 0 with
+          # the scan still printing "no leaks found". So the config is checked
+          # here, in the same job, BEFORE the scan runs: no catch-all or
+          # under-six-character regex, no line-target entry without paths, no
+          # description without an ISO date, no `paths` row that matches no
+          # tracked file, no key gitleaks would silently ignore — and the version
+          # pin agreeing between tools/gitleaks.rb and the step name below.
+          ruby test/gitleaks_config_test.rb
+
+      # A SEPARATE, NAMED STEP — and deliberately still a step in THIS job, not a
+      # job of its own. A new job would be a tenth status context, and branch
+      # protection on `main` requires nine; an unrequired context runs, reports,
+      # and blocks nothing (the UL-003 failure class this repository has already
+      # been bitten by). Inside `review notes` it inherits a required check.
+      #
+      # WHY THE BINARY AND NOT THE OFFICIAL ACTION (IDENT-12's whole point).
+      # The GitHub Action published by the same project requires a commercial
+      # licence for organisation-owned repositories, and this repository is
+      # organisation-owned. The gitleaks BINARY is MIT. Its literal name is
+      # deliberately not spelled anywhere in this file, and
+      # test/gitleaks_config_test.rb greps for it: a comment explaining why
+      # something is absent must not be able to make that grep fire. This file
+      # already takes the same precaution with the writable-token variant of the
+      # pull_request trigger, a few dozen lines above.
+      # So the wrapper downloads the pinned 8.30.1 release
+      # tarball and verifies its sha256 against the digest published in that
+      # release's own checksums file BEFORE unpacking or executing it, then
+      # checks the binary reports the pinned version. A tampered digest was
+      # observed refusing to run (exit 2) before any of this was trusted.
+      #
+      # The version is stated here AND in tools/gitleaks.rb: this is what a
+      # reader sees in the Actions log, that is what executes.
+      # test/gitleaks_config_test.rb fails if the two ever disagree.
+      #
+      # WHAT THIS STEP CANNOT SEE. It scans `--log-opts=HEAD`, the ancestry of
+      # the checked-out commit, which under fetch-depth: 0 on a pull_request is
+      # the merge ref — base branch plus the PR's commits. Commits on other refs
+      # are out of scope, and one specifically: 33f8e08, which carries a real
+      # given name in a fixture, is off `main` via squash and reachable only by
+      # SHA. This step does not cover it and nothing here should be read as
+      # saying it does; it remains a separate, non-blocking human action. Stale
+      # remote branches, dangling objects and reflogs are likewise unreachable,
+      # a secret that was never committed is not in git at all, and gitleaks
+      # does not detect a low-entropy fake or a credential format its rules have
+      # never seen.
+      #
+      # FAIL-CLOSED. If GitHub Releases is unavailable the wrapper exits 2 and
+      # this job goes red; every pull request is blocked until it returns. That
+      # is the intended trade for not caching an unverified binary, and a re-run
+      # is the remedy.
+      - name: Secret scan — pinned gitleaks 8.30.1, full history
+        run: ruby tools/gitleaks.rb

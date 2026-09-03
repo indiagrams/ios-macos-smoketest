@@ -1,0 +1,66 @@
+# tools/domain-allowlist.txt — the DOMAINS on which an address-shaped string may appear
+# anywhere in this repository's tracked tree, which local part is permitted on each, and
+# why. Read by tools/check-contamination.rb (D-67; IDENT-11's personal-information half).
+#
+# THIS LIST IS FAIL-CLOSED, AND THAT IS THE POINT. Every address-shaped match in every
+# tracked file FAILS unless its domain appears below. The alternative — a deny-list of
+# addresses somebody already thought of — is green for every address nobody has thought
+# about yet, which is exactly the case a gate exists for. A contributor who adds a real
+# address on a new domain gets a red CI run, not a merged one.
+#
+# THE LIST IS ALSO ITSELF A GATE, in the same five ways tools/identity-allowlist.txt is:
+#
+#   * a domain cell containing `*`, or that is not a hostname
+#                                              -> FAIL allowlist <domain>: domain row malformed
+#   * a row with no ISO date, or not four cells -> FAIL allowlist <domain>: undated or malformed row
+#   * a second row for the same domain + local part
+#                                              -> FAIL allowlist <domain>: duplicate row for local part
+#   * a row matching no address in the tree     -> FAIL allowlist <domain>: entry matches nothing
+#
+# The wildcard refusal is the load-bearing one: a catch-all row is the single edit that
+# would turn a fail-closed list into a blanket exemption, so the grammar refuses it and a
+# live red control in 04-08's evidence file shows the refusal happening.
+#
+# GRAMMAR — four TAB-separated cells:
+#
+#   domain<TAB>local-part<TAB>YYYY-MM-DD<TAB>reason
+#
+# The domain must be a lower-case hostname with a TLD and no `*`. The local part is `*`
+# (any local part on that domain) or one exact local part. Domains are compared
+# case-insensitively; LOCAL PARTS ARE COMPARED EXACTLY, because RFC 5321 leaves local-part
+# case-sensitivity to the receiving host — two spellings are two addresses.
+#
+# A row is a dated measurement plus a reason, the shape docs/APPLE-ACCOUNT-STATE.md:41-46
+# defines for every fact in this project. Re-measure with: ruby tools/check-contamination.rb
+#
+# NO ADDRESS IS SPELLED IN THIS FILE. Domain and local part live in separate cells, and the
+# reasons name classes rather than addresses, so that this list can never be the reason the
+# tree contains one more address than it did before.
+#
+# THE ICON-FILENAME CLASS IS NOT A ROW HERE — IT IS CODE. The address regex, run tree-wide,
+# matches the macOS icon filenames under app/macOS/Assets.xcassets: `icon_<size>@2x.png`
+# parses as local-part @ domain . tld. Those are excluded by the gate's frozen
+# NOT_AN_ADDRESS expression, before the address regex runs, because a row here would admit
+# any local part on a pretend `.png` domain. Removing that expression turns the twelve icon
+# filenames red — recorded as a live control in 04-08's evidence — which is what makes the
+# exclusion demonstrably load-bearing rather than a hole nobody has tested.
+#
+# WHAT IS DELIBERATELY ABSENT. The org domain carries exactly ONE row, for the published
+# contact that SECURITY.md and CODE_OF_CONDUCT.md give for vulnerability and conduct
+# reports. The two other org addresses this fork had grown — a bootstrap contact and a
+# throwaway git author, both spelled with this repository's own name — are NOT rows: they
+# were resolved at their source on 2026-09-02 (see docs/UPSTREAM-LEDGER.md UL-037), and the
+# ABSENCE of a row is what makes IDENT-06's removal enforced rather than remembered. A
+# second row on the org domain would silently re-admit them, so test/contamination_test.rb
+# asserts there is exactly one and asserts which local part it names.
+#
+# Measured 2026-09-02 with the gate's own predicate: 62 address occurrences across the
+# tracked tree, 0 unallowed, plus 12 icon filenames excluded as non-addresses.
+#
+# domain<TAB>local-part<TAB>date<TAB>reason
+indiagram.com	maintainers	2026-09-02	published contact: the address SECURITY.md and CODE_OF_CONDUCT.md give for vulnerability and conduct reports, and the one bin/rename.sh substitutes away at fork creation; the ONLY local part permitted on the org domain (D-67)
+example.com	*	2026-09-02	deliberately fake: RFC 2606 reserved second-level domain, used throughout the docs, the rename usage lines and the bootstrap examples
+acme.com	*	2026-09-02	deliberately fake: the fixture domain ci/test-rename*.sh and the bootstrap tests drive; every occurrence is test input
+yourorg.com	*	2026-09-02	deliberately fake: a placeholder the TestFlight walkthrough tells a forker to replace with their own
+local.invalid	*	2026-09-02	deliberately fake: RFC 2606 reserved .invalid TLD, which can never resolve; synthetic bootstrap contacts, canary fixtures and throwaway git author identities
+github.com	git	2026-09-02	not a person: the ssh user in remote URLs, which the address regex cannot tell from a mailbox; pinned to that one local part so a real address on the same domain still fails

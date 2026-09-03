@@ -89,21 +89,33 @@ on:
         type: string
         default: ''
 
-# Workflow-level env: bring fork identity (APP_NAME, BUNDLE_ID) from repo
-# variables into every step's env. The fastlane Fastfile's APP_NAME +
-# APP_IDENTIFIER constants resolve via ENV first; .bootstrap.env is
-# gitignored so the CI runner can't read it on disk. Forks enabling CI
-# release must configure these two repo variables:
+# App identity is NOT carried by a GitHub Actions repository variable. There is
+# no workflow-level `env:` block here and nothing reads the `vars` context: the
+# "Resolve app identity from app/Identity.xcconfig" step below reads the two
+# values from the one tracked file the BUILD resolves them from (D-45), through
+# bin/lib/xcconfig.rb, the one parser (D-57), and exports them into $GITHUB_ENV
+# for the rest of the job. The Fastfile resolves the same two keys from the same
+# file independently (D-58), so a value that reached the workflow and a value
+# that reached fastlane cannot disagree.
 #
-#   gh variable set APP_NAME  --body <YourApp> --repo <owner>/<fork>
-#   gh variable set BUNDLE_ID --body <com.you.app> --repo <owner>/<fork>
+# There used to be a workflow-level `env:` block mapping APP_NAME and BUNDLE_ID
+# out of same-named repository variables through the `vars` context, populated
+# by `make bootstrap-fork` from the gitignored .bootstrap.env.
+# That gave identity a second source that nothing compared against the first,
+# and the second one was WRONG: measured 2026-09-02, this repo's BUNDLE_ID
+# variable still carried the upstream TEMPLATE's bundle id, not this app's. The
+# release path was wired to the wrong app and nothing had caught it, because no
+# build had ever been uploaded. Worse, GHSecrets re-set both variables on every
+# bootstrap, so a hand correction was silently reverted (UL-026). Both variables
+# are deleted and GHSecrets creates none (D-56).
 #
-# If unset, the Fastfile falls through to its template defaults
-# (SmokeApp / com.indiagram.smokeapp) which Apple rejects at bundle-id
-# registration (com.example.* is reserved) — fail-loud by design.
-env:
-  APP_NAME:  ${{ vars.APP_NAME }}
-  BUNDLE_ID: ${{ vars.BUNDLE_ID }}
+# The measured before/after values are in docs/UPSTREAM-LEDGER.md UL-037 rather
+# than here on purpose: this file is live config, which is the class the identity
+# contamination gate scans (D-65), and a workflow comment quoting the template
+# literal would have to be allowlisted out of the gate that exists to find it.
+#
+# A fork configures identity by editing app/Identity.xcconfig and nothing else.
+# There is no `gh variable set` to run and no repository setting to forget.
 
 # Serialize releases. cancel-in-progress: false → if a manual dispatch lands
 # during another release run, the dispatch waits rather than aborting mid-mint
@@ -183,6 +195,44 @@ jobs:
         with:
           ruby-version: '3.3'
           bundler-cache: true
+
+      - name: Resolve app identity from app/Identity.xcconfig
+        # The ONE source (D-45/D-56/D-57). app/Identity.xcconfig is tracked and
+        # is the same file the Xcode build reads BUNDLE_ID and APP_PRODUCT_NAME
+        # from, so a workflow and a build cannot disagree about which app this
+        # is. bin/lib/xcconfig.rb reproduces Xcode's real semantics —
+        # last-assignment-wins, value cut at the first `//`, `#include?`
+        # followed — which a `grep` cannot: `BUNDLE_ID = // disabled` resolves
+        # to the empty string in Xcode and matched the old presence check
+        # (UL-031).
+        #
+        # `ruby` here is deliberately bare and un-bundled: bin/lib/xcconfig.rb
+        # has ZERO require lines, not even stdlib (asserted by
+        # test/xcconfig_test.rb, so it cannot rot), and runs unchanged on the
+        # macOS runner's system Ruby 2.6 — verified 2026-09-02 against
+        # /usr/bin/ruby 2.6.10. It therefore needs no Gemfile, no bundle
+        # install, and no particular position relative to the toolchain steps.
+        #
+        # `|| VAR=""` is load-bearing: the parser exits 3 when a key is
+        # undefined or empty, and under `set -e` a bare assignment from a
+        # failing command substitution would kill the step before the named
+        # ::error:: below could print. The parser's own message still reaches
+        # the log on stderr.
+        run: |
+          set -euo pipefail
+
+          BUNDLE_ID="$(ruby bin/lib/xcconfig.rb app/Identity.xcconfig BUNDLE_ID)" || BUNDLE_ID=""
+          APP_NAME="$(ruby bin/lib/xcconfig.rb app/Identity.xcconfig APP_PRODUCT_NAME)" || APP_NAME=""
+
+          if [ -z "${BUNDLE_ID}" ] || [ -z "${APP_NAME}" ]; then
+            echo "::error::BUNDLE_ID / APP_PRODUCT_NAME resolved empty from app/Identity.xcconfig."
+            echo "::error::Set them in app/Identity.xcconfig — no repository variable is read (D-56)."
+            exit 1
+          fi
+
+          echo "BUNDLE_ID=${BUNDLE_ID}" >> "$GITHUB_ENV"
+          echo "APP_NAME=${APP_NAME}"   >> "$GITHUB_ENV"
+          echo "identity: ${APP_NAME} (${BUNDLE_ID})"
 
       - name: Bootstrap toolchain (xcodegen via Homebrew)
         # `make bootstrap` does brew bundle (xcodegen, tuist, lefthook) +
@@ -301,15 +351,17 @@ jobs:
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           else
-            # BUNDLE_ID comes from the workflow-level env block at the top of
-            # this file, which reads vars.BUNDLE_ID. The check below is a
-            # defensive guard for forks that haven't configured the variable
-            # yet — fail loud with an actionable error instead of falling
-            # through to a build that tags the wrong bundle ID.
+            # BUNDLE_ID reaches this step through $GITHUB_ENV, exported by the
+            # "Resolve app identity from app/Identity.xcconfig" step near the
+            # top of this job. That step already fails on an empty value; this
+            # is the same guard sited where the value is USED, so that an edit
+            # which reorders, conditions or drops the resolving step cannot
+            # reach a tag computation — and then an archive — with no bundle id.
+            # It is deliberately no longer a repository-variable check: this
+            # workflow reads no repository variable at all (D-56).
             if [ -z "${BUNDLE_ID:-}" ]; then
-              echo "::error::vars.BUNDLE_ID is not set on this repo. Configure it via:"
-              echo "::error::  gh variable set BUNDLE_ID --body <com.you.app> --repo \${{ github.repository }}"
-              echo "::error::Also set APP_NAME the same way."
+              echo "::error::BUNDLE_ID is empty here — it did not survive from the identity step."
+              echo "::error::Set BUNDLE_ID in app/Identity.xcconfig; no repository variable is read."
               exit 1
             fi
             VERSION=$(bundle exec ruby bin/compute-release-tag.rb)

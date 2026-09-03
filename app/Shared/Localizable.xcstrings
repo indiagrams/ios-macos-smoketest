@@ -1,17 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "SmokeApp" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SmokeApp"
-          }
-        }
-      }
-    },
     "iOS + macOS template" : {
       "extractionState" : "manual",
       "localizations" : {

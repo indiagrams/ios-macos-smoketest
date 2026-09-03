@@ -16,10 +16,10 @@ The fork ↔ upstream sync property is the most important architectural invarian
 | Rule | Why | If you need to change behavior |
 |---|---|---|
 | Do **not** edit `fastlane/Fastfile` | Template-owned; upstream changes will conflict on every `git pull upstream main` | Add to `fastlane/Fastfile.local` (see "Custom fastlane logic" below) |
-| Do **not** hardcode `APP_NAME` / `BUNDLE_ID` / ASC URLs in workflows or scripts | They resolve from `.bootstrap.env` (Fastfile) or repo `vars.*` (workflows) | Set the env / repo variable |
+| Do **not** hardcode `APP_NAME` / `BUNDLE_ID` / ASC URLs in workflows or scripts | They resolve from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` — the one reader (D-57) | Edit `app/Identity.xcconfig` |
 | Do **not** edit files under `bin/`, `ci/`, `.github/workflows/`, `Makefile` | Template-owned | Override via env, or open an upstream issue at `indiagrams/ios-macos-smoketest` |
 | Do **not** commit secrets | `.bootstrap.env` and `.p8` files are gitignored | Commit `.bootstrap.env.example` only; real values live in GitHub Secrets / `~/.config/secrets/` |
-| Do **not** sed-substitute `SmokeApp` literals | The template uses env-driven resolution everywhere it matters | Run `bin/rename.sh MyApp com.example.myapp "My App" --email=you@example.com` once at fork creation; afterward, the app's identity is edited in `app/Identity.xcconfig` (fastlane's `APP_NAME` / `BUNDLE_ID` handle stays in `.bootstrap.env`) |
+| Do **not** sed-substitute `SmokeApp` literals | The template resolves identity everywhere it matters | Run `bin/rename.sh MyApp com.example.myapp "My App" --email=you@example.com` once at fork creation; afterward, the app's identity is edited in `app/Identity.xcconfig` — fastlane and the release workflows read it through `bin/lib/xcconfig.rb`, and `.bootstrap.env` carries no identity consumer (Phase 5 removes the keys) |
 
 ## Where your code goes
 
@@ -42,7 +42,7 @@ The fork ↔ upstream sync property is the most important architectural invarian
 
 | Task | Command | What it does |
 |---|---|---|
-| First-time check | `make doctor` | 17-step read-only pipeline. Surfaces every prerequisite + advisory. Run this when something feels wrong. |
+| First-time check | `make doctor` | 21-step read-only pipeline. Names the verification tier each identity step reached — **1** the thing exists, **2** its content is not the template's, **3** the value the build actually resolves is not the template's (D-64) — and renders a step that reports done below its declared minimum tier as blocked. Surfaces every prerequisite + advisory. Run this when something feels wrong. |
 | One-time setup | `make bootstrap` | Installs brew deps, bundler, project-generator (xcodegen or tuist), git hook. Idempotent. |
 | Local build (no signing) | `make check` | Same signal CI runs on PR. Use this in your edit-build-test loop. |
 | Run unit + UI tests | `make verify` (after `make ship`), or invoke `xcodebuild test` directly during dev | Don't write custom test scripts — the project generators wire schemes correctly. |
@@ -122,8 +122,8 @@ The single source of truth for fork-specific identity + config:
 
 | Field | Used by |
 |---|---|
-| `APP_NAME` | Fastfile (project + scheme + IPA/PKG names), workflows (`vars.APP_NAME`) |
-| `BUNDLE_ID` | Fastfile (app identifier), workflows (`vars.BUNDLE_ID`) |
+| `APP_NAME` | **No release-path consumer since Phase 4 (D-58).** Still required by `bin/lib/bootstrap.rb`'s `Config` until Phase 5, and `make doctor` compares it against `APP_PRODUCT_NAME` in `app/Identity.xcconfig` and reports disagreement. Edit the xcconfig, not this. |
+| `BUNDLE_ID` | **No release-path consumer since Phase 4 (D-58).** Same as above: `Config` still requires it, doctor compares it against `BUNDLE_ID` in `app/Identity.xcconfig`. Edit the xcconfig, not this. |
 | `FASTLANE_TEAM_ID` | Fastlane (Apple Developer team) |
 | `ASC_API_KEY_*` | Fastlane (App Store Connect auth) |
 | `RELEASE_MODE` | `local` (sign on your Mac) or `ci` (mint-fresh in GitHub Actions) |
@@ -131,10 +131,19 @@ The single source of truth for fork-specific identity + config:
 | `SUBMIT_FOR_REVIEW` | `make submit` behavior (stage vs auto-submit) |
 | Many more | `docs/BOOTSTRAP.md` and `.bootstrap.env.example` |
 
-Reading order in code:
-1. Workflow env (`vars.*` / `secrets.*` from CI; shell exports / `.envrc` for local)
-2. `.bootstrap.env` (per-fork)
-3. Fail-loud placeholders (`SmokeApp`, `com.indiagram.smokeapp`, `+10000000000`, `example.com`)
+Reading order in code, for the app's IDENTITY (`BUNDLE_ID`, `APP_PRODUCT_NAME`,
+`DISPLAY_NAME`, `COPYRIGHT`) — two tiers and a named failure, since Phase 4 (D-58):
+
+1. `ENV` — an explicit, deliberate override (`BUNDLE_ID=… make …`, a workflow env)
+2. `app/Identity.xcconfig`, read through `bin/lib/xcconfig.rb`
+3. **A named failure.** `abort`, naming the key and the file. There is no
+   placeholder tier: a fallback default means a fork with a missing or
+   commented-out value ships under a plausible fake identity instead of failing,
+   which is a check that structurally cannot fail. `test/fastlane_identity_test.rb`
+   rejects any `|| "…"` fallback and any `.bootstrap.env` identity read.
+
+Everything else in `.bootstrap.env` (ASC credentials, `FASTLANE_TEAM_ID`,
+`RELEASE_MODE`, `PLATFORMS`) keeps the old order: workflow env, then the file.
 
 ## Commit + PR conventions
 
@@ -172,8 +181,8 @@ Reading order in code:
 
 | Antipattern | What breaks | Do instead |
 |---|---|---|
-| `sed -i 's/SmokeApp/MyApp/' fastlane/Fastfile` | Fastfile is byte-equivalent across template + forks via env resolution; sed creates divergence that conflicts every upstream sync | Set `APP_NAME=MyApp` in `.bootstrap.env` |
-| Editing `.github/workflows/*.yml` to point at a specific app | Workflows resolve repo state via `vars.APP_NAME` / `vars.BUNDLE_ID` | `gh variable set APP_NAME --body MyApp` |
+| `sed -i 's/SmokeApp/MyApp/' fastlane/Fastfile` | Fastfile is byte-equivalent across template + forks via env resolution; sed creates divergence that conflicts every upstream sync | Edit `BUNDLE_ID` / `APP_PRODUCT_NAME` in `app/Identity.xcconfig` |
+| Editing `.github/workflows/*.yml` to point at a specific app | Workflows resolve identity from `app/Identity.xcconfig` via `bin/lib/xcconfig.rb`, so a pinned literal goes stale silently | Nothing to set — edit `app/Identity.xcconfig` and every workflow follows |
 | Committing `.bootstrap.env` | Contains paths to local secrets, possibly real values | Already gitignored; commit `.bootstrap.env.example` if you add a new field |
 | Adding new lanes to `fastlane/Fastfile` | Upstream sync will conflict every time the template touches the file | Use `fastlane/Fastfile.local` |
 | Defining `before_all` in `Fastfile.local` | Fastlane's `before_all` is last-write-wins; will silently drop the template's ASC API key setup, breaking every signed upload | Use `override_lane` for the specific lane needing setup |
@@ -260,12 +269,27 @@ editing the existing one.
   file-level check still passed. `ruby tools/gen-review-notes.rb --check` fails loudly if it
   is ever set.
 - **Fork-owned tooling goes in `tools/`**, never in `bin/` or `ci/`, which are template-owned.
-  Fork-owned tests go in `test/`. The identity tooling is `tools/preflight-identity.rb`
-  (the generation gate that XcodeGen's `preGenCommand` and the `review notes` job run),
-  `tools/identity-parity.rb` (the cross-generator `xcodebuild -showBuildSettings` diff) and
-  `test/identity_test.rb` (the guard for the structural constant, the Team ID's absence
-  and the gate's wiring). The template carries its own copies under `bin/` and `ci/`; this
-  fork keeps `tools/` canonical until the rename machinery is retired.
+  Fork-owned tests go in `test/`. The identity preflight lives at `bin/preflight-identity.rb`
+  — upstream's path, this fork's hardened body; it is the generation gate that XcodeGen's
+  `preGenCommand`, the `review notes` job, and upstream's `ci/check-identity.sh` wrapper
+  (from `pr.yml`'s `config` job and both `ci/local-*check.sh` scripts) all run. The file is
+  divergent from upstream until UL-031 merges — see `docs/UPSTREAM-LEDGER.md`.
+- **There is exactly ONE xcconfig reader: `bin/lib/xcconfig.rb`** (D-57, UL-035). It is
+  fork-owned and it sits in template-owned `bin/` rather than in `tools/` — a deliberate
+  exception to the rule above, because `bin/preflight-identity.rb` `require_relative`s it,
+  `fastlane/Appfile` `load`s it, and `ci/local-release-check.sh` shells out to it, and it is
+  upstream-bound alongside the preflight it belongs with. **Do not add a fifth reader.** If
+  you need a value out of an xcconfig, call `Xcconfig.value(path, key)` (what the toolchain
+  would resolve, `#include` followed) or `Xcconfig.own(path)` (what that one file's text
+  says, for questions about what is in git); from a shell, `ruby bin/lib/xcconfig.rb <file>
+  <KEY>`. The module has ZERO `require` lines, not even stdlib — `review-notes.yml` sets
+  `bundler-cache: false` on that basis and `test/xcconfig_test.rb` asserts it. That test's
+  52 expected values were observed with `xcodebuild -showBuildSettings`; do not "correct" a
+  row to match an implementation, re-measure and move both. The rest of the identity tooling
+  is `tools/identity-parity.rb` (the cross-generator `xcodebuild -showBuildSettings` diff)
+  and `test/identity_test.rb` (the guard for the structural constant, the Team ID's absence
+  and the gate's wiring), which asserts through the same parser rather than through a copy
+  of the gate's predicate — the duplication that made UL-031 possible.
 - **Every generic learning gets a row in `docs/UPSTREAM-LEDGER.md`** in the same change that
   produced it, with a verdict from that file's closed vocabulary — including learnings
   that will never go upstream. The outbound contribution flow is

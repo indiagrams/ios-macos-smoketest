@@ -101,7 +101,7 @@ CERTS_REPO="$ORG/ios-macos-smoketest-certs"
 APP_NAME=SmokeApp
 BUNDLE_ID="${BUNDLE_ID:-com.indiagram.smoke-app}"
 DISPLAY_NAME='Indiagram Smoke App'
-APP_EMAIL=smoketest@indiagram.com
+APP_EMAIL=maintainers@indiagram.com
 ASC_APP_SKU=indiagram-smoke-001
 ASC_APP_NAME="${ASC_APP_NAME:-Indiagram Smoke App}"
 
@@ -192,7 +192,7 @@ else
     pushd "$TMPDIR_CERTS" >/dev/null
     git checkout --orphan reset-tmp >/dev/null 2>&1
     git reset --hard >/dev/null 2>&1
-    git -c user.email=refork@indiagram.com -c user.name=refork commit --allow-empty -m "reset for E2E" -q
+    git -c user.email=refork@local.invalid -c user.name=refork commit --allow-empty -m "reset for E2E" -q
     for branch in $(git branch -r | grep -v HEAD | sed 's|origin/||'); do
       git push origin --delete "$branch" 2>&1 | tail -1 || true
     done

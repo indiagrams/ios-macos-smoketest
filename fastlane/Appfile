@@ -1,11 +1,64 @@
 # fastlane/Appfile — App Store Connect target identification.
 #
-# Bundle ID matches app/project.yml's iOS app target. Same bundle id is used
-# for the macOS app (Universal Purchase) so deliver picks the right
-# AppStoreVersion via the platform: arg.
+# The bundle id is resolved from app/Identity.xcconfig, the one tracked file the
+# BUILD resolves it from (D-45/D-58), through bin/lib/xcconfig.rb, the one reader
+# (D-57). ENV["BUNDLE_ID"] is an explicit override and there is no third tier: no
+# per-fork env-file fallback, no literal default. The same bundle id serves the macOS
+# app (Universal Purchase), so `deliver` picks the right AppStoreVersion via its
+# platform: argument.
+#
+# Three measured facts about this file's execution, all against the bundled
+# fastlane 2.238.0 on 2026-09-02 (04-RESEARCH.md Q2). Do not "simplify" any of
+# them away without re-measuring:
+#
+#   1. THE FAILURE MUST BE `abort`. CredentialsManager::AppfileConfig#try_fetch_value
+#      evaluates this file inside `rescue => ex; puts(ex.to_s); return nil`. A
+#      `raise` here printed its message and the lane ran to completion with
+#      app_identifier = nil, exit 0 — a silent substitution, which is precisely
+#      the defect D-58 exists to remove. FastlaneCore::UI.user_error! raises
+#      FastlaneError < StandardError and is swallowed identically. `abort` raises
+#      SystemExit, which `rescue => ex` does not catch: message on stderr, exit 1.
+#      Observed both directions in
+#      .planning/…/evidence/04-04-T2-fastlane-integration-controls.txt.
+#   2. `Dir.pwd`, NOT `__dir__`. AppfileConfig#initialize does
+#      `Dir.chdir(File.expand_path('..', path))` and then `eval(content)`, so
+#      inside this file __FILE__ is "(eval at …/appfile_config.rb:46)", __dir__ is
+#      nil, and Dir.pwd is the fastlane/ directory. `File.expand_path("..", Dir.pwd)`
+#      is the repo root. (In fastlane/Fastfile, which fastlane loads by file,
+#      File.dirname(__FILE__) does work — the two files resolve independently and
+#      share no Ruby constants.)
+#   3. THIS FILE IS RE-EVALUATED ON EVERY FETCH — three times in one observed lane
+#      run, because try_fetch_value reloads it each call. Everything below must
+#      stay cheap and side-effect free. It is: one small file read.
 
-app_identifier "com.indiagram.smokeapp"
+root = File.expand_path("..", Dir.pwd)
 
-# Apple ID + Team ID come from environment (populated by make ship from .bootstrap.env, or set manually).
+# `load` rather than `require_relative`: __FILE__ is an eval string here, so
+# there is no file for a relative require to be relative TO. The module is
+# core-only (zero require lines, asserted by test/xcconfig_test.rb), so loading
+# it into fastlane's process pulls in nothing. The `unless defined?` keeps the
+# repeated evaluation in fact 3 from re-reading the module every time.
+load File.join(root, "bin", "lib", "xcconfig.rb") unless defined?(Xcconfig)
+
+identity = ENV["IDENTITY_XCCONFIG"] || File.join(root, "app", "Identity.xcconfig")
+warn "IDENTITY: reading #{identity} (IDENTITY_XCCONFIG override) — not a release configuration" if ENV["IDENTITY_XCCONFIG"]
+
+# Xcconfig.value, not Xcconfig.own: fastlane wants the identity the BUILD
+# resolves, and the build follows app/Identity.xcconfig's `#include? "Local.xcconfig"`
+# tail. (`own` is for the opposite question — "what does this tracked file's own
+# text say" — which is what the IDENT-08 Team-ID leak check asks.)
+bundle_id = ENV["BUNDLE_ID"] || Xcconfig.value(identity, "BUNDLE_ID")
+
+# `.empty?` and not truthiness: Xcconfig.value returns "" for an assignment that
+# is present but empty or commented out (`BUNDLE_ID = // disabled` — `//` opens a
+# comment at any position, T-03-06/UL-031), and "" is TRUTHY in Ruby, so an `||`
+# chain would sail straight past it and send the empty string to Apple.
+abort "IDENTITY: BUNDLE_ID is missing or empty in #{identity} (set it there, or export BUNDLE_ID to override)" if bundle_id.nil? || bundle_id.empty?
+
+app_identifier bundle_id
+
+# Apple ID + Team ID come from the environment (`make ship` exports them, or set
+# them manually). These are CREDENTIALS, not identity — they are unaffected by
+# D-58 and keep their ENV-only shape.
 apple_id ENV["FASTLANE_APPLE_ID"] if ENV["FASTLANE_APPLE_ID"]
 team_id  ENV["FASTLANE_TEAM_ID"]  if ENV["FASTLANE_TEAM_ID"]

@@ -45,6 +45,7 @@ on:
   pull_request:
     paths:
       - 'test/parser_test.rb'
+      - 'test/gh_secrets_test.rb'
       - 'Makefile'
       - '.github/workflows/bootstrap-doctor-matrix.yml'
       - 'bin/lib/bootstrap.rb'
@@ -191,7 +192,7 @@ jobs:
           APP_NAME=SmokeApp
           BUNDLE_ID=com.indiagram.smoke-app
           DISPLAY_NAME='Indiagram Smoke App'
-          APP_EMAIL=smoketest@indiagram.com
+          APP_EMAIL=doctor-matrix@local.invalid
           GENERATOR=$GENERATOR
           RELEASE_MODE=$RELEASE_MODE
           FASTLANE_TEAM_ID=$FASTLANE_TEAM_ID
@@ -242,12 +243,18 @@ jobs:
         if: always()
         run: rm -rf "$SECRETS_DIR" || true
 
-  # Hermetic regression test for the .bootstrap.env parser. Runs against a
-  # fixture that mimics the .bootstrap.env.example shape — every value
-  # followed by an inline `# comment`. Catches regressions of #108's
-  # BLOCKER 2 (parser kept inline comments as part of values, breaking
-  # every downstream Apple/GH probe). No secrets, no smoketest needed:
-  # the parser is platform-agnostic and tested in isolation.
+  # Hermetic regression tests for bin/lib/bootstrap.rb. No secrets, no
+  # smoketest needed: both subjects are platform-agnostic and tested in
+  # isolation, against synthetic fixtures rather than any real .bootstrap.env.
+  #
+  #   test/parser_test.rb     — the .bootstrap.env parser. Catches regressions
+  #     of #108's BLOCKER 2 (inline `# comments` kept as part of values,
+  #     corrupting every downstream Apple/GH probe).
+  #   test/gh_secrets_test.rb — GHSecrets issues no `gh variable set`. This job
+  #     is where that guard bites, because the `paths:` filter above fires it on
+  #     any pull request touching bin/lib/bootstrap.rb, which is the file where
+  #     a re-added `gh variable set` would resurrect the two repository
+  #     variables D-56 deleted (UL-026's mechanism).
   parser-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -256,9 +263,11 @@ jobs:
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: '3.3'
-          bundler-cache: false  # parser_test.rb is stdlib-only; no bundle exec needed
+          bundler-cache: false  # both tests are stdlib-only; no bundle exec needed
       - name: Run parser regression fixtures
         run: ruby test/parser_test.rb
+      - name: Run GHSecrets repository-variable guard (D-56)
+        run: ruby test/gh_secrets_test.rb
 
   # Regression test for #108's BLOCKER 1: `make doctor` crashed with a
   # Bundler::GemNotFound stack trace on a fresh fork because no path in

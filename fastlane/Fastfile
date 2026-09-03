@@ -51,46 +51,91 @@ end
 
 # ─── Per-fork identity ────────────────────────────────────────────────────────
 #
-# APP_NAME + BUNDLE_ID are the only two values that differ between this
-# template and any fork made from it. Reading them at lane-resolution time
-# from .bootstrap.env (with ENV-var override for CI workflows) keeps this
-# entire file byte-equivalent across apple-shipkit, ios-macos-smoketest,
-# and every downstream fork.
+# The app's identity is resolved from app/Identity.xcconfig — the one tracked
+# file the BUILD resolves it from (D-45) — through bin/lib/xcconfig.rb, the one
+# reader (D-57). This file stays byte-equivalent across apple-shipkit,
+# ios-macos-smoketest and every downstream fork because it resolves a value
+# rather than carrying one.
 #
-# Resolution chain (first non-nil wins):
-#   1. ENV["APP_NAME"]  / ENV["BUNDLE_ID"]   — workflow secrets, manual override
-#   2. <repo-root>/.bootstrap.env values     — per-fork tracked config
-#   3. Template fallbacks ("SmokeApp" / "com.indiagram.smokeapp") — fail-loud
-#      defaults; if a real ship hits these, the cert / bundle-id lookups
-#      against Apple will surface "not registered" immediately.
+# Resolution chain, and there are exactly two tiers:
+#   1. ENV["BUNDLE_ID"] / ENV["APP_NAME"] — explicit operator or workflow override
+#   2. app/Identity.xcconfig's BUNDLE_ID / APP_PRODUCT_NAME, through the parser
+#   …and if neither yields a non-empty value, a NAMED FAILURE before any lane
+#   runs. There is deliberately no third tier.
 #
-# All other Fastfile constants (IOS_SCHEME, MACOS_SCHEME, IPA_NAME_PATTERN,
-# PKG_NAME_PATTERN, bundle_name) are computed from APP_NAME. Forks no longer
-# need bin/rename.sh to sed-substitute Fastfile literals.
+# WHY THERE IS NO FALLBACK DEFAULT (D-58). This block used to end in `||` and a
+# pair of template-identity string literals — this fork's product name and its
+# matching placeholder bundle id — described in this very comment as "fail-loud
+# defaults", on the theory that Apple would reject an unregistered id. Upstream
+# deleted those two literals and put its OWN template pair in the same position:
+# the literals changed, the shape did not. (The four literals, fork's and
+# upstream's, are enumerated in test/fastlane_identity_test.rb, which is where
+# they belong — spelling them here would defeat that test's frozen occurrence
+# count for the adopt_existing_app guard below.)
+# A fallback default means a fork whose identity file is missing, empty or
+# commented out does NOT fail — it proceeds under a plausible fake identity, and
+# the earliest thing that notices is an opaque error from Apple, or nothing at
+# all on any path that does not reach Apple. That is a check which structurally
+# cannot fail, this repository's dominant defect.
+#
+# The `.bootstrap.env` tier went with it under the same decision (D-58), for a
+# separate reason: that file is
+# GITIGNORED, so a fresh clone resolved identity from a file it did not have,
+# while a forker editing app/Identity.xcconfig watched fastlane ignore the edit.
+# The keys remain in .bootstrap.env for now, carrying a D-59 comment — `make
+# doctor` still validates them and reports disagreement with the xcconfig — and
+# Phase 5 removes them. Nothing on the release path reads them.
+# test/fastlane_identity_test.rb asserts all of the above from the text of this
+# file and of fastlane/Appfile, in the `review notes` required check, so it
+# cannot quietly come back.
+#
+# `.nil? || .empty?`, never truthiness: Xcconfig.value returns "" for a key that
+# is present but empty or commented out (`BUNDLE_ID = // disabled` — `//` opens a
+# comment at any position in a value; T-03-06, UL-031), and "" is TRUTHY in Ruby,
+# so an `||` chain would sail straight past it with an empty identity.
+#
+# `abort` rather than UI.user_error!: in the Fastfile either would work, but the
+# Appfile has no choice (CredentialsManager::AppfileConfig#try_fetch_value
+# swallows every StandardError — measured, see fastlane/Appfile's header), and
+# one failure shape across the two files is one message a reader learns once.
+# These constants are evaluated at LOAD time, so a missing identity fails before
+# any lane starts — including `fastlane lanes`.
+#
+# IOS_SCHEME, MACOS_SCHEME, IPA_NAME_PATTERN and PKG_NAME_PATTERN are NOT
+# derived from APP_NAME: they are the project constants of D-47
+# (app/App.xcodeproj, the App-iOS / App-macOS schemes, build/App-<version>.ipa
+# and .pkg), shared by the template and every fork — only the app's identity,
+# read by the build from app/Identity.xcconfig, differs. ci/local-release-check.sh
+# spells the same constants. Only bundle_name (in `register_app_id`) still
+# consumes APP_NAME — it names the App ID on Apple's side, which is identity, not
+# structure — and it now resolves from APP_PRODUCT_NAME, the same key the build
+# gives the product as PRODUCT_NAME.
 
-def _fork_config
-  bootstrap_env = File.join(File.dirname(__FILE__), "..", ".bootstrap.env")
-  return {} unless File.exist?(bootstrap_env)
-  File.foreach(bootstrap_env).each_with_object({}) do |line, h|
-    line = line.strip
-    next if line.empty? || line.start_with?("#")
-    k, v = line.split("=", 2)
-    next unless k && v
-    # Strip surrounding quotes (env values may be quoted) + drop inline `# …` comments.
-    v = v.sub(/\s+#.*\z/, "")
-    v = v.gsub(/\A['"]|['"]\z/, "")
-    h[k.strip] = v.strip
-  end
-end
+# The Fastfile is loaded BY FILE, so File.dirname(__FILE__) works here — the
+# Fastfile.local import at the bottom of this file already uses it. (The Appfile
+# is eval'd, where __dir__ is nil, and must use Dir.pwd. The two files share no
+# Ruby constants and resolve independently, which is why each carries its own
+# load line and its own guard.) The module is Ruby core with zero require lines,
+# so loading it into fastlane's process pulls in nothing.
+load File.expand_path("../bin/lib/xcconfig.rb", File.dirname(__FILE__)) unless defined?(Xcconfig)
 
-_FORK_CONFIG       = _fork_config
+IDENTITY_XCCONFIG  = ENV["IDENTITY_XCCONFIG"] || File.expand_path("../app/Identity.xcconfig", File.dirname(__FILE__))
+warn "IDENTITY: reading #{IDENTITY_XCCONFIG} (IDENTITY_XCCONFIG override) — not a release configuration" if ENV["IDENTITY_XCCONFIG"]
 
-APP_NAME           = ENV["APP_NAME"]  || _FORK_CONFIG["APP_NAME"]  || "SmokeApp"
-APP_IDENTIFIER     = ENV["BUNDLE_ID"] || _FORK_CONFIG["BUNDLE_ID"] || "com.indiagram.smokeapp"
-IOS_SCHEME         = "#{APP_NAME}-iOS"
-MACOS_SCHEME       = "#{APP_NAME}-macOS"
-IPA_NAME_PATTERN   = "#{APP_NAME}-%s.ipa"   # printf with version
-PKG_NAME_PATTERN   = "#{APP_NAME}-%s.pkg"
+# Xcconfig.value, not Xcconfig.own: fastlane wants the identity the BUILD
+# resolves, and the build follows app/Identity.xcconfig's `#include? "Local.xcconfig"`
+# tail. (`own` answers the opposite question — "what does this tracked file's own
+# text say" — and belongs to the IDENT-08 Team-ID leak check, not here.)
+APP_IDENTIFIER     = ENV["BUNDLE_ID"] || Xcconfig.value(IDENTITY_XCCONFIG, "BUNDLE_ID")
+APP_NAME           = ENV["APP_NAME"]  || Xcconfig.value(IDENTITY_XCCONFIG, "APP_PRODUCT_NAME")
+
+abort "IDENTITY: BUNDLE_ID is missing or empty in #{IDENTITY_XCCONFIG} (set it there, or export BUNDLE_ID to override)" if APP_IDENTIFIER.nil? || APP_IDENTIFIER.empty?
+abort "IDENTITY: APP_PRODUCT_NAME is missing or empty in #{IDENTITY_XCCONFIG} (set it there, or export APP_NAME to override)" if APP_NAME.nil? || APP_NAME.empty?
+
+IOS_SCHEME         = "App-iOS"
+MACOS_SCHEME       = "App-macOS"
+IPA_NAME_PATTERN   = "App-%s.ipa"   # printf with version; written by ci/local-release-check.sh
+PKG_NAME_PATTERN   = "App-%s.pkg"
 
 def asc_api_key
   # Decode .p8 to a tmpfile and pass key_filepath instead of key_content +
@@ -1408,7 +1453,7 @@ lane :bootstrap_asc do
 
         1. https://appstoreconnect.apple.com/apps  →  + (New App)
         2. Platforms: iOS + macOS
-           Name:      SmokeApp  (or whatever; verify uses bundle_id, not name)
+           Name:      #{APP_NAME}  (or whatever; verify uses bundle_id, not name)
            Primary language: English (U.S.)
            Bundle ID: #{bundle_id_str}
            SKU:       any-unique-string
@@ -1457,8 +1502,9 @@ lane :adopt_existing_app do |options|
   if app_identifier == "com.indiagram.smokeapp"
     UI.user_error!(
       "adopt_existing_app: BUNDLE_ID is the template placeholder " \
-      "'com.indiagram.smokeapp'. Set your real bundle id in .bootstrap.env " \
-      "first. If this is a greenfield fork (new app, no existing App Store " \
+      "'com.indiagram.smokeapp'. Set BUNDLE_ID in app/Identity.xcconfig first " \
+      "(or export BUNDLE_ID to override for one run). If this is a greenfield " \
+      "fork (new app, no existing App Store " \
       "presence), don't run adopt — just edit fastlane/metadata/en-US/*.txt " \
       "directly with your App Store copy."
     )
@@ -1510,7 +1556,7 @@ lane :adopt_existing_app do |options|
       "adopt_existing_app: no ASC App record found for bundle " \
       "'#{app_identifier}' on team #{ENV['FASTLANE_TEAM_ID']}.\n" \
       "Verify:\n" \
-      "  1. BUNDLE_ID in .bootstrap.env is your real app's bundle id\n" \
+      "  1. BUNDLE_ID in app/Identity.xcconfig is your real app's bundle id\n" \
       "  2. FASTLANE_TEAM_ID in .bootstrap.env owns the app\n" \
       "  3. ASC_API_KEY_* credentials have ASC access for this team\n" \
       "If your fork is greenfield (no existing App Store app), don't run " \

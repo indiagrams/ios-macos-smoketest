@@ -1395,8 +1395,8 @@ end
 # ─── M7: the mutation phase — gates in front, rollback underneath ────────────
 #
 # Everything below runs against a REAL git repository with a real commit and a
-# clean working tree. ci/test-verify-rename.sh:100-108 is the precedent for the
-# snapshot-and-compare shape used here rather than a checkout restore: a checkout
+# clean working tree. The rename self-test retired in Phase 5 is the precedent for
+# the snapshot-and-compare shape used here rather than a checkout restore: a checkout
 # cannot reach a post-mutation state that was never committed, and the whole
 # question these cases ask is what the tree looks like after an uncommitted
 # mutation was undone.

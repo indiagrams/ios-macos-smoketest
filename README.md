@@ -174,7 +174,7 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 │   ├── bootstrap-doctor-matrix.yml  # weekly doctor sweep across 4 cells
 │   ├── canary-trigger.yml       # weekly CI-mode ship-validation (template-only; no-op on forks)
 │   ├── canary-local-mode.yml    # weekly local-mode ship-validation (cron commented; forks opt in)
-│   └── verify-rename.yml        # gate: rename script integrity
+│   └── migrate.yml              # signal: rename→config migration self-test
 ├── Brewfile                     # xcodegen + tuist + fastlane + lefthook + swiftlint + swiftformat
 ├── Makefile                     # init | doctor | bootstrap | bootstrap-fork | ship | verify | submit | screenshots | …
 ├── lefthook.yml                 # pre-push: ci/local-check.sh --fast

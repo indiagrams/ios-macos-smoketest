@@ -2,9 +2,9 @@ name: migrate
 
 # Non-required workflow: integration self-test for the rename→config migration
 # (tools/migrate-identity.rb + ci/test-migrate-identity.sh, IDENT-14). It is the
-# successor to verify-rename.yml, which plan 05-11 retires; both files exist
-# until then, deliberately, because bin/lib/bootstrap.rb and
-# bin/refork-smoketest.sh still call bin/verify-rename.sh.
+# successor to the retired rename self-test workflow, which plan 05-12 deleted
+# along with the three shell harnesses it drove. This is now the only workflow
+# covering the identity path.
 #
 # NOT a merge gate. Measured read-only on 2026-09-03 with
 #   gh api repos/indiagrams/ios-macos-smoketest/branches/main/protection \
@@ -12,8 +12,8 @@ name: migrate
 # the live `main` protection array is NINE contexts — app (iOS device),
 # app (iOS Simulator), app (Tuist iOS device), app (Tuist iOS Simulator),
 # app (macOS), app (Tuist macOS), swiftlint, swiftformat, review notes — and
-# this job's name is deliberately not among them, exactly as verify-rename's is
-# not. This is a visible signal, not a gate.
+# this job's name is deliberately not among them, exactly as the retired rename
+# self-test's was not. This is a visible signal, not a gate.
 #
 # If a later decision makes it required, the ONLY safe writer is
 # bin/setup-github.sh's read-append-assert path (UL-003 / UL-042). NEVER
@@ -26,10 +26,9 @@ name: migrate
 on:
   pull_request:
     branches: [main, master]
-    # The CURRENT migration surface. Deliberately NOT inherited from
-    # verify-rename.yml: that filter names bin/verify-rename.sh,
-    # ci/test-verify-rename.sh and ci/test-rename.sh, three files this phase
-    # deletes, and a filter naming only deleted paths is a job that never fires.
+    # The CURRENT migration surface. Deliberately NOT inherited from the retired
+    # rename self-test workflow: its filter named only files plan 05-12 deleted,
+    # and a filter naming only deleted paths is a job that never fires.
     paths:
       - tools/migrate-identity.rb
       - ci/test-migrate-identity.sh
@@ -44,7 +43,8 @@ on:
 permissions:
   contents: read
 
-# Mirrors verify-rename.yml's: cancel stale runs on a new push to the same ref.
+# Cancel stale runs on a new push to the same ref — the convention every other
+# workflow in this repository uses.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -59,9 +59,10 @@ jobs:
     #     bundle). CI runs the FULL macOS scheme, which is more.
     #   * iOS device build: pr.yml's own comment records "typical ~40s; 5m
     #     absorbs cold caches" for the same command on this runner image.
-    #   * `brew install xcodegen`: ASSUMPTION A2 — inferred from
-    #     verify-rename.yml's 5-minute budget for the same install, NOT timed on
-    #     macos-15. Read the first run's timing and correct this number.
+    #   * `brew install xcodegen`: ASSUMPTION A2 — inherited from the 5-minute
+    #     budget the retired rename self-test workflow allowed for the same
+    #     install, NOT timed on macos-15. Read the first run's timing and correct
+    #     this number.
     timeout-minutes: 15
     strategy:
       # Both bases run even when one fails: they are different inputs, and a
@@ -92,8 +93,8 @@ jobs:
           # review-notes.yml:92, release.yml:156 and canary-local-mode.yml:165.
           fetch-depth: 0
 
-      # Already in Brewfile and .tool-versions and already installed by
-      # verify-rename.yml; not a new registry dependency. xcbeautify is
+      # Already in Brewfile and .tool-versions, and the retired rename self-test
+      # workflow installed it too; not a new registry dependency. xcbeautify is
       # deliberately NOT installed: the script runs the same xcodebuild command
       # unformatted when the formatter is absent, so a missing formatter can
       # never turn into a skipped build.

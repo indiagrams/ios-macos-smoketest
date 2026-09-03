@@ -287,16 +287,21 @@ trap 'rollback' EXIT
 #
 # Why the exclusions below (each one MEASURED with a --dry-run against this
 # tree, not inherited):
-# this file, bin/verify-rename.sh, ci/test-rename.sh and test/rename_scope_test.rb
-# each SPELL the contact address — in this file's usage block, sed patterns and
-# step announcements, and in the other three as the literal they check for. Without
-# the exclusions the email sweep would rewrite the running script and all three
-# checkers. test/rename_scope_test.rb is the sharpest of the four: it asserts that
-# THIS step still exists, by spelling the address as a frozen constant, so a sweep
-# that rewrote it would leave every fork with a test looking for the fork's own
-# address inside a script that still says the template's — a gate this script
-# broke on its way past. Found by running --dry-run rather than by reasoning
-# about it.
+# this file and test/rename_scope_test.rb each SPELL the contact address — in this
+# file's usage block, sed patterns and step announcements, and in the test as the
+# literal it checks for. Without the exclusions the email sweep would rewrite the
+# running script and its own checker. test/rename_scope_test.rb is the sharper of
+# the two: it asserts that THIS step still exists, by spelling the address as a
+# frozen constant, so a sweep that rewrote it would leave every fork with a test
+# looking for the fork's own address inside a script that still says the
+# template's — a gate this script broke on its way past. Found by running
+# --dry-run rather than by reasoning about it.
+#
+# The list also carried two exclusions for the rename self-check script and its
+# end-to-end harness, until Phase 5 deleted both files.
+# A pathspec naming a path that does not exist is not harmless decoration: it is
+# an exclusion nobody can evaluate, and the next reader has to go looking for a
+# file to find out it is gone. Removed with them.
 # app/App.xcodeproj is generated and gitignored, and .planning is gitignored;
 # both are listed so the intent survives if either ever becomes tracked.
 #
@@ -312,8 +317,6 @@ PATHSPEC_EXCLUSIONS=(
   ':!.planning'
   ':!app/App.xcodeproj'
   ':!bin/rename.sh'
-  ':!bin/verify-rename.sh'
-  ':!ci/test-rename.sh'
   ':!test/rename_scope_test.rb'
 )
 

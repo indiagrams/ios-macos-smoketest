@@ -330,11 +330,15 @@ in `project.yml` (sed pattern delimiter or escape edge case), file an
 issue against your fork — the literal patterns in `bin/rename.sh:291`
 are the source of truth and may need an update.
 
-### `bin/verify-rename.sh`
+### The retired rename self-check
 
-Same logic — it greps tracked files for the four pre-rename literals.
-Tuist puts those literals in `Project.swift`, which is tracked, which
-the script already covers. No edit required.
+Phase 5 deleted the rename self-check script along with the rename script's
+identity substitution. Identity now lives in `app/Identity.xcconfig`, which
+Tuist reads through
+`.settings(configurations:)` exactly as XcodeGen reads it through
+`configFiles:` — so there is nothing generator-specific left to check here.
+`ruby bin/preflight-identity.rb` is the replacement, and it reads the same
+one file under either generator.
 
 ## Step 4 — Validate end-to-end
 
@@ -403,8 +407,8 @@ After migrating on a fresh fork:
       mutates the workflow — plus 3 Tuist parity) green on the PR.
 - [ ] The macOS app bundle's `.icns` matches `app/macOS/Resources/AppIcon.icns`
       by SHA-256 (post-build script ran correctly).
-- [ ] `bin/rename.sh` followed by `bin/verify-rename.sh` exits 0 on a
-      fresh test rename.
+- [ ] `ruby bin/preflight-identity.rb` exits 0 against
+      `app/Identity.xcconfig` after the migration.
 - [ ] Signed release flow: `fastlane release tag:v0.0.0 skip_upload:true skip_tag:true`
       produces signed `.ipa` + `.pkg` artifacts in `build/`. (Optional
       but recommended if you ship via fastlane.)

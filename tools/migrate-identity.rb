@@ -16,21 +16,33 @@
 #                         LOUDLY and never as a bare exit 0
 #   partially migrated    any mixture — refused, naming every mixed signal
 #
-# WHAT THIS FILE DOES, AND WHAT IT STILL DOES NOT
+# WHAT THIS FILE DOES
 #
-# The VALUE half is implemented (plan 05-03): it reads the fork's identity from
-# what the build actually resolves, writes app/Identity.xcconfig and proves the
-# write by reading it back through the one parser, and relocates the Apple Team
-# ID into gitignored app/Local.xcconfig behind a git-confirmed ignore gate. All
-# of it sits behind bin/rename.sh's gate order and on top of a port of its
-# atomic rollback.
+# The VALUE half (plan 05-03): it reads the fork's identity from what the build
+# actually resolves, writes app/Identity.xcconfig and proves the write by reading
+# it back through the one parser, and relocates the Apple Team ID into gitignored
+# app/Local.xcconfig behind a git-confirmed ignore gate.
 #
-# The STRUCTURAL half — the file moves, the @main struct, the manifest rewiring
-# onto $(VAR) references and the regeneration — lands in plan 05-04. Until it
-# does, a completed value half exits 4 with a LOUD report saying the tree is
-# partially migrated, never exit 0: a migration that reports success while the
-# manifests still carry literals is the same defect as one that reports success
-# without having looked.
+# The STRUCTURAL half (plan 05-04): five history-preserving `git mv`s and the
+# declarations inside the moved files, both manifests rewritten so every identity
+# setting is a $(VAR) reference into app/Identity.xcconfig rather than a literal,
+# the .gitignore project paths, the stale generated project removed and its
+# absence PROVEN, regeneration, and finally the tree's own identity gate run and
+# required to exit 0.
+#
+# All of it sits behind bin/rename.sh's gate order and on top of a port of its
+# atomic rollback, so a failure anywhere in that sequence restores the tree
+# rather than leaving it half migrated.
+#
+# THE ONE THING THE STRUCTURAL HALF MUST NOT DO
+#
+# In a pre-#281 fork, structure and identity are THE SAME TOKEN. A reverse sweep
+# that rewrote every occurrence of the token would take the forker's own choices
+# with it: app/Shared/AccessibilityIdentifiers.swift's "<N>.title" is a UI-test
+# selector, app/Shared/Localizable.xcstrings' key is user-visible, and
+# app/Shared/ContentView.swift's Text("<N>") is what the running app draws. So
+# the sites are ENUMERATED, no glob in this file writes anything, and the suite
+# asserts those files' SHA-256 digests across a migration.
 #
 # WHY THE IDENTITY IS READ FROM THE BUILD AND NOT FROM THE MANIFESTS
 #
@@ -132,12 +144,15 @@
 #   3    | partially migrated: a mixture of migrated and         | every mixed signal, comma-separated, and
 #        | un-migrated state, including a present-but-           | every missing identity variable
 #        | incomplete app/Identity.xcconfig                       |
-#   4    | a mutation-phase refusal: a gate in front of the      | what would have been migrated, and why it
-#        | mutation (toolchain, clean tree, on main, no          | was not; for the plan boundary, exactly what
-#        | generated project, a Team ID that must not be         | WAS written and how to restore the tree
-#        | written), an injected fixture failure, or the plan    |
-#        | boundary — the value half done, the structural half   |
-#        | still ahead in plan 05-04                            |
+#   4    | a mutation-phase refusal: a gate in front of the      | what would have been migrated and why it
+#        | mutation (toolchain, clean tree, on main, no          | was not; for a manifest whose shape cannot
+#        | generated project, a Team ID that must not be         | be rewired, the rule and the count that fell
+#        | written), a must-not-touch file that is not there,     | short; for a surviving stale project, its
+#        | a manifest this command cannot rewire, a stale        | path; and always that the tree was rolled
+#        | generated project that survives its removal, a        | back
+#        | failed git mv or generation, a migrated tree that     |
+#        | fails its own identity gate, or an injected fixture   |
+#        | failure                                               |
 #
 # Exit 2 versus exit 3 is the tools/asc-probe.rb idiom, restated at
 # bin/preflight-identity.rb:32-48: "not found" is a distinct outcome from
@@ -156,14 +171,16 @@
 # Usage:
 #   ruby tools/migrate-identity.rb --dry-run              # detect this repository, write nothing
 #   ruby tools/migrate-identity.rb --root PATH --dry-run  # detect the tree at PATH (fixtures)
-#   ruby tools/migrate-identity.rb --root PATH            # migrate it (plan 05-03)
+#   ruby tools/migrate-identity.rb --root PATH            # migrate it
 #
-# Ruby core only, exactly ONE require-family line — require_relative of a sibling
-# in this repository that itself has zero requires, not even stdlib
-# (test/xcconfig_test.rb asserts that, so it cannot rot). Nothing outside core is
-# loaded on any path, which is what lets .github/workflows/review-notes.yml keep
-# bundler-cache: false. Do NOT add a YAML gem to read app/project.yml: the
-# manifest's `name:` is read line-orientedly below for exactly that reason.
+# Ruby core only, TWO require-family lines and no gem: `require "rbconfig"` (core
+# stdlib — see the note beside it, and the measurement that made it explicit) and
+# a require_relative of a sibling in this repository that itself has zero
+# requires, not even stdlib (test/xcconfig_test.rb asserts that, so it cannot
+# rot). Nothing outside core is loaded on any path, which is what lets
+# .github/workflows/review-notes.yml keep bundler-cache: false. Do NOT add a YAML
+# gem to read app/project.yml, or a Swift parser to read app/Project.swift: both
+# manifests are read and rewritten line-orientedly below for exactly that reason.
 #
 # RESCUE POLICY. Every rescue in this file names a class and is commented with
 # what it is for. Two name Xcconfig::MissingInclude ("your include is broken"
@@ -180,6 +197,15 @@
 # stood in for, and leaving it would have swallowed a genuine NotImplementedError
 # raised from deeper inside the migration.
 
+# Ruby core, and the ONLY stdlib require in this file. It exists for exactly one
+# line: the post-migration identity gate is run through RbConfig.ruby — the
+# interpreter running THIS process — never through PATH's `ruby`, which on a bare
+# shell here is /usr/bin/ruby 2.6.10. MEASURED 2026-09-03: `ruby --disable-gems
+# -e 'p RbConfig.ruby'` raises NameError, so RbConfig is NOT ambiently available
+# and relying on rubygems having loaded it would be inferring a fact from a
+# default. It pulls in no gem, so .github/workflows/review-notes.yml keeps
+# bundler-cache: false.
+require "rbconfig"
 require_relative "../bin/lib/xcconfig"
 
 # Resolved from __dir__, never from the CWD, so the default is the same whether
@@ -202,6 +228,25 @@ REL_PROJECT_YML   = "app/project.yml"
 REL_ENTITLEMENTS  = "app/iOS/App.entitlements"
 REL_PROJECT_SWIFT = "app/Project.swift"
 REL_LOCAL         = "app/Local.xcconfig"
+REL_GITIGNORE     = ".gitignore"
+
+# The forker's own choices, spelled with the same token their structure is
+# spelled with. Never opened for writing on any path in this file, asserted by
+# SHA-256 digest across a migration in test/migrate_identity_test.rb, and
+# required to be PRESENT before the mutation begins — because "this migration
+# did not touch app/Shared/Localizable.xcstrings" is trivially true of a tree
+# that does not have one, and a guard satisfiable by absence is not a guard.
+MUST_NOT_TOUCH = %w[
+  app/Shared/AccessibilityIdentifiers.swift
+  app/Shared/Localizable.xcstrings
+  app/Shared/PrivacyInfo.xcprivacy
+].freeze
+
+# app/Shared/ContentView.swift is a fourth file of the same kind — Text("<N>") is
+# the string the running app draws — and it is likewise never opened for writing.
+# It is not in the refusal list above only because a fork may legitimately have
+# replaced that view, and a precondition nobody can satisfy is a gate that gets
+# deleted rather than fixed.
 
 # The two platforms, and the one configuration the identity is read from. Debug
 # rather than Release because a pre-#281 fork's Release configuration may not
@@ -574,7 +619,7 @@ end
 say "state: #{STATE_NEVER} — none of the four migration signals is present in #{root}"
 say "detected structural token: #{token}, read #{derivations.length} independent way(s):"
 derivations.each { |source, value| say "  #{source} => #{value}" }
-say "planned transformation (implemented in plans 05-03 and 05-04):"
+say "planned transformation:"
 say "  1. write #{REL_IDENTITY} with #{REQUIRED_VARS.join(', ')}, read from this tree's"
 say "     currently resolved build settings"
 say "  2. app/Shared/#{token}.swift -> #{REL_APP_SWIFT}, and struct #{token}Main -> struct #{MIGRATED_TOKEN}Main"
@@ -583,6 +628,8 @@ say "  4. #{REL_PROJECT_YML} and app/Project.swift onto the constant #{MIGRATED_
 say "     targets, schemes and entitlement paths — with every identity setting a $(VAR)"
 say "     reference into #{REL_IDENTITY} rather than a literal"
 say "  5. regenerate app/#{MIGRATED_TOKEN}.xcodeproj and drop app/#{token}.xcodeproj (both gitignored)"
+say "and leave #{MUST_NOT_TOUCH.join(', ')} and app/Shared/ContentView.swift"
+say "  BYTE-IDENTICAL: the token in those is your choice, not this template's structure"
 say "KNOWN BREAKING CHANGE (A-05): the built executable's filename changes, because a"
 say "  pre-#281 renamed fork resolves PRODUCT_NAME to the target name including its platform"
 say "  suffix while a migrated tree resolves one value. If you have a LIVE App Store listing,"
@@ -1281,9 +1328,773 @@ def move_team_id(root)
   local_path
 end
 
+# --- the structural half: a FROZEN list of sites, and nothing else -------------
+#
+# In a pre-#281 fork, structure and identity are THE SAME TOKEN. A reverse sweep
+# that rewrote every occurrence of the token to `App` would eat the forker's own
+# choices along with their structure: app/Shared/AccessibilityIdentifiers.swift's
+# "<N>.title" is a UI-test selector (a contract between the views and the tests),
+# app/Shared/Localizable.xcstrings' key is user-visible, and
+# app/Shared/ContentView.swift's Text("<N>") is what the running app draws on
+# screen. So the sites below are ENUMERATED. There is no Dir.glob write path in
+# this file and no whole-tree walk that writes; a file that is not named here is
+# never opened for writing.
+#
+# The transformation is not invented here. It is the same one performed by hand
+# twice — `git diff 6a93204 48427a7` (this repository's structural freeze) and
+# `git diff 212b489 c6c324f` (upstream #281) — and CHANGELOG.md:55 is its prose
+# specification. Measured at e773cfc on 2026-09-03: exactly five token-named
+# files under app/, six token-named targets, six token-named scheme references.
+
+# The six suffixes a target or scheme name can carry. LONGEST FIRST: with
+# "Tests" ahead of "MacOSTests" the alternation would match <N>MacOSTests as
+# <N> + nothing and leave "MacOSTests" stranded on the wrong side of the rewrite.
+STRUCT_SUFFIXES = ["-macOS", "-iOS", "MacOSUITests", "MacOSTests", "UITests", "Tests"].freeze
+SUFFIX_ALT      = STRUCT_SUFFIXES.map { |suffix| Regexp.escape(suffix) }.join("|")
+
+# Written by plan 05-06 — it does not exist in this repository yet, and this
+# command deliberately does not assert that the path resolves. It is a pointer
+# for the operator, not a file this run depends on.
+MIGRATION_DOC = "docs/MIGRATING-FROM-RENAME.md"
+
+# The identity gate this migration must leave green. Resolved from __dir__, the
+# same anchor as the require_relative at the top of this file, and for the same
+# reason: this command ships as a unit with the library and the gate it depends
+# on. MEASURED 2026-09-03 — `git cat-file -e e773cfc:bin/preflight-identity.rb`
+# fails, so a PRE-#281 fork has neither this gate nor bin/lib/xcconfig.rb, and
+# resolving either out of the tree being migrated would resolve nothing.
+PREFLIGHT = File.expand_path("../bin/preflight-identity.rb", __dir__)
+
+# Five, and this is the whole list. Verified against e773cfc's tree: no other
+# tracked file under app/ carries the token in its NAME.
+def structural_renames(token)
+  {
+    "app/Shared/#{token}.swift"               => "app/Shared/#{MIGRATED_TOKEN}.swift",
+    "app/iOS/#{token}.entitlements"           => "app/iOS/#{MIGRATED_TOKEN}.entitlements",
+    "app/macOS/#{token}.entitlements"         => "app/macOS/#{MIGRATED_TOKEN}.entitlements",
+    "app/Tests/#{token}Tests.swift"           => "app/Tests/#{MIGRATED_TOKEN}Tests.swift",
+    "app/MacOSTests/#{token}MacOSTests.swift" => "app/MacOSTests/#{MIGRATED_TOKEN}MacOSTests.swift"
+  }
+end
+
+# The declarations inside the moved files. They move in the SAME operation as the
+# files: a rename without them leaves the project not compiling, which is a state
+# no rollback of a later step would explain.
+#
+# Anchored at the start of a line and to the full declaration. An unanchored token
+# replace inside these files is the reverse sweep this whole section exists to
+# refuse.
+def declaration_rewrites(token)
+  escaped = Regexp.escape(token)
+  {
+    "app/Shared/#{MIGRATED_TOKEN}.swift" =>
+      [["@main struct", /^(\s*)struct\s+#{escaped}Main(\s*:\s*App\s*\{)/,
+        "\\1struct #{MIGRATED_TOKEN}Main\\2"]],
+    "app/Tests/#{MIGRATED_TOKEN}Tests.swift" =>
+      [["unit-test class", /^(\s*)final class\s+#{escaped}Tests(?![A-Za-z0-9_])/,
+        "\\1final class #{MIGRATED_TOKEN}Tests"]],
+    "app/MacOSTests/#{MIGRATED_TOKEN}MacOSTests.swift" =>
+      [["macOS unit-test class", /^(\s*)final class\s+#{escaped}MacOSTests(?![A-Za-z0-9_])/,
+        "\\1final class #{MIGRATED_TOKEN}MacOSTests"]]
+  }
+end
+
+# `git mv`, through an argv array, one path at a time. NOT a copy-and-delete:
+# the end state of the two is identical and only `git diff -M --name-status`
+# tells them apart, so a copy would leave the migration unreviewable (T-05-20)
+# while every file-level assertion stayed green.
+def perform_structural_rename(root, token)
+  moves = structural_renames(token)
+  missing = moves.keys.reject { |rel| File.exist?(File.join(root, rel)) }
+  unless missing.empty?
+    fail_with 4, "this tree is missing #{missing.length} of the five structural files this " \
+                 "migration renames: #{missing.join(', ')}. Every fork of this template carries " \
+                 "all five under its own token; a tree that does not is not one this command " \
+                 "understands, and renaming the rest would leave a project that does not build."
+  end
+
+  present = moves.values.select { |rel| File.exist?(File.join(root, rel)) }
+  unless present.empty?
+    fail_with 4, "#{present.join(', ')} already exist(s) alongside the un-migrated originals. " \
+                 "This tree is half renamed and this command will not choose which copy wins."
+  end
+
+  moves.each do |from, to|
+    _, err, status = capture(["git", "mv", "--", from, to], chdir: root)
+    next if status.zero?
+
+    fail_with 4, "git mv #{from} #{to} exited #{status} in #{root}: #{err.strip}. History-" \
+                 "preserving moves are the whole point of using git mv here; a copy-and-delete " \
+                 "would produce the same tree and an unreviewable diff."
+  end
+
+  declaration_rewrites(token).each do |relative, rules|
+    path = File.join(root, relative)
+    body = read_utf8(path)
+    rules.each do |label, pattern, replacement|
+      updated = body.gsub(pattern, replacement)
+      if updated == body
+        fail_with 4, "#{relative} was moved but its #{label} declaration does not match the " \
+                     "anchored pattern #{pattern.source.inspect}. The file moved and its " \
+                     "declaration did not, which is a project that no longer compiles — " \
+                     "refusing rather than leaving that behind."
+      end
+      body = updated
+    end
+    File.binwrite(path, body)
+  end
+
+  moves
+end
+
+# --- the manifest rewrite engine ----------------------------------------------
+#
+# Line-oriented, deliberately. There is no YAML parser and no Swift parser in this
+# tree; adding one would cost bin/lib/xcconfig.rb its zero-require property and
+# .github/workflows/review-notes.yml its `bundler-cache: false`, for two files.
+# bin/rename.sh and every existing instrument in this repository already work this
+# way.
+#
+# Each rule is [name, pattern, transform]. The transform receives the MatchData
+# and the chomped line and returns nil (this rule does not apply, try the next),
+# or an Array of replacement lines — possibly empty, which deletes the line. The
+# FIRST rule that returns non-nil wins, which is why every identity rule is
+# ordered ahead of every structural one: in a pre-#281 fork
+# `CFBundleDisplayName: <N>` is BOTH, and it must become $(DISPLAY_NAME) rather
+# than the constant `App`.
+def apply_line_rules(body, rules, counts)
+  body = "#{body}\n" unless body.empty? || body.end_with?("\n")
+  out         = []
+  skip_indent = nil
+
+  body.lines.each do |raw|
+    line = raw.chomp
+
+    # A block scalar (`script: |`) holds arbitrary text that is not this
+    # manifest's own vocabulary, so nothing inside one is ever rewritten.
+    unless skip_indent.nil?
+      if line.strip.empty? || line[/\A */].length > skip_indent
+        out << raw
+        next
+      end
+      skip_indent = nil
+    end
+
+    replacement = nil
+    rules.each do |name, pattern, transform|
+      match = pattern.match(line)
+      next if match.nil?
+
+      result = transform.call(match, line)
+      next if result.nil?
+
+      counts[name] = counts.fetch(name, 0) + 1
+      replacement  = result
+      break
+    end
+
+    if replacement.nil?
+      out << raw
+    else
+      out.concat(replacement.map { |text| "#{text}\n" })
+    end
+
+    skip_indent = line[/\A */].length if line.match?(/\A\s*[\w.~-]+:\s*[|>][-+0-9]*\s*\z/)
+  end
+
+  out.join
+end
+
+# Every mandatory site is a COUNT, not a boolean. A manifest whose shape this
+# command does not recognise is a refusal that names the rule and the file, not a
+# silent partial rewrite — a half-rewired manifest resolves some identity from the
+# xcconfig and some from a literal, and the literal wins in the generated project.
+def require_rule_counts(relative, counts, minimums)
+  short = minimums.reject { |name, minimum| counts.fetch(name, 0) >= minimum }
+  return if short.empty?
+
+  detail = short.map { |name, minimum| "#{name}: expected at least #{minimum}, applied #{counts.fetch(name, 0)}" }
+  fail_with 4, "#{relative} is not shaped like a manifest this command can rewire — " \
+               "#{detail.join('; ')}. Rewriting the rest and leaving these would produce a " \
+               "manifest that resolves some of its identity from #{REL_IDENTITY} and some from " \
+               "a literal, and the literal wins in the generated project. Nothing was written to " \
+               "#{relative}."
+end
+
+# PRODUCT_BUNDLE_IDENTIFIER, on both generators. The four test bundles derive
+# from the app's id with a fixed suffix (measured on e773cfc: `.uitests`,
+# `.tests`, `.macuitests`, `.mactests`), so the suffix is PRESERVED and only the
+# stem becomes the reference — that is what keeps app/Identity.xcconfig at four
+# keys. A value that is neither the app's id nor a suffix of it is the forker's
+# own choice and is left exactly as it is.
+def bundle_reference(value, bundle_id)
+  return "$(BUNDLE_ID)" if value == bundle_id
+  return "$(BUNDLE_ID)#{value[bundle_id.length..]}" if value.start_with?("#{bundle_id}.")
+
+  nil
+end
+
+# Rewrites the token where it names STRUCTURE inside a comment, so a migrated
+# fork does not keep prose describing a project that no longer exists. Scoped to
+# comment lines of the two manifests, which are on the frozen list; it can never
+# reach app/Shared/. The trailing boundary is what stops <N> matching inside
+# <N>UITests and producing `AppUITests` twice over.
+def rewrite_comment_token(line, token)
+  line.gsub(/(?<![A-Za-z0-9_])#{Regexp.escape(token)}(#{SUFFIX_ALT})?(?![A-Za-z0-9_])/) do
+    "#{MIGRATED_TOKEN}#{Regexp.last_match(1)}"
+  end
+end
+
+def project_yml_rules(token, bundle_id, insert_product_name)
+  escaped = Regexp.escape(token)
+  [
+    # ── identity, always ahead of structure ──────────────────────────────────
+    ["yml-bundle-id", /\A(\s*)PRODUCT_BUNDLE_IDENTIFIER:\s*(\S.*?)\s*\z/,
+     lambda { |match, _line|
+       reference = bundle_reference(match[2], bundle_id)
+       next nil if reference.nil?
+
+       lines = ["#{match[1]}PRODUCT_BUNDLE_IDENTIFIER: #{reference}"]
+       # D-49, by construction: PRODUCT_NAME is emitted beside a PER-TARGET
+       # bundle id and nowhere else, so it can never land at project level where
+       # it would leak into all four test bundles and collide the two iOS .xctest
+       # bundles at one path. The bare id (no suffix) is what identifies an APP
+       # target — measured on e773cfc, where the four test bundles all carry one.
+       if insert_product_name && reference == "$(BUNDLE_ID)"
+         lines << "#{match[1]}PRODUCT_NAME: $(APP_PRODUCT_NAME)"
+       end
+       lines
+     }],
+    ["yml-display-name", /\A(\s*)CFBundleDisplayName:\s*(.*)\z/,
+     ->(match, _line) { ["#{match[1]}CFBundleDisplayName: $(DISPLAY_NAME)"] }],
+    ["yml-copyright-plist", /\A(\s*)NSHumanReadableCopyright:\s*(.*)\z/,
+     ->(match, _line) { ["#{match[1]}NSHumanReadableCopyright: $(COPYRIGHT)"] }],
+    # T-05-22. INFOPLIST_KEY_NSHumanReadableCopyright reaches the bundle only
+    # under GENERATE_INFOPLIST_FILE = YES, and an app target carrying its own
+    # Info.plist does not set it — the setting resolves in -showBuildSettings and
+    # the built plist has no key. This repository shipped that defect once
+    # (b8b1ac9). The value moves into the plist block below; the key goes.
+    ["yml-copyright-infoplist-key", /\A\s*INFOPLIST_KEY_NSHumanReadableCopyright:\s*.*\z/,
+     ->(_match, _line) { [] }],
+
+    # ── structure ────────────────────────────────────────────────────────────
+    ["yml-project-name", /\A(name:\s*)#{escaped}\s*\z/,
+     ->(_match, _line) { ["name: #{MIGRATED_TOKEN}"] }],
+    ["yml-entitlements", %r{\A(\s*CODE_SIGN_ENTITLEMENTS:\s*(?:iOS|macOS)/)#{escaped}(\.entitlements)\s*\z},
+     ->(match, _line) { ["#{match[1]}#{MIGRATED_TOKEN}#{match[2]}"] }],
+    ["yml-key-token", /\A(\s*)#{escaped}(#{SUFFIX_ALT}):(\s*.*)\z/,
+     ->(match, _line) { ["#{match[1]}#{MIGRATED_TOKEN}#{match[2]}:#{match[3]}"] }],
+    ["yml-list-target", /\A(\s*-\s+target:\s*)#{escaped}(#{SUFFIX_ALT})\s*\z/,
+     ->(match, _line) { ["#{match[1]}#{MIGRATED_TOKEN}#{match[2]}"] }],
+    ["yml-list-token", /\A(\s*-\s+)#{escaped}(#{SUFFIX_ALT})\s*\z/,
+     ->(match, _line) { ["#{match[1]}#{MIGRATED_TOKEN}#{match[2]}"] }],
+    ["yml-value-token", /\A(\s*[A-Za-z_][A-Za-z0-9_]*:\s+)#{escaped}(#{SUFFIX_ALT})?\s*\z/,
+     ->(match, _line) { ["#{match[1]}#{MIGRATED_TOKEN}#{match[2]}"] }],
+    ["yml-comment", /\A\s*#.*#{escaped}/,
+     ->(_match, line) { [rewrite_comment_token(line, token)] }]
+  ]
+end
+
+def project_swift_rules(token, bundle_id)
+  escaped = Regexp.escape(token)
+  [
+    ["swift-bundle-id", /\A(\s*(?:bundleId:|"PRODUCT_BUNDLE_IDENTIFIER":)\s*")([^"]*)("\s*,?)\s*\z/,
+     lambda { |match, _line|
+       reference = bundle_reference(match[2], bundle_id)
+       next nil if reference.nil?
+
+       ["#{match[1]}#{reference}#{match[3]}"]
+     }],
+    ["swift-display-name", /\A(\s*"CFBundleDisplayName":\s*")([^"]*)("\s*,?)\s*\z/,
+     ->(match, _line) { ["#{match[1]}$(DISPLAY_NAME)#{match[3]}"] }],
+    ["swift-copyright-plist", /\A(\s*"NSHumanReadableCopyright":\s*")([^"]*)("\s*,?)\s*\z/,
+     ->(match, _line) { ["#{match[1]}$(COPYRIGHT)#{match[3]}"] }],
+    ["swift-copyright-infoplist-key", /\A\s*"INFOPLIST_KEY_NSHumanReadableCopyright":\s*".*\z/,
+     ->(_match, _line) { [] }],
+    # Tuist's equivalent of XcodeGen's configFiles:. Matched on the exact shape
+    # e773cfc ships; a manifest the forker has reshaped gets a named refusal from
+    # require_rule_counts rather than a silent skip that would leave the xcconfig
+    # attached to nothing.
+    ["swift-configurations",
+     /\A(\s*)settings:\s*\.settings\(base:\s*(\w+)(?:,\s*defaultSettings:\s*\.(\w+))?\)(,?)\s*\z/,
+     lambda { |match, _line|
+       indent = match[1]
+       inner  = "#{indent}    "
+       lines  = ["#{indent}settings: .settings(", "#{inner}base: #{match[2]},",
+                 "#{inner}configurations: [",
+                 "#{inner}    .debug(name: \"Debug\", xcconfig: \"Identity.xcconfig\"),",
+                 "#{inner}    .release(name: \"Release\", xcconfig: \"Identity.xcconfig\"),",
+                 "#{inner}],"]
+       lines << "#{inner}defaultSettings: .#{match[3]}" unless match[3].nil?
+       lines << "#{indent})#{match[4]}"
+       lines
+     }],
+    # Structure, in Swift, is only ever a STRING LITERAL: a target name, a scheme
+    # name, a dependency name or an entitlements path. Restricting the rewrite to
+    # complete literals whose content is exactly one of those is the anchoring —
+    # a comment mentioning the token is handled separately and prose is never
+    # touched by this rule.
+    ["swift-structural-literal", /"(?:#{escaped}(?:#{SUFFIX_ALT})?|(?:iOS|macOS)\/#{escaped}\.entitlements)"/,
+     lambda { |_match, line|
+       # gsub, never sub: `["<N>UITests", "<N>Tests"],` is one line carrying two
+       # literals, and String#sub would rewrite the first and leave the second.
+       [line.gsub(/"(#{escaped}(?:#{SUFFIX_ALT})?|(?:iOS|macOS)\/#{escaped}\.entitlements)"/) do
+         %("#{Regexp.last_match(1).sub(token, MIGRATED_TOKEN)}")
+       end]
+     }],
+    ["swift-comment", %r{\A\s*//.*#{escaped}},
+     ->(_match, line) { [rewrite_comment_token(line, token)] }]
+  ]
+end
+
+# Attaches Identity.xcconfig to every configuration. Inserted immediately before
+# the top-level `settings:` block, which is where both this repository's manifest
+# and upstream's put it.
+def yaml_insert_config_files(body)
+  return [body, 0] if body.match?(/^configFiles:/)
+
+  lines = body.lines
+  at    = lines.index { |line| line.chomp == "settings:" }
+  return [body, 0] if at.nil?
+
+  block = [
+    "# Identity.xcconfig is the base layer of every configuration. It ends in\n",
+    "# `#include? \"Local.xcconfig\"`, the gitignored per-clone file that carries\n",
+    "# DEVELOPMENT_TEAM.\n",
+    "configFiles:\n",
+    "  Debug: Identity.xcconfig\n",
+    "  Release: Identity.xcconfig\n",
+    "\n"
+  ]
+  lines.insert(at, *block)
+  [lines.join, 1]
+end
+
+# The copyright, into every `info: properties:` block that does not already carry
+# it — which after the INFOPLIST_KEY_ deletion above is the iOS one. Block bounds
+# come from indentation, which in YAML IS the structure.
+def yaml_insert_plist_copyright(body)
+  lines    = body.lines
+  out      = []
+  index    = 0
+  inserted = 0
+
+  while index < lines.length
+    line  = lines[index]
+    out << line
+    match = line.chomp.match(/\A(\s*)properties:\s*\z/)
+    if match.nil?
+      index += 1
+      next
+    end
+
+    open_indent = match[1].length
+    last        = index
+    probe       = index + 1
+    while probe < lines.length
+      break if !lines[probe].strip.empty? && lines[probe][/\A */].length <= open_indent
+
+      last  = probe
+      probe += 1
+    end
+
+    block = lines[(index + 1)..last] || []
+    unless block.any? { |row| row.match?(/\A\s*NSHumanReadableCopyright:/) }
+      display_at = block.index { |row| row.match?(/\A\s*CFBundleDisplayName:/) }
+      unless display_at.nil?
+        block = block.dup
+        block.insert(display_at + 1,
+                     "#{block[display_at][/\A */]}NSHumanReadableCopyright: $(COPYRIGHT)\n")
+        inserted += 1
+      end
+    end
+
+    out.concat(block)
+    index = last + 1
+  end
+
+  [out.join, inserted]
+end
+
+# TEST_HOST, and this one is not tidiness — without it the migrated project's
+# `xcodebuild test` cannot run at all.
+#
+# MEASURED 2026-09-03 on a real e773cfc fork renamed by bin/rename.sh itself and
+# migrated by this command with the real toolchain, read from
+# `xcodebuild -showBuildSettings` rather than from the manifest:
+#
+#   target AppTests   TEST_HOST = .../Debug-iphoneos/App-iOS.app/App-iOS
+#   target App-iOS    PRODUCT_NAME = MigrateFixture
+#                     EXECUTABLE_PATH = MigrateFixture.app/MigrateFixture
+#
+# XcodeGen derives a unit-test bundle's TEST_HOST from the host TARGET NAME at
+# GENERATION time, while D-49's per-target PRODUCT_NAME = $(APP_PRODUCT_NAME) —
+# which this migration has just added — resolves at BUILD time. Nothing builds at
+# the derived path and `xcodebuild test` fails with "Could not find test host".
+# This repository shipped exactly that defect once and fixed it at 23c7124
+# (app/project.yml:208-218); a migration that added the PRODUCT_NAME half without
+# this half would hand every migrating fork the same broken project.
+#
+# UI-test bundles are deliberately untouched: they use TEST_TARGET_NAME, which is
+# a TARGET name and is correct as it stands, and they carry no TEST_HOST.
+#
+# The Tuist manifest needs no counterpart: HEAD's app/Project.swift sets no
+# TEST_HOST and its two Tuist contexts are green on main, because Tuist spells the
+# host path from productName: itself. That is assumption A4 — stated here, and
+# carried to plan 05-05's Tuist CI cell, not resolved by this comment.
+def yaml_insert_test_host(body)
+  lines = body.lines
+  start = lines.index { |line| line.chomp == "targets:" }
+  return [body, 0, 0] if start.nil?
+
+  # An indent-0 COMMENT is a section divider inside `targets:` in both this
+  # repository's manifest and e773cfc's, so only a non-blank, non-comment line at
+  # indent 0 ends the block. Treating any indent-0 line as the end would stop at
+  # the first `# ─── macOS app ───` and silently skip every target after it.
+  finish = start + 1
+  while finish < lines.length
+    row = lines[finish]
+    break if !row.strip.empty? && !row.start_with?("#") && row[/\A */].empty?
+
+    finish += 1
+  end
+
+  out        = lines[0..start]
+  index      = start + 1
+  inserted   = 0
+  unit_tests = 0
+
+  while index < finish
+    line  = lines[index]
+    match = line.chomp.match(/\A(\s{2})([A-Za-z_][A-Za-z0-9_.-]*):\s*\z/)
+    if match.nil?
+      out << line
+      index += 1
+      next
+    end
+
+    last  = index
+    probe = index + 1
+    while probe < finish
+      break if !lines[probe].strip.empty? && lines[probe][/\A */].length <= 2
+
+      last  = probe
+      probe += 1
+    end
+
+    block = lines[(index + 1)..last] || []
+    if block.any? { |row| row.match?(/\A\s*type:\s*bundle\.unit-test\s*\z/) }
+      unit_tests += 1
+      unless block.any? { |row| row.match?(/\A\s*TEST_HOST:/) }
+        host_at = block.index { |row| row.match?(/\A\s*TEST_TARGET_NAME:/) }
+        unless host_at.nil?
+          mac    = block.any? { |row| row.match?(/\A\s*platform:\s*macOS\s*\z/) } ||
+                   block.any? { |row| row.match?(/\A\s*TEST_TARGET_NAME:.*-macOS\s*\z/) }
+          indent = block[host_at][/\A */]
+          suffix = mac ? ".app/Contents/MacOS/$(APP_PRODUCT_NAME)" : ".app/$(APP_PRODUCT_NAME)"
+          block  = block.dup
+          block.insert(host_at + 1,
+                       "#{indent}# XcodeGen bakes the host TARGET name into TEST_HOST at generation\n",
+                       "#{indent}# time, but PRODUCT_NAME resolves at BUILD time from\n",
+                       "#{indent}# $(APP_PRODUCT_NAME) — so the derived path names an app that is\n",
+                       "#{indent}# never built. Spell the host path from the product name instead.\n",
+                       "#{indent}TEST_HOST: $(BUILT_PRODUCTS_DIR)/$(APP_PRODUCT_NAME)#{suffix}\n",
+                       "#{indent}BUNDLE_LOADER: $(TEST_HOST)\n")
+          inserted += 1
+        end
+      end
+    end
+
+    out << line
+    out.concat(block)
+    index = last + 1
+  end
+
+  out.concat(lines[finish..] || [])
+  [out.join, inserted, unit_tests]
+end
+
+# The Tuist equivalent: every [String: Plist.Value] dictionary that lacks the key
+# gets it beside CFBundleDisplayName.
+def swift_insert_plist_copyright(body)
+  lines    = body.lines
+  out      = []
+  index    = 0
+  inserted = 0
+
+  while index < lines.length
+    line = lines[index]
+    out << line
+    unless line.chomp.match?(/\A\s*let\s+\w+:\s*\[String:\s*Plist\.Value\]\s*=\s*\[\s*\z/)
+      index += 1
+      next
+    end
+
+    close = index + 1
+    close += 1 while close < lines.length && !lines[close].chomp.match?(/\A\]\s*\z/)
+    block = lines[(index + 1)...close] || []
+    unless block.any? { |row| row.include?('"NSHumanReadableCopyright"') }
+      display_at = block.index { |row| row.match?(/\A\s*"CFBundleDisplayName":/) }
+      unless display_at.nil?
+        block = block.dup
+        block.insert(display_at + 1,
+                     "#{block[display_at][/\A */]}\"NSHumanReadableCopyright\": \"$(COPYRIGHT)\",\n")
+        inserted += 1
+      end
+    end
+
+    out.concat(block)
+    index = close
+  end
+
+  [out.join, inserted]
+end
+
+# Tuist writes a per-target PRODUCT_NAME equal to the TARGET name when
+# productName: is omitted, and that generated value overrides the xcconfig — so a
+# Tuist fork with no productName: resolves a different product name from the
+# XcodeGen one and the two generators disagree (IDENT-04, D-49). Inserted
+# immediately after `product: .app,` because Tuist enforces the argument order:
+# productName must precede bundleId.
+def swift_insert_product_name(body)
+  return [body, 0] if body.match?(/^\s*productName:/)
+
+  out      = []
+  inserted = 0
+  body.lines.each do |line|
+    out << line
+    next unless line.chomp.match?(/\A\s*product:\s*\.app,\s*\z/)
+
+    out << "#{line[/\A */]}productName: \"$(APP_PRODUCT_NAME)\",\n"
+    inserted += 1
+  end
+
+  [out.join, inserted]
+end
+
+# Nothing about the rewritten manifest is inferred from how many rules FIRED.
+# Every count below that names a required end state is read back off the rewritten
+# BODY, because "the rule ran" and "the file now says this" are different claims
+# and only the second one is what ships. A fork that already carried one of these
+# keys would make a fired-rule count zero and the file correct.
+def residual_token_lines(body, token)
+  body.lines.each_with_index.filter_map do |line, index|
+    "#{index + 1}: #{line.strip}" if line.include?(token)
+  end
+end
+
+def require_no_residual_token(relative, body, token)
+  residual = residual_token_lines(body, token)
+  return if residual.empty?
+
+  fail_with 4, "#{relative} still names the fork's structural token #{token.inspect} on " \
+               "#{residual.length} line(s) after the rewrite: #{residual.join(' | ')}. A manifest " \
+               "that half names the old token generates a project this command's own detector " \
+               "would refuse on the next run. Nothing was written to #{relative}."
+end
+
+def rewrite_project_yml(root, token, bundle_id)
+  relative = REL_PROJECT_YML
+  path     = File.join(root, relative)
+  body     = read_utf8(path)
+  counts   = {}
+
+  insert_product_name = !body.match?(/^\s*PRODUCT_NAME:/)
+  body = apply_line_rules(body, project_yml_rules(token, bundle_id, insert_product_name), counts)
+  body, = yaml_insert_config_files(body)
+  body, = yaml_insert_plist_copyright(body)
+  body, _test_hosts, unit_tests = yaml_insert_test_host(body)
+
+  # Every unit-test target must end up with a TEST_HOST spelled from the product
+  # name — a count derived from the manifest itself rather than a literal, so a
+  # fork built with --platforms=ios (one unit-test target) is required to have
+  # one and a two-platform fork is required to have two.
+  counts["yml-test-host"]       = body.scan(%r{^\s*TEST_HOST: \$\(BUILT_PRODUCTS_DIR\)/\$\(APP_PRODUCT_NAME\)}).length
+  counts["yml-bundle-loader"]   = body.scan(/^\s*BUNDLE_LOADER: \$\(TEST_HOST\)$/).length
+  counts["yml-product-name"]    = body.scan(/^\s*PRODUCT_NAME: \$\(APP_PRODUCT_NAME\)$/).length
+  counts["yml-display-final"]   = body.scan(/^\s*CFBundleDisplayName: \$\(DISPLAY_NAME\)$/).length
+  counts["yml-copyright-final"] = body.scan(/^\s*NSHumanReadableCopyright: \$\(COPYRIGHT\)$/).length
+  counts["yml-config-files"]    = body.scan(/^configFiles:$/).length
+  counts["yml-xcconfig-rows"]   = body.scan(/^\s+(?:Debug|Release): Identity\.xcconfig$/).length
+  counts["yml-bundle-ref"]      = body.scan(/PRODUCT_BUNDLE_IDENTIFIER: \$\(BUNDLE_ID\)/).length
+
+  require_rule_counts(relative, counts,
+                      "yml-project-name"    => 1,
+                      "yml-key-token"       => 6,
+                      "yml-entitlements"    => 2,
+                      "yml-product-name"    => 2,
+                      "yml-display-final"   => 2,
+                      "yml-copyright-final" => 2,
+                      "yml-config-files"    => 1,
+                      "yml-xcconfig-rows"   => 2,
+                      "yml-bundle-ref"      => 2,
+                      "yml-test-host"       => unit_tests,
+                      "yml-bundle-loader"   => unit_tests)
+  require_no_residual_token(relative, body, token)
+
+  File.binwrite(path, body)
+  counts
+end
+
+def rewrite_project_swift(root, token, bundle_id)
+  relative = REL_PROJECT_SWIFT
+  path     = File.join(root, relative)
+  unless File.file?(path)
+    # Not a refusal. --generator=tuist|xcodegen has always let a fork keep one
+    # manifest, so a tree with no Tuist manifest is a tree with nothing to rewire.
+    say "no #{relative} in this tree; only #{REL_PROJECT_YML} was rewired."
+    return nil
+  end
+
+  body   = read_utf8(path)
+  counts = {}
+  body   = apply_line_rules(body, project_swift_rules(token, bundle_id), counts)
+  body, = swift_insert_product_name(body)
+  body, = swift_insert_plist_copyright(body)
+
+  counts["swift-product-name"]    = body.scan(/^\s*productName: "\$\(APP_PRODUCT_NAME\)",$/).length
+  counts["swift-display-final"]   = body.scan(/"CFBundleDisplayName": "\$\(DISPLAY_NAME\)"/).length
+  counts["swift-copyright-final"] = body.scan(/"NSHumanReadableCopyright": "\$\(COPYRIGHT\)"/).length
+  counts["swift-xcconfig-rows"]   = body.scan(/xcconfig: "Identity\.xcconfig"/).length
+  counts["swift-bundle-ref"]      = body.scan(/"\$\(BUNDLE_ID\)"/).length
+
+  require_rule_counts(relative, counts,
+                      "swift-structural-literal" => 10,
+                      "swift-product-name"       => 2,
+                      "swift-display-final"      => 2,
+                      "swift-copyright-final"    => 2,
+                      "swift-xcconfig-rows"      => 2,
+                      "swift-bundle-ref"         => 2)
+  require_no_residual_token(relative, body, token)
+
+  File.binwrite(path, body)
+  counts
+end
+
+# Item 9. The Team-ID row is NOT touched here: plan 05-03's
+# ensure_local_is_ignored already added it, and adding it twice would put a
+# duplicate in the forker's tree.
+def rewrite_gitignore(root, token)
+  path = File.join(root, REL_GITIGNORE)
+  unless File.file?(path)
+    fail_with 4, "#{path} not found. The generated project is gitignored by name in every fork " \
+                 "of this template, and a migrated tree whose .gitignore still names " \
+                 "app/#{token}.xcodeproj leaves the regenerated app/#{MIGRATED_TOKEN}.xcodeproj " \
+                 "TRACKED — a generated directory in git."
+  end
+
+  counts = {}
+  body   = apply_line_rules(
+    read_utf8(path),
+    [["gitignore-project", %r{\A(app/)#{Regexp.escape(token)}(\.xcodeproj|\.xcworkspace)(/?)\s*\z},
+      ->(match, _line) { ["#{match[1]}#{MIGRATED_TOKEN}#{match[2]}#{match[3]}"] }]],
+    counts
+  )
+  require_rule_counts(REL_GITIGNORE, counts, "gitignore-project" => 2)
+
+  File.binwrite(path, body)
+  counts
+end
+
+# Pitfall 4, and T-05-19. A stale generated project is GITIGNORED, so git status
+# cannot see it, every post-migration check reads it happily, and every one of
+# them reports green against the identity being replaced. bin/rename.sh:816-828
+# removes-then-asserts for the same reason; this copies the shape and proves the
+# removal instead of assuming it.
+def remove_generated_projects(root, token)
+  removed = []
+  targets = [token, MIGRATED_TOKEN].uniq.product([".xcodeproj", ".xcworkspace"])
+                                  .map { |name, ext| "app/#{name}#{ext}" }
+
+  targets.each do |relative|
+    absolute = File.join(root, relative)
+    next unless File.exist?(absolute)
+
+    capture(["rm", "-rf", "--", absolute], chdir: root)
+    removed << relative
+  end
+
+  survivors = targets.select { |relative| File.exist?(File.join(root, relative)) }
+  unless survivors.empty?
+    fail_with 4, "#{survivors.join(', ')} still exist(s) after removal. A stale generated " \
+                 "project is gitignored, so git status cannot see it and every check that reads " \
+                 "it reports green against the identity this migration is replacing. Remove it " \
+                 "by hand and re-run."
+  end
+
+  removed
+end
+
+def generate_project(root)
+  # bin/rename.sh:812's pre-generation grep, copied. It catches exactly one
+  # thing — a structural rewrite that did not land — and it catches it BEFORE a
+  # generator bakes the old name into a .pbxproj.
+  manifest = File.join(root, REL_PROJECT_YML)
+  unless read_utf8(manifest).lines.any? { |line| line.chomp == "name: #{MIGRATED_TOKEN}" }
+    fail_with 4, "#{REL_PROJECT_YML} `name:` not rewritten to '#{MIGRATED_TOKEN}' — structural " \
+                 "rewrite regression. Refusing to generate a project from a manifest that still " \
+                 "names the fork's token."
+  end
+
+  out, err, status = capture([tool_path("xcodegen"), "generate"], chdir: File.join(root, "app"))
+  # Set BEFORE the exit-code check, and deliberately: a generator that failed
+  # part-way can still have created the directory, and rollback step 1 removes
+  # only a directory THIS command made. Recording it late would leave that
+  # directory behind on exactly the path the rollback exists for.
+  @regenerated_project = File.join(root, "app/#{MIGRATED_TOKEN}.xcodeproj")
+
+  unless status.zero?
+    fail_with 4, "xcodegen generate exited #{status} in #{File.join(root, 'app')}: " \
+                 "#{err.strip}#{out.strip.empty? ? '' : " / #{out.strip}"}"
+  end
+
+  unless File.directory?(@regenerated_project)
+    fail_with 4, "xcodegen generate exited 0 but #{@regenerated_project} was not created. The " \
+                 "generator wrote a project somewhere this command did not ask for, and a " \
+                 "migration that cannot find its own output has not finished."
+  end
+
+  @regenerated_project
+end
+
+# Criterion 1's falsifiable pair, green half. The red half is already recorded:
+# ci/test-migrate-identity.sh emits
+# `RESULT baseline=preflight-unmigrated-fixture exit=2` against the fixture's
+# absent app/Identity.xcconfig. Same gate, same flag, migrated tree.
+def verify_identity_gate(root)
+  unless File.file?(PREFLIGHT)
+    fail_with 4, "the identity gate #{PREFLIGHT} is not there. This command ships as a unit with " \
+                 "bin/preflight-identity.rb and bin/lib/xcconfig.rb — a pre-#281 fork has " \
+                 "neither, so copy the whole set across before migrating."
+  end
+
+  config = File.join(root, REL_IDENTITY)
+  out, err, status = capture([RbConfig.ruby, PREFLIGHT, "--config", config], chdir: root)
+  return if status.zero?
+
+  fail_with 4, "the migrated tree does not pass its own identity gate: " \
+               "#{PREFLIGHT} --config #{config} exited #{status} " \
+               "(#{[out, err].map(&:strip).reject(&:empty?).join(' / ')}). The tree has been " \
+               "rolled back rather than left half migrated."
+end
+
 # --- the mutation phase -------------------------------------------------------
 
 def perform_migration(root:, token:)
+  # Step 1, and it runs before ANYTHING else — including the expensive build
+  # read. A guard that can be satisfied by absence is not a guard: if
+  # app/Shared/Localizable.xcstrings is not there, "this migration did not touch
+  # it" is true of a command that would have eaten it. So the files this
+  # migration must not touch have to BE here for it to proceed.
+  absent = MUST_NOT_TOUCH.reject { |relative| File.file?(File.join(root, relative)) }
+  unless absent.empty?
+    fail_with 4, "#{absent.join(', ')} not found in #{root}. These are the files this migration " \
+                 "must leave BYTE-IDENTICAL — the accessibility selector is a UI-test contract " \
+                 "and the string-catalog key is user-visible — and a tree that does not carry " \
+                 "them cannot demonstrate that it left them alone. Restore them, or migrate by " \
+                 "hand following #{MIGRATION_DOC}."
+  end
+
   # Read-only, and deliberately BEFORE the latch: a tree whose identity cannot be
   # read has not been touched, and a rollback here would run git reset --hard
   # against a tree this command never wrote to.
@@ -1307,6 +2118,37 @@ def perform_migration(root:, token:)
     say "moved the Apple Team ID into #{local_path} and removed it from both manifests" unless local_path.nil?
     fail_after_stage("team-id-move")
 
+    # ── the structural half ──────────────────────────────────────────────────
+    #
+    # Order is load-bearing. The moves come first because the manifests must end
+    # up naming paths that exist; .gitignore is rewritten BEFORE generation so
+    # the regenerated project is ignored the moment it appears; the stale project
+    # goes before the new one is made so no check can read the old one; and the
+    # identity gate runs last, while the rollback is still armed, so a tree that
+    # fails it is restored rather than shipped half migrated.
+    moves = perform_structural_rename(root, token)
+    moves.each { |from, to| say "renamed #{from} -> #{to} (git mv, history preserved)" }
+
+    rewrite_project_yml(root, token, values.fetch("BUNDLE_ID"))
+    say "rewrote #{REL_PROJECT_YML} onto the constant #{MIGRATED_TOKEN} with every identity " \
+        "setting a $(VAR) reference"
+    unless rewrite_project_swift(root, token, values.fetch("BUNDLE_ID")).nil?
+      say "rewrote #{REL_PROJECT_SWIFT} the same way"
+    end
+    rewrite_gitignore(root, token)
+    say "rewrote #{REL_GITIGNORE}: app/#{token}.xcodeproj -> app/#{MIGRATED_TOKEN}.xcodeproj " \
+        "(and the .xcworkspace beside it)"
+
+    removed = remove_generated_projects(root, token)
+    say(removed.empty? ? "no generated project was on disk to remove" :
+        "removed #{removed.join(', ')} and PROVED the removal by listing the paths again")
+
+    generated = generate_project(root)
+    say "regenerated #{generated}"
+
+    verify_identity_gate(root)
+    say "#{PREFLIGHT} --config #{File.join(root, REL_IDENTITY)} exits 0 — criterion 1's GREEN half"
+
     disarm_rollback
   rescue FixtureInjectedFailure => e
     outcome = rollback
@@ -1329,27 +2171,41 @@ def perform_migration(root:, token:)
     rollback
   end
 
-  # --- the plan boundary ------------------------------------------------------
+  # --- the closing report -----------------------------------------------------
   #
-  # The value half is written and verified. The structural half is plan 05-04's,
-  # so this is NOT a success and does not exit 0. The rollback is disarmed above
-  # deliberately rather than by omission: discarding a verified, correct value
-  # half in order to report a tidier outcome would throw away the work and tell
-  # the operator less. What is left behind is named, and so is the way back.
-  say "==== PARTIAL MIGRATION LEFT IN PLACE ===="
-  say "what was migrated:"
-  say "  #{REL_IDENTITY} now defines #{REQUIRED_VARS.join(', ')}, every one of them read back"
-  say "    through bin/lib/xcconfig.rb and compared to the value the build reported"
-  say "  the Apple Team ID now lives only in #{REL_LOCAL}, which git confirmed is ignored"
-  say "what was NOT migrated:"
-  say "  the structural un-rename (#{token} -> #{MIGRATED_TOKEN}) and the manifest rewiring onto"
-  say "    $(VAR) references land in plan 05-04. Until they do, the manifests still name"
-  say "    #{token} and still carry identity literals, so this tree is partially migrated."
-  say "to undo everything this run did:  git reset --hard HEAD && git clean -fd"
-  fail_with 4, "#{root} is partially migrated: the value half of the migration is written and " \
-               "verified, and the structural half lands in plan 05-04. This is deliberately not " \
-               "an exit 0 — a tree in this state must not be shipped. Undo it with " \
-               "git reset --hard HEAD && git clean -fd."
+  # Exit 0 is now reachable, and it is reported LOUDLY: D-70 rejected a silent
+  # exit 0 by name because it cannot be told apart from a migration that did
+  # nothing because it could not see the tree.
+  say "==== MIGRATION COMPLETE ===="
+  say "structure, un-renamed to the constant #{MIGRATED_TOKEN} (git mv, so `git log --follow`"
+  say "  still reaches the history of every one of them):"
+  moves.each { |from, to| say "  #{from} -> #{to}" }
+  say "  and with them: struct #{token}Main -> struct #{MIGRATED_TOKEN}Main, " \
+      "final class #{token}Tests -> #{MIGRATED_TOKEN}Tests, " \
+      "final class #{token}MacOSTests -> #{MIGRATED_TOKEN}MacOSTests"
+  say "manifests, rewired so identity is a $(VAR) reference and never a literal:"
+  say "  #{REL_PROJECT_YML}       — name:, six target keys, the scheme keys, TEST_TARGET_NAME,"
+  say "                             CODE_SIGN_ENTITLEMENTS, configFiles:, and per-target"
+  say "                             PRODUCT_NAME = $(APP_PRODUCT_NAME) on the two APP targets only"
+  say "  #{REL_PROJECT_SWIFT}     — the Tuist equivalent, including productName: and"
+  say "                             .settings(configurations:)"
+  say "  #{REL_GITIGNORE}                  — app/#{token}.xcodeproj -> app/#{MIGRATED_TOKEN}.xcodeproj"
+  say "identity, in #{REL_IDENTITY}: #{REQUIRED_VARS.join(', ')}, each read back through"
+  say "  bin/lib/xcconfig.rb and compared to the value the build reported"
+  say "the Apple Team ID lives only in #{REL_LOCAL}, which git confirmed is ignored"
+  say "generated project: #{generated} (the stale one was removed and its absence proven)"
+  say "==== ONE BREAKING CHANGE, AND IT IS NOT REVERSIBLE BY THIS COMMAND (A-05) ===="
+  say "  before, iOS:   PRODUCT_NAME = #{resolved.fetch('iOS').fetch('product_name')}"
+  say "  before, macOS: PRODUCT_NAME = #{resolved.fetch('macOS').fetch('product_name')}"
+  say "  after, both:   APP_PRODUCT_NAME = #{collapsed}"
+  say "The built bundle's filename and executable name therefore change on at least one"
+  say "platform. Read #{MIGRATION_DOC} before you ship this, especially if you"
+  say "have a LIVE App Store listing. This command reports the change; it does not judge"
+  say "the consequences for your listing, and it does not speak for Apple."
+  say "next: review the diff (git diff HEAD, and git diff --cached -M for the renames),"
+  say "  build both platforms, then commit. To undo everything this run did:"
+  say "  git reset --hard HEAD && git clean -fd"
+  exit 0
 end
 
 # Traps armed BEFORE the gates, the way bin/rename.sh arms its at file scope.

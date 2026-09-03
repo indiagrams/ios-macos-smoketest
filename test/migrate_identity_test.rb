@@ -427,18 +427,29 @@ end
 
 # ─── the two token-named test files (structural, and they DO move) ───────────
 
-def unit_tests_swift(token, suffix)
+# The two files carry their own platform's prose, exactly as e773cfc's do
+# ("Stub unit tests for the iOS app" versus "for the macOS app", and a
+# platform-specific -destination). MEASURED, and it is not decoration: with the
+# two bodies differing only by the class name, `git diff -M` scored
+# <N>Tests.swift as an 85% match for AppMacOSTests.swift and CROSS-PAIRED the
+# two renames — five R lines, both pointing at the wrong file. A fixture whose
+# two files are near-identical twins cannot test which of them moved where.
+def unit_tests_swift(token, suffix, platform, destination)
   <<~SWIFT
-    // Stub unit tests. Forks should add real tests here.
+    // Stub unit tests for the #{platform} app. Forks should add real tests here.
+    //
+    // Run via:
+    //   xcodebuild test -project app/#{token}.xcodeproj \\
+    //     -scheme #{token}-#{platform} -destination '#{destination}'
     //
     // CI runs this on every PR.
 
     import XCTest
 
     final class #{token}#{suffix}: XCTestCase {
-        func testSmoke() {
-            // Sanity: the unit-test target compiles, links, and the bundle
-            // launches under xcodebuild test.
+        func test#{platform}Smoke() {
+            // Sanity: the #{platform} unit-test target compiles, links, and the
+            // bundle launches under xcodebuild test.
             XCTAssertEqual(2 + 2, 4)
         }
     }
@@ -1014,8 +1025,10 @@ def build_migration_fixture(dir, branch: "main", team_id: FIXTURE_TEAM_ID,
   # The two token-named test files, which MOVE and whose class declarations are
   # rewritten in the same operation — a move without the rewrite stops the
   # project compiling.
-  write_file(dir, "app/Tests/#{TOKEN}Tests.swift", unit_tests_swift(TOKEN, "Tests"))
-  write_file(dir, "app/MacOSTests/#{TOKEN}MacOSTests.swift", unit_tests_swift(TOKEN, "MacOSTests"))
+  write_file(dir, "app/Tests/#{TOKEN}Tests.swift",
+             unit_tests_swift(TOKEN, "Tests", "iOS", "platform=iOS Simulator,name=iPhone 16 Plus"))
+  write_file(dir, "app/MacOSTests/#{TOKEN}MacOSTests.swift",
+             unit_tests_swift(TOKEN, "MacOSTests", "macOS", "platform=macOS"))
   # The four must-not-touch files. Seeded with fork-token content SPECIFICALLY so
   # the digest assertions cannot be satisfied by absence — a guard that passes
   # because the file it protects is not there protects nothing.
@@ -1325,7 +1338,7 @@ Dir.mktmpdir("migrate-tools") do |box|
     # one below on every run while telling a log reader nothing; a default run
     # must be silent about a knob nobody set.
     bin = build_tool_dir(box)
-    out = assert_exit ["--root", repo], EXIT_MUTATION,
+    out = assert_exit ["--root", repo], EXIT_OK,
                       ["MIGRATE_IDENTITY_TOOL_DIR override in effect", bin, "FIXTURE"],
                       "M7-tools", "the tool-directory knob announces itself on stderr",
                       env: { TOOL_DIR_ENV => bin }
@@ -1395,8 +1408,8 @@ Dir.mktmpdir("migrate-nomain") do |box|
     @checks += 1
   else
     bin = build_tool_dir(box)
-    assert_exit ["--root", repo], EXIT_MUTATION,
-                ["no main branch", "work", "PARTIAL MIGRATION LEFT IN PLACE"],
+    assert_exit ["--root", repo], EXIT_OK,
+                ["no main branch", "work", "MIGRATION COMPLETE"],
                 "M7-on-main", "a repository with no main branch WARNS and proceeds",
                 env: { TOOL_DIR_ENV => bin }
   end
@@ -1436,8 +1449,8 @@ Dir.mktmpdir("migrate-norow") do |box|
     @checks += 1
   else
     bin = build_tool_dir(box)
-    assert_exit ["--root", repo], EXIT_MUTATION,
-                ["added app/Local.xcconfig to .gitignore", "PARTIAL MIGRATION LEFT IN PLACE"],
+    assert_exit ["--root", repo], EXIT_OK,
+                ["added app/Local.xcconfig to .gitignore", "MIGRATION COMPLETE"],
                 "M7-team-id",
                 "a tree with no .gitignore row gains one and the migration proceeds",
                 env: { TOOL_DIR_ENV => bin }
@@ -1820,44 +1833,77 @@ Dir.mktmpdir("migrate-structural") do |box|
 
     # ── history: R, never A+D ────────────────────────────────────────────────
     #
-    # The end state above is IDENTICAL for a copy-and-delete. Only the status
-    # letters tell the two apart, and a migration whose history is lost is a
-    # migration nobody can review (T-05-20).
+    # Read from the index AS THE MIGRATION LEFT IT, with no `git add` in between.
+    #
+    # The plan said to stage with `git add -A` first. MEASURED 2026-09-03, and it
+    # is wrong: git stores no renames, so `git mv` and a copy-and-delete produce
+    # an IDENTICAL index once both have been staged, and `git diff --cached -M`
+    # reports the same five R lines for either. Staging first is precisely what
+    # makes this control vacuous. What actually distinguishes them is WHO staged:
+    # `git mv` stages the move itself, so the five renames are already in the
+    # index when the command returns, while a copy-and-delete leaves an untracked
+    # new file and an unstaged deletion and puts NOTHING in the index.
+    status_out, status_code = git(repo, "diff", "--cached", "-M", "--name-status")
+    @checks += 1
+    if status_code&.zero?
+      entries = status_out.to_s.lines.map(&:chomp).reject(&:empty?)
+      renames = entries.each_with_object({}) do |line, found|
+        parts = line.split("\t")
+        next unless parts[0].to_s.start_with?("R")
 
+        found[parts[1]] = parts[2]
+      end
+      EXPECTED_RENAMES.each do |old_path, new_path|
+        assert renames[old_path] == new_path, "M8-structure",
+               "the migration itself staged #{old_path} -> #{new_path} as a RENAME " \
+               "(observed for those paths: " \
+               "#{entries.select { |e| e.include?(old_path) || e.include?(new_path) }.inspect})"
+      end
+      assert entries.length == EXPECTED_RENAMES.length &&
+             renames.length == EXPECTED_RENAMES.length, "M8-structure",
+             "the index the migration left holds exactly #{EXPECTED_RENAMES.length} entries and " \
+             "every one is a rename — a copy-and-delete leaves it EMPTY (observed: #{entries.inspect})"
+      # The copy-and-delete signature, read positionally rather than by substring:
+      # porcelain is `XY <path>`, and a staged rename is `R  old -> new`, which
+      # NAMES the old path and must not be mistaken for a deletion of it.
+      unstaged = porcelain_of(repo).to_s.lines.map(&:chomp).map { |row| [row[0, 2], row[3..].to_s] }
+      EXPECTED_RENAMES.each do |old_path, new_path|
+        stray = unstaged.select do |status, path|
+          (status == "??" && path == new_path) || (status[1] == "D" && path == old_path)
+        end
+        assert stray.empty?, "M8-structure",
+               "#{new_path} is not sitting untracked (??) beside an unstaged deletion of " \
+               "#{old_path} — that pair is the copy-and-delete signature " \
+               "(git status said: #{stray.inspect})"
+      end
+    else
+      fail_line("M8-structure", "git diff --cached failed in the migrated fixture")
+    end
+
+    # ── the migration's own diff must not list the untouched files ───────────
+    #
+    # This one DOES stage first, and for the opposite reason: an unstaged read
+    # would omit the must-not-touch files whether or not they had been rewritten,
+    # which is the vacuity the assertion above avoids by NOT staging.
     _, add_code = git(repo, "-c", "user.email=#{FIXTURE_GIT_EMAIL}", "-c", "user.name=fixture",
                       "add", "-A")
     @checks += 1
     if add_code&.zero?
-      status_out, status_code = git(repo, "diff", "--cached", "-M", "--name-status")
-      if status_code&.zero?
-        entries = status_out.to_s.lines.map(&:chomp).reject(&:empty?)
-        renames = entries.each_with_object({}) do |line, found|
-          parts = line.split("\t")
-          next unless parts[0].to_s.start_with?("R")
-
-          found[parts[1]] = parts[2]
-        end
-        EXPECTED_RENAMES.each do |old_path, new_path|
-          assert renames[old_path] == new_path, "M8-structure",
-                 "git recorded #{old_path} -> #{new_path} as a RENAME " \
-                 "(observed status letters for that path: " \
-                 "#{entries.select { |e| e.include?(old_path) || e.include?(new_path) }.inspect})"
-        end
-        assert renames.length == EXPECTED_RENAMES.length, "M8-structure",
-               "exactly #{EXPECTED_RENAMES.length} renames were recorded, no more " \
-               "(observed: #{renames.inspect})"
-
-        # ── the migration's own diff must not list the untouched files ───────
-        touched = entries.map { |line| line.split("\t")[1..].to_a }.flatten
+      staged_out, staged_code = git(repo, "diff", "--cached", "-M", "--name-status")
+      if staged_code&.zero?
+        touched = staged_out.to_s.lines.map { |line| line.chomp.split("\t")[1..].to_a }.flatten
+        assert touched.include?("app/project.yml"), "M8-must-not-touch",
+               "the staged diff really does list the files the migration DID change — without " \
+               "this the absence assertions below are true of an empty diff (listed: #{touched.inspect})"
         MUST_NOT_TOUCH.each do |rel|
           assert !touched.include?(rel), "M8-must-not-touch",
                  "#{rel} does not appear in the migration's diff (diff listed: #{touched.inspect})"
         end
       else
-        fail_line("M8-structure", "git diff --cached failed in the migrated fixture")
+        fail_line("M8-must-not-touch", "git diff --cached failed after staging")
       end
     else
-      fail_line("M8-structure", "git add -A failed in the migrated fixture")
+      fail_line("M8-must-not-touch", "git add -A failed in the migrated fixture")
     end
 
     # ── MUST NOT TOUCH, by digest ────────────────────────────────────────────
@@ -1904,6 +1950,32 @@ Dir.mktmpdir("migrate-structural") do |box|
            "project-level `settings: base:` depth of 4 (indents: #{indents.inspect}) — D-49"
     assert product_name_lines.all? { |l| l.include?("$(APP_PRODUCT_NAME)") }, "M8-manifest",
            "each PRODUCT_NAME resolves from $(APP_PRODUCT_NAME)"
+
+    # TEST_HOST. Not tidiness: XcodeGen bakes the host TARGET name into TEST_HOST
+    # at GENERATION time while the PRODUCT_NAME this migration has just added
+    # resolves at BUILD time, so the derived path names an app that is never
+    # built and `xcodebuild test` fails with "Could not find test host".
+    #
+    # OBSERVED RED on the ground-truth fixture before this was implemented — a
+    # real e773cfc fork renamed by bin/rename.sh and migrated with the real
+    # toolchain resolved TEST_HOST = .../App-iOS.app/App-iOS while the app target
+    # resolved EXECUTABLE_PATH = MigrateFixture.app/MigrateFixture. That is the
+    # Phase-3 defect (fixed at 23c7124) reproduced by the migration, and a
+    # file-level assertion on the manifest could not have seen it.
+    assert yml.scan(%r{^\s*TEST_HOST: \$\(BUILT_PRODUCTS_DIR\)/\$\(APP_PRODUCT_NAME\)}).length == 2,
+           "M8-manifest",
+           "both unit-test targets spell TEST_HOST from $(APP_PRODUCT_NAME), not from the host " \
+           "target name (found #{yml.scan(/^\s*TEST_HOST:.*$/).map(&:strip).inspect})"
+    assert yml.include?("TEST_HOST: $(BUILT_PRODUCTS_DIR)/$(APP_PRODUCT_NAME).app/Contents/MacOS/$(APP_PRODUCT_NAME)"),
+           "M8-manifest", "the macOS unit-test host path goes through Contents/MacOS/"
+    assert yml.scan(/^\s*BUNDLE_LOADER: \$\(TEST_HOST\)$/).length == 2, "M8-manifest",
+           "each unit-test target's BUNDLE_LOADER follows its TEST_HOST"
+    # UI-test bundles use TEST_TARGET_NAME — a TARGET name, correct as it stands —
+    # and must NOT gain a TEST_HOST.
+    ui_blocks = yml.split(/^  (?=\S)/).select { |block| block.include?("bundle.ui-testing") }
+    assert ui_blocks.length == 2 && ui_blocks.none? { |block| block.include?("TEST_HOST") },
+           "M8-manifest",
+           "neither UI-test target gained a TEST_HOST (blocks seen: #{ui_blocks.length})"
 
     # T-05-22: INFOPLIST_KEY_NSHumanReadableCopyright reaches the bundle only under
     # GENERATE_INFOPLIST_FILE = YES, which an app target carrying its own plist

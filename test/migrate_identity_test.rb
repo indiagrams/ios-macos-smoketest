@@ -404,6 +404,27 @@ Dir.mktmpdir("migrate-token") do |tmp|
               "M4", "disagreeing token derivations exit 2 naming every value found"
 end
 
+Dir.mktmpdir("migrate-two-mains") do |tmp|
+  # A half-moved @main: the migration renamed the file but the old one is still
+  # on disk. Two entry points is not a state to pick a winner from.
+  write_file(tmp, "app/project.yml", project_yml(TOKEN))
+  write_file(tmp, "app/Shared/#{TOKEN}.swift", main_swift(TOKEN))
+  write_file(tmp, "app/Shared/OtherToken.swift", main_swift("OtherToken"))
+  assert_exit ["--root", tmp, "--dry-run"], EXIT_UNKNOWN, ["more than one", TOKEN, "OtherToken"],
+              "M4", "two @main structs exit 2 naming both, rather than picking the first"
+end
+
+Dir.mktmpdir("migrate-two-projects") do |tmp|
+  # A stale generated project beside a fresh one. Both are gitignored and
+  # regenerable, so the refusal is cheap to act on — and guessing is not.
+  build_fully_migrated(tmp)
+  FileUtils.mkdir_p(File.join(tmp, "app/App.xcodeproj"))
+  FileUtils.mkdir_p(File.join(tmp, "app/#{TOKEN}.xcodeproj"))
+  assert_exit ["--root", tmp, "--dry-run"], EXIT_UNKNOWN,
+              ["more than one generated project", "App.xcodeproj", "#{TOKEN}.xcodeproj"],
+              "M4", "two app/*.xcodeproj exit 2 naming both, rather than picking the first"
+end
+
 Dir.mktmpdir("migrate-holes") do |tmp|
   # Structure fully migrated, values not: an app/Identity.xcconfig with a hole in
   # it. `BUNDLE_ID =` with nothing after the equals sign is what Xcode reads as
@@ -434,6 +455,18 @@ Dir.mktmpdir("migrate-banner") do |tmp|
               ["ROOT OVERRIDE IN EFFECT", ROOT, "was NOT inspected", tmp],
               "M5", "--root banners both the default root it skipped and the override it took"
 end
+
+# The paired assertion Shared Pattern 3 requires, and the reason the one above is
+# not vacuous: a banner printed unconditionally would satisfy the assertion above
+# on every run while telling a log reader nothing. This is the only case in the
+# file that runs with no --root, and it is safe because --dry-run writes nothing
+# and this repository is a fully-migrated tree, so it reaches the report and
+# stops there.
+default_out, default_code = run([RUBY, COMMAND, "--dry-run"])
+assert default_code == EXIT_OK && !default_out.to_s.include?("ROOT OVERRIDE IN EFFECT"),
+       "M5",
+       "a default run prints NO override banner (exit #{default_code.inspect}, " \
+       "banner present: #{default_out.to_s.include?('ROOT OVERRIDE IN EFFECT')})"
 
 # ─── M6: the mutation phase refuses distinguishably, and does not backtrace ──
 #

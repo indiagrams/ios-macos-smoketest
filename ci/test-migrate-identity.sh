@@ -795,10 +795,15 @@ else
     CODE_SIGNING_ALLOWED=NO \
     > "$WORK_DIR/ios-build.log" 2>&1
   IOS_BUILD_EXIT=$?
-  tail -20 "$WORK_DIR/ios-build.log" | sed 's/^/    | /'
+  # Printed on FAILURE only, and generously: the cleanup trap deletes $WORK_DIR
+  # on the way out, so this tail is the only record that survives a red CI run.
+  if [ "$IOS_BUILD_EXIT" -ne 0 ]; then
+    printf '    ---- last 80 lines of %s ----\n' "$WORK_DIR/ios-build.log"
+    tail -80 "$WORK_DIR/ios-build.log" | sed 's/^/    | /'
+  fi
 fi
 set -e
-[ "$IOS_BUILD_EXIT" -eq 0 ] || fail "the migrated fixture failed to build for iOS (xcodebuild exited ${IOS_BUILD_EXIT})"
+[ "$IOS_BUILD_EXIT" -eq 0 ] || fail "the migrated fixture failed to build for iOS (xcodebuild exited ${IOS_BUILD_EXIT}); the tail of its log is above and the temporary tree is about to be removed"
 ok "iOS build exit 0"
 
 # ── 16/21 iOS built-artefact read ────────────────────────────────────────────
@@ -854,10 +859,13 @@ else
     CODE_SIGNING_ALLOWED=NO \
     > "$WORK_DIR/macos-test.log" 2>&1
   MACOS_TEST_EXIT=$?
-  tail -20 "$WORK_DIR/macos-test.log" | sed 's/^/    | /'
+  if [ "$MACOS_TEST_EXIT" -ne 0 ]; then
+    printf '    ---- last 80 lines of %s ----\n' "$WORK_DIR/macos-test.log"
+    tail -80 "$WORK_DIR/macos-test.log" | sed 's/^/    | /'
+  fi
 fi
 set -e
-[ "$MACOS_TEST_EXIT" -eq 0 ] || fail "the migrated fixture failed to build-and-test on macOS (xcodebuild exited ${MACOS_TEST_EXIT})"
+[ "$MACOS_TEST_EXIT" -eq 0 ] || fail "the migrated fixture failed to build-and-test on macOS (xcodebuild exited ${MACOS_TEST_EXIT}); the tail of its log is above and the temporary tree is about to be removed"
 ok "macOS build and test exit 0"
 
 # ── 18/21 macOS built-artefact read ──────────────────────────────────────────

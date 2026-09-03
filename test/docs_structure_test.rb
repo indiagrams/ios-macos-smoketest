@@ -663,6 +663,185 @@ assert ragged.empty?,
          "#{capped.empty? ? '' : " — offending: #{capped.join('; ')}"}"
 end
 
+# ─── DOC-02: the two documents criterion 3 is judged on ──────────────────────
+#
+# Phase 5 retired the identity half of the fork personalization script. Both
+# documents below used to teach it: BOOTSTRAP.md described a rename as a pipeline
+# step and listed three identity keys in a config file that no longer carries
+# them, and GETTING-STARTED.md told a reader that APP_NAME "Becomes scheme +
+# product name" — false on both counts since #281, and about a key that has since
+# been removed from .bootstrap.env entirely.
+#
+# WHY THESE ARE NOT IN ALL_DOCS. That constant is the FORK-OWNED set, and its
+# membership is exactly what puts a document under the EMAIL sweep at the bottom
+# of this file. These are TEMPLATE-owned prose that legitimately shows a
+# maintainer address inside a .bootstrap.env example, so adding them there would
+# fail the sweep for the opposite of the right reason.
+#
+# WHY THERE IS A POSITIVE HALF. Every absence assertion in this group passes on a
+# document that does not exist — File.read of a missing path yields nothing to
+# match. The half that cannot pass that way is the one asserting the migration
+# runbook EXISTS and that both named documents link to it. It was observed failing
+# with that file moved aside before this group was trusted.
+
+BOOTSTRAP_DOC       = "docs/BOOTSTRAP.md"
+GETTING_STARTED_DOC = "docs/GETTING-STARTED.md"
+MIGRATION_RUNBOOK   = "docs/MIGRATING-FROM-RENAME.md"
+DOC02_NAMED         = [BOOTSTRAP_DOC, GETTING_STARTED_DOC].freeze
+
+# The retired script's stem, ASSEMBLED rather than spelled out. Criterion 2's
+# no-dangling-reference gate greps the whole tree for the deleted self-check and
+# its harnesses and must keep exiting 1; a file that spelled either of those two
+# tokens while asserting their absence elsewhere would turn that gate green by
+# existing. Two comments went red on the gate they were describing in plan 05-12;
+# this is the same trap approached from the writing side.
+RETIRED_STEM    = "rename"
+RETIRED_SCRIPT  = "#{RETIRED_STEM}.sh"
+DOC02_SWEEP_RE  = "#{RETIRED_STEM}\\.sh|verify-#{RETIRED_STEM}"
+
+# The three keys plan 05-07 removed from .bootstrap.env. They are still perfectly
+# legal as app/Identity.xcconfig keys (two of them ARE its keys), which is why the
+# assertions below are scoped to `env`-fenced blocks and to the .bootstrap.env
+# field table rather than run as a whole-file grep: a whole-file grep here would
+# fire on the xcconfig example three paragraphs above.
+RETIRED_ENV_KEYS = %w[APP_NAME BUNDLE_ID DISPLAY_NAME].freeze
+
+# The `info string` of a fenced block, and the block's body lines.
+def fenced_blocks(text, info)
+  out, inside = [], nil
+  text.lines.each do |line|
+    if inside
+      if line.start_with?("```")
+        out << inside
+        inside = nil
+      else
+        inside << line
+      end
+    elsif line.chomp.strip == "```#{info}"
+      inside = []
+    end
+  end
+  out
+end
+
+# The contiguous run of table rows beginning at the header row matching `header`.
+def table_at(text, header)
+  lines = text.lines
+  start = lines.index { |l| l =~ header }
+  return nil if start.nil?
+
+  stop = start
+  stop += 1 while stop < lines.length && lines[stop].lstrip.start_with?("|")
+  lines[start...stop]
+end
+
+puts
+puts "DOC-02 — criterion 3's two documents carry no rename-based instruction:"
+
+# The explicit missing-file branch. A document that is not there is a FAILURE and
+# is never a silent pass, and the content assertions below are skipped for it so
+# that none of them can report green against an empty string.
+doc02_present = {}
+(DOC02_NAMED + [MIGRATION_RUNBOOK]).each do |doc|
+  present = File.file?(File.join(ROOT, doc))
+  doc02_present[doc] = present
+  assert present, "#{doc} exists as a regular file"
+end
+
+# ── absence, asserted SEPARATELY per document so one reintroduction proves one
+#    branch rather than collapsing two documents into one verdict ──
+DOC02_NAMED.each do |doc|
+  next unless doc02_present[doc]
+
+  hits = read_doc(doc).lines.each_with_index.filter_map do |line, i|
+    i + 1 if line.downcase.include?(RETIRED_SCRIPT)
+  end
+  assert hits.empty?,
+         "#{doc}: no `#{RETIRED_SCRIPT}` in any letter case" \
+         "#{hits.empty? ? '' : " — found at line(s) #{hits.join(', ')}"}"
+end
+
+# ── the two spellings of the same false claim about what APP_NAME becomes ──
+if doc02_present[GETTING_STARTED_DOC]
+  gs = read_doc(GETTING_STARTED_DOC)
+  ["Used as scheme", "Becomes scheme"].each do |claim|
+    line_no = gs.lines.index { |l| l.include?(claim) }
+    assert line_no.nil?,
+           "#{GETTING_STARTED_DOC}: does not claim APP_NAME is `#{claim}` — the schemes are the " \
+           "constants App-iOS and App-macOS and the product name is APP_PRODUCT_NAME in " \
+           "app/Identity.xcconfig#{line_no.nil? ? '' : " — found at line #{line_no + 1}"}"
+  end
+
+  # `env`-fenced blocks only. The positive half first: with no such block the
+  # absence check below has no subject and would pass on a deleted walkthrough.
+  env_blocks = fenced_blocks(gs, "env")
+  assert !env_blocks.empty?,
+         "#{GETTING_STARTED_DOC}: still shows a ```env walkthrough of .bootstrap.env " \
+         "(#{env_blocks.length} block(s))"
+  offending = env_blocks.flatten.filter_map do |line|
+    key = line[/\A\s*([A-Z_]+)\s*=/, 1]
+    key if RETIRED_ENV_KEYS.include?(key)
+  end
+  assert offending.empty?,
+         "#{GETTING_STARTED_DOC}: no ```env block assigns a key plan 05-07 removed from " \
+         ".bootstrap.env#{offending.empty? ? '' : " — found #{offending.uniq.join(', ')}"}"
+end
+
+# ── the .bootstrap.env field table in BOOTSTRAP.md ──
+if doc02_present[BOOTSTRAP_DOC]
+  bs    = read_doc(BOOTSTRAP_DOC)
+  table = table_at(bs, /\A\|\s*Field\s*\|\s*What it is\s*\|\s*Where to get it\s*\|/)
+  assert !table.nil?,
+         "#{BOOTSTRAP_DOC}: still documents the .bootstrap.env fields in a `Field | What it is | " \
+         "Where to get it` table (#{table.nil? ? 0 : table.length} row(s))"
+  listed = (table || []).filter_map do |row|
+    key = cells(row).first.to_s[/\A`([A-Z_]+)`/, 1]
+    key if RETIRED_ENV_KEYS.include?(key)
+  end
+  assert listed.empty?,
+         "#{BOOTSTRAP_DOC}: the .bootstrap.env field table lists none of the three keys plan " \
+         "05-07 removed#{listed.empty? ? '' : " — found #{listed.join(', ')}"}"
+
+  # The fixture knob is load-bearing and is asserted PRESENT, not merely left
+  # alone: it is how the release check's red controls are driven without editing
+  # a tracked file, and it is the recorded reason A-06 refuses upstream's copy of
+  # ci/local-release-check.sh. A sweep that removed it would otherwise be silent.
+  assert bs.include?("IDENTITY_XCCONFIG"),
+         "#{BOOTSTRAP_DOC}: still documents the IDENTITY_XCCONFIG fixture knob (A-06)"
+end
+
+# ── the positive half: the runbook exists and both documents reach it ──
+DOC02_NAMED.each do |doc|
+  next unless doc02_present[doc]
+
+  assert read_doc(doc).include?(File.basename(MIGRATION_RUNBOOK)),
+         "#{doc}: links to #{MIGRATION_RUNBOOK} for a fork created before the identity work"
+end
+
+# ── the whole-docs/ sweep, reading git grep's EXACT exit code ──
+#
+# 0 = something matched (a failure, and the hits are named), 1 = nothing matched
+# (the pass), anything else = git could not answer. 128 is evidence for NEITHER
+# side and is reported as its own failure rather than folded into the pass —
+# test/identity_test.rb states the same rule for the same reason. `-I` keeps the
+# tracked screenshots under docs/ out of it.
+sweep_argv = ["git", "grep", "-n", "-I", "-E", DOC02_SWEEP_RE, "--",
+              "docs/", ":!#{MIGRATION_RUNBOOK}", ":!#{UPSTREAM_LEDGER}"]
+sweep_out    = IO.popen(sweep_argv, "r", err: [:child, :out], chdir: ROOT, &:read).to_s
+sweep_status = $?.exitstatus
+
+case sweep_status
+when 1
+  assert true, "no document under docs/ names the retired script (git grep exit 1), " \
+               "excepting #{MIGRATION_RUNBOOK} and #{UPSTREAM_LEDGER}"
+when 0
+  assert false, "no document under docs/ names the retired script — git grep exit 0, matched:\n" \
+                "      #{sweep_out.lines.map(&:chomp).join("\n      ")}"
+else
+  assert false, "the docs/ sweep could not be answered: git grep exit #{sweep_status} " \
+                "(not 0 and not 1, so it is evidence for neither side) — #{sweep_out.strip.inspect}"
+end
+
 # ─── across all five documents ───────────────────────────────────────────────
 
 puts

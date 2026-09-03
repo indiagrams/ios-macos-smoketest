@@ -183,6 +183,24 @@ ensure
   $stderr = old
 end
 
+# UTF-8 pinned, never inherited. .bootstrap.env.example and bin/lib/bootstrap.rb
+# both carry non-ASCII bytes (`—`, `©`); with LANG unset Ruby defaults
+# Encoding.default_external to US-ASCII and a non-ASCII byte raises
+# ArgumentError out of a regex match instead of exiting 0 or 1. Commit 3b1efb9
+# is this repository's own instance of that defect (UL-012).
+def read_utf8(relative)
+  File.read(Bootstrap::REPO_ROOT.join(relative).to_s, encoding: "UTF-8")
+end
+
+# Runs an argv ARRAY from the repository root — never a string, which would
+# re-enter /bin/sh. Returns [combined stdout+stderr, exit status]. The exit
+# status is the point: `git grep` exits 0 on a match, 1 on no match and 128 on
+# an error, and only "no match" is evidence of absence.
+def run_argv(argv)
+  out = IO.popen(argv, "r", err: [:child, :out], chdir: Bootstrap::REPO_ROOT.to_s, &:read)
+  [out.to_s, $?.exitstatus]
+end
+
 XCODEBUILD_PRESENT = { %w[which xcodebuild] => ->(_) { ["/usr/bin/xcodebuild\n", true] } }.freeze
 
 def settings_dump(bundle_id:, product_name:)
@@ -501,6 +519,202 @@ Tempfile.create(["bootstrap", ".env"]) do |f|
   assert(err.include?("BOOTSTRAP_ENV"), "the config override announces itself on stderr too")
 end
 
+puts
+puts "Bootstrap::IdentityPresent — A-01: bootstrap READS and VERIFIES identity"
+
+# The three keys Phase 5 retired from .bootstrap.env, SPELLED HERE and
+# deliberately not imported from bin/lib/bootstrap.rb. A guard that read its
+# expectations out of the file under test would accept whatever that file
+# happened to say, which is not a guard — test/identity_test.rb:56-60 states the
+# rule, and this file now leans on it twice.
+RETIRED_ENV_KEYS = %w[APP_NAME BUNDLE_ID DISPLAY_NAME].freeze
+
+# Same shape as check_identity above, for the step that runs immediately before
+# IdentityAdopted. Every fixture goes through IDENTITY_XCCONFIG; nothing here
+# reads the tracked app/Identity.xcconfig, so a broken fixture can never be
+# mistaken for a broken repository.
+def check_present(xcconfig_path)
+  with_env("IDENTITY_XCCONFIG" => xcconfig_path) do
+    step = Bootstrap::IdentityPresent.new(config_for)
+    result = nil
+    capture_stderr { result = step.check }
+    [step, result]
+  end
+end
+
+# THE DISCRIMINATOR. Without a case that reaches :done through the same knob and
+# the same probe, the two blocked cases below prove only that something is
+# broken rather than that the step tells the cases apart.
+Dir.mktmpdir do |dir|
+  path = write_fixture(dir, SOUND_XCCONFIG)
+  step, result = check_present(path)
+  assert_eq(result, :done, "a fixture whose four keys all resolve is :done")
+  assert_eq(step.tier_reached, 1, "and it reached tier 1 — presence plus resolution")
+end
+
+Dir.mktmpdir do |dir|
+  # `// disabled` is UL-031's shape: the line is PRESENT, so a presence check
+  # passes, while Xcconfig.value cuts at `//` and the value is empty. Xcode
+  # reads it as empty too, which is why this must never be :done.
+  path = write_fixture(dir, SOUND_XCCONFIG.sub(/APP_PRODUCT_NAME.*$/) { "APP_PRODUCT_NAME = // disabled" })
+  _step, result = check_present(path)
+  assert_blocked(result, "APP_PRODUCT_NAME (assigned, but resolves to nothing",
+                 "a `//`-commented APP_PRODUCT_NAME is blocked, and the message names the key")
+end
+
+Dir.mktmpdir do |dir|
+  # Assigned to nothing at all. "" and nil are the same failure to Xcode, so they
+  # are the same failure here — but the message says WHICH, because a forker
+  # needs to know whether they deleted the line or commented it out.
+  path = write_fixture(dir, SOUND_XCCONFIG.sub(/DISPLAY_NAME.*$/) { "DISPLAY_NAME     =" })
+  _step, result = check_present(path)
+  assert_blocked(result, "DISPLAY_NAME (assigned, but resolves to nothing",
+                 "an empty DISPLAY_NAME is blocked, and the message names the key")
+end
+
+begin
+  Bootstrap::IdentityPresent.new(config_for).do_it
+  assert(false, "IdentityPresent#do_it refuses — bootstrap never writes identity (A-01)")
+rescue StandardError => e
+  assert(e.message.include?("tools/migrate-identity.rb"),
+         "do_it points a stuck fork at the migration command")
+  assert(e.message.include?("docs/MIGRATING-FROM-RENAME.md"),
+         "do_it points a stuck fork at the runbook, not only the command")
+end
+
+# ─── No write path exists, asserted on the text (A-01) ───────────────────────
+#
+# "Bootstrap reads and verifies, never writes" is a property of the FILE, not of
+# any one step, so it is checked by reading bin/lib/bootstrap.rb rather than by
+# calling something. The window spans one line back and two forward, because the
+# shape that would sneak past a line-only predicate is a path assigned on one
+# line and written on the next.
+
+WRITE_FORMS  = /\b(?:File\.write|File\.binwrite|IO\.write|File\.open\s*\()/
+IDENTITY_REF = /Identity\.xcconfig|identity_xcconfig_path/
+
+# [line number, source line] for every write form in `lines`.
+def write_sites(lines)
+  lines.each_with_index.filter_map { |line, i| [i + 1, line.strip] if line =~ WRITE_FORMS }
+end
+
+# Of those, the ones whose statement also names the identity config.
+def identity_write_offenders(lines)
+  write_sites(lines).select do |(lineno, _src)|
+    lines[[lineno - 2, 0].max...(lineno + 2)].join =~ IDENTITY_REF
+  end
+end
+
+bootstrap_lines = read_utf8("bin/lib/bootstrap.rb").lines
+sites = write_sites(bootstrap_lines)
+
+# The predicate must be able to SEE a write before its silence means anything.
+# bin/lib/bootstrap.rb does write files (the decoded .p8), so an empty scan here
+# would mean the regex stopped matching, not that the writes went away.
+assert(!sites.empty?,
+       "precondition: the write-form scan finds #{sites.length} write(s) in bin/lib/bootstrap.rb " \
+       "at line(s) #{sites.map(&:first).join(', ')} — a scan that found none would be vacuous")
+
+# And it must be able to FIRE. Planted here rather than in a one-off transcript,
+# so the proof cannot go stale: narrow the regex and this goes red in the same
+# run as the assertion it protects.
+planted = <<~PLANT.lines
+  path = Bootstrap.identity_xcconfig_path
+  File.write(path, rendered)
+PLANT
+assert_eq(identity_write_offenders(planted).map(&:first), [2],
+          "the offender predicate FIRES on a planted two-line write to the identity config")
+
+offenders = identity_write_offenders(bootstrap_lines)
+offender_note = offenders.map { |(n, s)| "bin/lib/bootstrap.rb:#{n}: #{s}" }.join("; ")
+assert(offenders.empty?,
+       "bin/lib/bootstrap.rb writes no identity config — it reads and verifies (A-01)" +
+       (offenders.empty? ? "" : " — FOUND #{offender_note}"))
+
+# ─── Config::REQUIRED_ALWAYS no longer requires the retired keys ─────────────
+
+required_always = Bootstrap::Config::REQUIRED_ALWAYS
+RETIRED_ENV_KEYS.each do |key|
+  assert(!required_always.include?(key),
+         "Config::REQUIRED_ALWAYS does not require #{key} (A-01 removed it from .bootstrap.env)")
+end
+assert(required_always.include?("APP_EMAIL"),
+       "Config::REQUIRED_ALWAYS still requires APP_EMAIL — the removal was three keys, not the list")
+
+puts
+puts "A-02 — the residual-key guard: the keys are gone, and nothing reads them"
+
+# HALF ONE: the tracked template no longer ships the keys, so a fork scaffolded
+# from it is not handed a value whose only consumer is gone.
+example_lines = read_utf8(".bootstrap.env.example").lines
+example_residue = example_lines.each_with_index.filter_map do |line, i|
+  m = line.match(/^(#{RETIRED_ENV_KEYS.join('|')})=/)
+  "#{m[1]} at .bootstrap.env.example:#{i + 1}" if m
+end
+residue_note = example_residue.join("; ")
+assert(example_residue.empty?,
+       ".bootstrap.env.example carries no #{RETIRED_ENV_KEYS.join(' / ')} assignment" +
+       (example_residue.empty? ? "" : " — FOUND #{residue_note}"))
+
+# The same non-vacuity proof the write scan gets: the matcher must be able to see
+# a key assignment at all, or "no residue" would mean the regex stopped matching
+# rather than that the residue went away.
+assert_eq(example_lines.count { |l| l.match?(/^APP_EMAIL=/) }, 1,
+          "precondition: the line matcher still sees .bootstrap.env.example's APP_EMAIL assignment")
+
+# HALF TWO: nothing under bin/ ci/ fastlane/ reads one of them off the config
+# object. This is the half that makes this file CI-worthy — it reads only tracked
+# files, so it needs no .bootstrap.env on the runner.
+#
+# git grep exits 0 on a match, 1 on nothing matched, and 128 on an error. ONLY
+# "nothing matched" is a pass: a 128 means the grep itself failed and is evidence
+# for NEITHER side. The exact code is asserted rather than the output being
+# tested for emptiness, because a broken invocation also prints nothing.
+RESIDUAL_READER_RE = 'config\[.(APP_NAME|BUNDLE_ID|DISPLAY_NAME).\]'
+reader_out, reader_exit =
+  run_argv(["git", "grep", "-nE", RESIDUAL_READER_RE, "--", "bin/", "ci/", "fastlane/"])
+
+reader_label =
+  case reader_exit
+  when 1
+    "nothing under bin/ ci/ fastlane/ reads #{RETIRED_ENV_KEYS.join(' / ')} off the config object " \
+    "(git grep exit 1 = nothing matched)"
+  when 0
+    named = RETIRED_ENV_KEYS.select { |k| reader_out.include?(k) }
+    sites = reader_out.lines.map { |l| l.split(":", 3)[0, 2].join(":") }
+    "git grep exit 0 — a reader SURVIVED: #{named.join(', ')} at #{sites.join(', ')}"
+  else
+    "git grep exited #{reader_exit}: the grep itself failed, which is evidence for NEITHER side " \
+    "(128 = error). Output: #{reader_out.strip.inspect}"
+  end
+assert_eq(reader_exit, 1, reader_label)
+
+# NON-VACUITY, proved two ways, because an exit-1 grep is exactly the shape that
+# reads as a pass when it is really a broken invocation (this project has been
+# bitten by `! grep` twice — grep exits 2 on ERROR as well as 1 on no-match).
+#
+# 1. The PATTERN. Compiled as a Ruby Regexp — equivalent to the ERE for the
+#    constructs it uses (an escaped bracket, a dot, an alternation) — and driven
+#    against planted reads. The definitive proof for the git-grep form is the
+#    key-residue-reader control, which plants a real read in bin/ and watches
+#    this assertion go red; this is the standing regression net for it.
+residual_re = Regexp.new(RESIDUAL_READER_RE)
+RETIRED_ENV_KEYS.each do |key|
+  assert(residual_re.match?(%(  x = config["#{key}"])),
+         "the residual-reader pattern matches a planted double-quoted #{key} read")
+  assert(residual_re.match?(%(  x = config['#{key}'])),
+         "the residual-reader pattern matches a planted single-quoted #{key} read")
+end
+assert(!residual_re.match?(%(  x = config["GENERATOR"])),
+       "and it does NOT match a config read that is not one of the retired keys")
+
+# 2. The INVOCATION. Same tool, same pathspec, a pattern known to match there,
+#    so the exit 1 above is absence rather than a pathspec typo or a dead repo.
+_probe_out, probe_exit =
+  run_argv(["git", "grep", "-nE", 'config\\[', "--", "bin/", "ci/", "fastlane/"])
+assert_eq(probe_exit, 0,
+          "precondition: git grep with this pathspec DOES find config reads under " \
+          "bin/ ci/ fastlane/ (probe exit=#{probe_exit}), so exit 1 above is absence")
 puts
 if @failures.zero?
   puts "PASSED"

@@ -34,6 +34,18 @@ require_relative "lib/bootstrap"
 config  = Bootstrap::Config.load!
 config.validate!
 
+# Identity comes from app/Identity.xcconfig, the source of truth (A-01), and
+# no longer from .bootstrap.env, which does not carry it. Resolved ONCE, here,
+# so the preflight banner and the release tag cannot disagree about what is
+# being shipped, and refused BY NAME rather than defaulted — there is no
+# placeholder tier on the release path.
+begin
+  app_name  = Bootstrap.identity!("APP_PRODUCT_NAME")
+  bundle_id = Bootstrap.identity!("BUNDLE_ID")
+rescue StandardError => e
+  Bootstrap::UI.fail!(e.message)
+end
+
 dry_run = ARGV.include?("--dry-run") ? "true" : "false"
 force   = ARGV.include?("--force")
 
@@ -49,9 +61,11 @@ def fetch_main_head(repo)
   [parts[0], parts[1] || "(no message)"]
 end
 
-def print_preflight(config, dry_run, repo: nil, tag: nil)
+# `app_name` / `bundle_id` are passed in rather than read here: they are
+# resolved once at the top of this script, from app/Identity.xcconfig.
+def print_preflight(config, dry_run, app_name:, bundle_id:, repo: nil, tag: nil)
   puts
-  puts Bootstrap::UI.bold("About to ship #{config['APP_NAME']} (#{config['BUNDLE_ID']}):")
+  puts Bootstrap::UI.bold("About to ship #{app_name} (#{bundle_id}):")
   if config.ci_mode?
     sha, subject = fetch_main_head(repo)
     puts "  ref:       #{repo} main @ #{sha[0, 7]} — #{subject}"
@@ -81,11 +95,11 @@ if config.local_mode?
   require "spaceship"
   Bootstrap.ensure_asc_token!(config)
   begin
-    tag = Bootstrap::Version.compute_release_tag(config["BUNDLE_ID"])
+    tag = Bootstrap::Version.compute_release_tag(bundle_id)
   rescue StandardError => e
     Bootstrap::UI.fail!("Could not compute release tag: #{e.message}")
   end
-  print_preflight(config, dry_run, tag: tag)
+  print_preflight(config, dry_run, app_name: app_name, bundle_id: bundle_id, tag: tag)
   puts Bootstrap::UI.bold("Running fastlane release locally — tag #{tag}")
   env = Bootstrap.asc_env(config).merge("PLATFORMS" => config.platforms.join(","))
   args = ["bundle", "exec", "fastlane", "release", "tag:#{tag}"]
@@ -178,7 +192,7 @@ unless force
   end
 end
 
-print_preflight(config, dry_run, repo: repo)
+print_preflight(config, dry_run, app_name: app_name, bundle_id: bundle_id, repo: repo)
 
 run_id ||= trigger_new_run(repo, dry_run, config.platforms.join(","), config["GENERATOR"])
 run_url = "https://github.com/#{repo}/actions/runs/#{run_id}"

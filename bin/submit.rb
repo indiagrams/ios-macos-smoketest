@@ -47,6 +47,19 @@ require_relative "lib/bootstrap"
 config = Bootstrap::Config.load!
 config.validate!
 
+# ─── Identity: app/Identity.xcconfig, the source of truth (A-01) ─────────────
+#
+# Not .bootstrap.env, which no longer carries these values. `identity!` reads
+# through the one xcconfig parser, resolves its path from __dir__ rather than
+# the CWD, and refuses BY NAME instead of returning a default — a submission
+# banner naming the wrong app is worse than one that never printed.
+begin
+  app_name  = Bootstrap.identity!("APP_PRODUCT_NAME")
+  bundle_id = Bootstrap.identity!("BUNDLE_ID")
+rescue StandardError => e
+  Bootstrap::UI.fail!(e.message)
+end
+
 # ─── Resolve effective platforms (PLATFORMS env wins over config) ────────────
 raw_platforms = ENV["PLATFORMS"].to_s.strip.empty? ? config.platforms.join(",") : ENV["PLATFORMS"]
 platforms = raw_platforms.split(",").map(&:strip).reject(&:empty?)
@@ -119,7 +132,7 @@ marketing = read_marketing_version
 
 # ─── Pre-flight summary ──────────────────────────────────────────────────────
 puts
-puts Bootstrap::UI.bold("About to #{auto_submit ? 'SUBMIT' : 'STAGE'} #{config['APP_NAME']} (#{config['BUNDLE_ID']}):")
+puts Bootstrap::UI.bold("About to #{auto_submit ? 'SUBMIT' : 'STAGE'} #{app_name} (#{bundle_id}):")
 puts "  marketing version: #{marketing || '(could not read from project file)'}"
 puts "  platforms:         #{platforms.join(', ')}"
 puts "  mode:              #{auto_submit ? 'submit_for_review=true (auto-submit)' : 'submit_for_review=false (stage only)'}"

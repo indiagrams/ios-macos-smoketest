@@ -663,12 +663,24 @@ module Bootstrap
   # something? (A-01, IDENT-10.)
   #
   # This replaced the rename step, whose `do_it` shelled out to the two rename
-  # scripts this phase retires, and whose `check` matched
-  # `APP_PRODUCT_NAME = <the env key>` with a regex that did NOT cut at
-  # `//`, so `APP_PRODUCT_NAME = // disabled` satisfied it. That is UL-031's hole
-  # in a second file, and reading through the ONE parser (D-57) is what closes it:
-  # `Xcconfig.value` cuts at `//` and returns "" for a comment-only value, which
-  # this step treats exactly as it treats nil.
+  # scripts this phase retires, and whose `check` compared the file's text
+  # against the env key with an anchored regex that does not cut at `//`.
+  #
+  # MEASURED 2026-09-03, because the comment this one replaces claimed something
+  # else and nobody had run it. That regex did NOT accept
+  # `APP_PRODUCT_NAME = // disabled` — it returned `:pending`. Its real defect is
+  # the INVERSE: a correctly-set value carrying a trailing `// note` also read as
+  # `:pending`, and `:pending` here means `make bootstrap-fork` re-runs the
+  # rename over an already-correct fork. The predicate that genuinely accepts
+  # `= // disabled` is the anchored non-space presence match (UL-031), which
+  # lived in the preflight and the release check and was closed upstream by #282
+  # — not this one.
+  #
+  # Reading through the ONE parser (D-57) fixes both directions at once.
+  # `Xcconfig.value` cuts at `//`, so `= // disabled` resolves to "" and is
+  # blocked BY NAME, while `= Value // note` resolves to `Value` and passes. ""
+  # and nil are the same failure to this step because they are the same failure
+  # to Xcode.
   #
   # MIN_TIER = 1 ON PURPOSE, and it is not a rounding-down. This step answers "the
   # file exists, and its keys resolve" — tier 1, plus the resolution that is what
@@ -740,10 +752,9 @@ module Bootstrap
   # It sits immediately after `IdentityPresent`, which resolves the same four keys
   # through the same parser but asks only whether they resolve at all. This step
   # asks the harder question: are the values that resolved still the template's?
-  # The step `IdentityPresent` replaced — and upstream's post-#281 copy of it —
-  # matched `APP_PRODUCT_NAME = <the env key>` with a regex that does NOT cut at
-  # `//`, so `APP_PRODUCT_NAME = // disabled` satisfied it (the UL-031 hole, in a
-  # second file).
+  # See `IdentityPresent` for what its predecessor's regex actually did with a
+  # `//` comment — measured on 2026-09-03 rather than repeated from the comment
+  # that stood here before.
   class IdentityAdopted < Step
     MIN_TIER = 2
 

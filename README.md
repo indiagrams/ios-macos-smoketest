@@ -79,7 +79,7 @@ The five-command journey hides:
 - **`deliver` metadata-dropping worked around**: deliver silently drops fields when given just `metadata_path`. The template reads every file itself and passes explicit hashes (`do_upload_metadata` / `do_submit_for_review` in `Fastfile`).
 
 ### Quality gates
-- **`make doctor`** — 18-step read-only pipeline; surfaces every prerequisite + every advisory before a byte is built. Each step explains its own failure with a one-line fix.
+- **`make doctor`** — 22-step read-only pipeline; surfaces every prerequisite + every advisory before a byte is built. Each step explains its own failure with a one-line fix.
 - **Lefthook pre-push hook** runs `ci/local-check.sh --fast` (unsigned iOS device build) — same signal CI runs on PR.
 - **PR required checks**: 8 build jobs (3 XcodeGen + 3 Tuist + 2 verify), all green for merge. Single-platform forks see fewer.
 - **Branch protection** auto-configured by `bin/setup-github.sh`: squash-only merge, required reviews, force-push blocked.
@@ -87,8 +87,8 @@ The five-command journey hides:
 
 ### Fork extensibility (added 2026-05; v1.6.1)
 - **`fastlane/Fastfile.local` extension point** — forks add custom lanes (Slack hook, Crashlytics dSYM upload, Firebase App Distribution, internal-ticket bumps) in a fork-owned file that survives upstream syncs. Template Fastfile imports it at EOF; `after_all` and `error` are reserved for forks, `before_all` is template-claimed. See [`fastlane/Fastfile.local.example`](fastlane/Fastfile.local.example) for seven copy-pasteable patterns.
-- **Env-driven Fastfile constants** — `APP_NAME`, `APP_IDENTIFIER`, and downstream `IOS_SCHEME` / `MACOS_SCHEME` / `IPA_NAME_PATTERN` / `PKG_NAME_PATTERN` all resolve from `.bootstrap.env` at lane-resolution time, with `ENV` override for CI. Forks no longer sed-substitute Fastfile literals during rename; the file stays byte-equivalent across template and every fork.
-- **Env-driven `pr.yml`** — workflow's `xcodebuild -project / -scheme` arguments resolve `${{ vars.APP_NAME || 'SmokeApp' }}`. Forks set repo `vars.APP_NAME` once; the workflow file stays byte-equivalent across template and forks for safe `cp`-mirror.
+- **Config-driven Fastfile constants** — `APP_NAME`, `APP_IDENTIFIER`, and downstream `IOS_SCHEME` / `MACOS_SCHEME` / `IPA_NAME_PATTERN` / `PKG_NAME_PATTERN` resolve from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb`, the one parser every consumer uses. Two tiers and a named failure: `ENV` first as an explicit deliberate override, then the xcconfig, then an `abort` naming the key and the file. **There is no placeholder tier** — a fallback default is how a fork ships under somebody else's identity, and `test/fastlane_identity_test.rb` rejects any `|| "…"` fallback and any `.bootstrap.env` identity read. Forks substitute no Fastfile literals; the file stays byte-equivalent across template and every fork.
+- **Constant-driven `pr.yml`** — the workflow's `xcodebuild` arguments are the literals `-project app/App.xcodeproj` and `-scheme App-iOS` / `App-macOS`, because the project, the schemes and the targets have been the generic constant `App` since #281. A fork sets nothing in the GitHub UI: Phase 4 deleted the two GitHub Actions **repository variables** this workflow used to read the app name and the bundle id from (IDENT-06), and `tools/check-contamination.rb` freezes which workflow may read repository variables at all. The two variable names are deliberately not spelled here — DOC-03 asserts their absence from this file, so a line naming them in order to say they are gone would turn that assertion red by existing. The workflow file stays byte-equivalent across template and forks for safe `cp`-mirror.
 - **Fork-friendly CI timeouts** — `pr.yml` job-level cap 60min (was 15); test steps inherit the job cap so a fork's 30-min test suite doesn't hit a template-tuned ceiling. Infrastructure-only steps (build, simulator pre-boot) keep tight bounds so stuck infrastructure fails fast without constraining user test duration.
 - **Single Sat 07:00 UTC canary cron** in [`canary-trigger.yml`](.github/workflows/canary-trigger.yml) — orchestrates three sequential ships (CI xcodegen → CI tuist → local-mode). Forks inherit no cron (the trigger file is template-only); each fork wires its own schedule when ready.
 
@@ -185,8 +185,8 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 │   ├── ship.rb                  # `make ship` driver (handles ci|local modes)
 │   ├── verify-testflight.rb     # `make verify` driver
 │   ├── adopt.rb                 # `make adopt` driver (existing-app forks)
-│   ├── lib/bootstrap.rb         # the orchestration framework (18-step pipeline)
-│   ├── rename.sh                # rename SmokeApp → YourApp
+│   ├── lib/bootstrap.rb         # the orchestration framework (22-step pipeline)
+│   ├── rename.sh                # personalize prose, contact email + repo slug
 │   ├── switch-to-tuist.sh       # one-way XcodeGen → Tuist switch
 │   ├── setup-github.sh          # branch protection + squash-only + required checks
 │   ├── preflight.sh             # check developer-tool prerequisites
@@ -264,6 +264,7 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 - **[docs/MAINTAINING-A-FORK.md](docs/MAINTAINING-A-FORK.md)** — what to do after the first ship: bumping versions, replacing icons, submitting to App Store review.
 - **[docs/ADOPTING-EXISTING-APP.md](docs/ADOPTING-EXISTING-APP.md)** — the existing-app migration path. If your fork represents an app already live on the App Store (not greenfield), this is how to safely adopt it onto apple-shipkit's release pipeline without clobbering your live listing.
 - **[docs/MIGRATING-TO-TUIST.md](docs/MIGRATING-TO-TUIST.md)** — switching from XcodeGen to Tuist after fork.
+- **[docs/MIGRATING-FROM-RENAME.md](docs/MIGRATING-FROM-RENAME.md)** — for a fork created *before* the identity work: one command moves it off name-derived structure onto `app/Identity.xcconfig`. Read its executable-name section before migrating a live app.
 - **[docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md](docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md)** — same archive/export flow without fastlane (uses `xcrun altool` + `notarytool` + ASC API directly).
 - **[docs/PRINCIPLES.md](docs/PRINCIPLES.md)** — design decisions behind the template's structure.
 - **[docs/ROLLBACK.md](docs/ROLLBACK.md)** — undoing a TestFlight build, a git tag, or a partial bootstrap-fork.

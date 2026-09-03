@@ -40,10 +40,15 @@ Every proposal runs one test before anything else:
 - **No** → it is *around* the project. In scope for upstream.
 - **Yes** → it is *inside* the project. Deliberately out of scope.
 
-Cite the sentence, never the path. This fork's [SCOPE.md](../SCOPE.md) names
-`app/SmokeApp/`; upstream's current copy names `app/HelloApp/`. The stub directory gets
-renamed across template versions, so a quote pinned to the path literal goes stale while
-the test itself does not.
+Cite the sentence, never the path. The two copies of this test used to name two different
+app directories, and the explanation given here was that the stub directory moves across
+template versions. It does not, and it never did: measured 2026-09-03 with
+`git ls-tree -r --name-only <ref> -- app/` at seven refs — `e773cfc`, `9589de1`, `6a93204`,
+`HEAD`, `212b489`, `c6c324f` and `upstream/main` — **neither** of those directories has ever
+existed at any of them, while `app/Shared/` exists at all seven. This fork's
+[SCOPE.md](../SCOPE.md) now names `app/Shared/` (DOC-03) and D-77(b) carries the same
+correction upstream; until it lands there the two files differ by exactly that one line.
+The habit stands for a better reason than the one it was given: quote the test, not a path.
 
 A **Yes** is not the end of the process. It still earns a row in
 [UPSTREAM-LEDGER.md](UPSTREAM-LEDGER.md) carrying the reason it was ruled out. Recording
@@ -64,9 +69,16 @@ leaves, remove:
 The principle behind it: when Apple requires a value in order to ship, this fork supplies
 the value and upstream supplies the slot, so apple-shipkit stays generic.
 
-The eventual automated gate is Phase 4's `bin/check-identity.sh`. **It does not exist
-yet.** Until it does, this step is a manual read of the diff — do it deliberately, on the
-patch, before `git am`, not after you have opened the PR.
+The automated gate is [`tools/check-contamination.rb`](../tools/check-contamination.rb),
+and it exists. It sweeps the whole tracked tree for both template identities and for
+address-shaped strings, fails on any occurrence not covered by a dated allowlist row, and
+runs in the required `review notes` context. IDENT-11's original wording named
+`bin/check-identity.sh`; the path was amended to `tools/` under D-69, because `bin/` is
+template-owned and `bin/refork-smoketest.sh` recreates this repository from the template —
+a gate living there would be replaced wholesale by the next refork.
+
+The gate reads the tree, not your patch, so this step is still a manual read of the diff —
+do it deliberately, on the patch, before `git am`, not after you have opened the PR.
 
 ## 3. Why you cannot open the PR from this repo
 

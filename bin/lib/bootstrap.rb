@@ -213,7 +213,26 @@ module Bootstrap
 
     def self.parse(path)
       values = {}
-      path.each_line.with_index do |line, idx|
+      # UTF-8 pinned, never inherited — the same rule bin/lib/xcconfig.rb:101 and
+      # test/identity_test.rb's read_utf8 already state, applied to the one read
+      # that was still missing it.
+      #
+      # `.bootstrap.env.example` carries 52 lines with non-ASCII bytes (the `───`
+      # section rules and the `—` in the prose), and bin/init-bootstrap-env.sh:36
+      # `cp`s that file to `.bootstrap.env`, so EVERY forker's config has them.
+      # Read through `Pathname#each_line` the bytes arrive tagged with
+      # `Encoding.default_external`; with LANG and LC_ALL unset that is US-ASCII,
+      # and the `line.strip` below then raises
+      # `Encoding::CompatibilityError: invalid byte sequence in US-ASCII` — before
+      # the comment-skip on the next line ever gets to discard the line. Every
+      # step, `make doctor` and `make bootstrap-fork` die on it with a backtrace
+      # rather than a named refusal. Measured 2026-09-03; both discriminators run
+      # in the 05-09 evidence file, since the crash needs the non-ASCII bytes AND
+      # the missing locale and either one alone is green.
+      #
+      # UL-012 / commit 3b1efb9 is this repository's own earlier instance of the
+      # inherited-encoding defect.
+      File.read(path, encoding: "UTF-8").each_line.with_index do |line, idx|
         line = line.strip
         next if line.empty? || line.start_with?("#")
         key, _, val = line.partition("=")

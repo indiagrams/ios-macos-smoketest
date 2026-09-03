@@ -74,8 +74,11 @@ first and let's talk.
     deprecation note in CHANGELOG one minor release before deletion. Users
     of `gh repo create --template` should be able to skim the CHANGELOG and
     know what to update.
-13. **`bin/rename.sh` outputs a buildable project.** Always. If a rename
-    produces a project that can't `make check` green, that's a P0 bug.
+13. **A personalized fork is a buildable project.** Always. Personalizing
+    is now setting the four values in `app/Identity.xcconfig` and running
+    the generator; it used to be a rename script, and the commitment did
+    not change when the mechanism did. If personalizing produces a project
+    that can't `make check` green, that's a P0 bug.
 
 ## Security
 

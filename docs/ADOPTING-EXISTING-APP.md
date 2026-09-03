@@ -25,15 +25,26 @@ The template's `make doctor` step `Register Bundle ID in Apple Developer Portal`
 
 ## Step-by-step walkthrough
 
-### 1. Fork the template + rename
+### 1. Fork the template + give it your live app's identity
 
 ```bash
 gh repo create my-existing-app --template=indiagrams/ios-macos-smoketest --private --clone
 cd my-existing-app
-bin/rename.sh MyExistingApp com.theirteam.myexistingapp "My Existing App" --email=you@example.com
+$EDITOR app/Identity.xcconfig
 ```
 
-`bin/rename.sh` substitutes `SmokeApp` → `MyExistingApp` and `com.indiagram.smokeapp` → your bundle id across the tree. After this step, your fork's identity matches your real app.
+`app/Identity.xcconfig` is the one tracked identity file; XcodeGen, Tuist and `xcodebuild` all read it natively. Set its four keys:
+
+```
+BUNDLE_ID        = com.theirteam.myexistingapp
+APP_PRODUCT_NAME = MyExistingApp
+DISPLAY_NAME     = My Existing App
+COPYRIGHT        = Copyright © 2026 Their Team. All rights reserved.
+```
+
+**Read these off your live app, do not invent them.** This is the one case where the values are not yours to choose: `BUNDLE_ID` must be the identifier the App Store already knows, and `DISPLAY_NAME` must match the name on the existing listing, or `make adopt` and `make submit` will address a record that is not yours. App Store Connect → your app → **App Information** shows the bundle ID and the name; the copyright string is on the same page under **General Information**.
+
+Nothing else is renamed. The project stays `app/App.xcodeproj` and the schemes stay `App-iOS` and `App-macOS` on every fork, so no path in the release pipeline is derived from what your app is called.
 
 ### 2. Fill `.bootstrap.env`
 
@@ -42,15 +53,14 @@ cp .bootstrap.env.example .bootstrap.env
 $EDITOR .bootstrap.env
 ```
 
-The critical fields for adoption:
+The critical fields for adoption. The app's identity is **not** among them — it is
+the `app/Identity.xcconfig` you set in step 1, and nothing reads it from here:
 
 ```
-APP_NAME=MyExistingApp                          # matches what bin/rename.sh set
-BUNDLE_ID=com.theirteam.myexistingapp           # your REAL bundle id (already on the App Store)
 FASTLANE_TEAM_ID=ABCD1234EF                     # the team that owns your existing app
 ASC_API_KEY_ID=ABCD1234                         # your ASC API key
-ASC_API_KEY_ISSUER_ID=12345678-...               # your ASC issuer ID
-ASC_API_KEY_P8_BASE64=LS0tLS1CRUdJTi...          # base64-encoded .p8 file contents
+ASC_API_KEY_ISSUER_ID=12345678-...              # your ASC issuer ID
+ASC_API_KEY_P8_PATH=~/.config/secrets/AuthKey_ABCD1234.p8   # path to the .p8; the bytes stay outside the repo
 RELEASE_MODE=local                              # or 'ci' if shipping from GitHub Actions
 ```
 
@@ -226,7 +236,7 @@ FORCE=true make adopt   # overwrite even with uncommitted changes — destructiv
 
 | Error | Meaning | Fix |
 |---|---|---|
-| `BUNDLE_ID is the template placeholder 'com.indiagram.smokeapp'` | You haven't set BUNDLE_ID in `.bootstrap.env` | Edit `.bootstrap.env` with your real bundle id |
+| `tier 2 failed: BUNDLE_ID = … (template identity)` | You haven't set `BUNDLE_ID` in `app/Identity.xcconfig` | Edit `app/Identity.xcconfig` with your real bundle id |
 | `no ASC App record found for bundle '...' on team ...` | Either bundle id is wrong, team id is wrong, or app exists on a different team | Verify both in ASC web UI: My Apps → app → App Information → Bundle ID; Account → Team |
 | `Uncommitted changes detected in fastlane/metadata` | Local edits would be lost on overwrite | `git commit` first, or `FORCE=true make adopt` |
 | `Missing required env vars: ASC_API_KEY_*` | `.bootstrap.env` is incomplete | Fill in all `ASC_API_KEY_*` fields; see [BOOTSTRAP.md](BOOTSTRAP.md) |

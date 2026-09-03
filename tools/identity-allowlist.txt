@@ -85,13 +85,12 @@ SECURITY.md	1	2026-09-02	template doc: names the stub app whose attack surface t
 Brewfile	2	2026-09-02	template doc: :5-6 comments describe what each generator produces, using the template's pre-rename project name
 bin/ship.rb	1	2026-09-02	template doc: :42 comment gives a config-drift EXAMPLE — the template APP_NAME on a repo named my-cool-app; nothing reads it
 ci/take-screenshots.sh	1	2026-09-02	template doc: :172 comment gives an example .xctestrun filename
-docs/ADOPTING-EXISTING-APP.md	2	2026-09-02	template doc: walks a forker through replacing the template's placeholder bundle id
 docs/BOOTSTRAP.md	1	2026-09-03	historical record: the surviving line is the GHSecrets row's account of D-56/UL-026 — it names the value the deleted BUNDLE_ID repository variable was measured carrying, which is what makes the deletion checkable rather than remembered. Count re-measured 2026-09-03 when plan 05-07 rewrote the step-4 row: that row described a rename this phase retires, so its example value went with it and the count fell 2 -> 1. Measured with the gate's own predicate, not predicted.
 docs/CONTINUOUS-VALIDATION.md	1	2026-09-02	template doc: G6 records an exportArchive failure verbatim, including the bundle id Apple's error named
 docs/CONTRIBUTING-UPSTREAM.md	1	2026-09-02	template doc: :44 explains that this fork's app directory and upstream's differ by name, which requires both names
 docs/GETTING-STARTED.md	4	2026-09-03	template doc: the first-ship walkthrough starts from the un-renamed template. Count re-measured 2026-09-03 with the gate's own predicate when plan 05-13 rewrote the `make all` transcript: that line printed a rename step this phase retires, so it went and the count fell 5 -> 4. Not predicted; the gate reported `expected 5 line(s), found 4` first.
 docs/MAINTAINING-A-FORK.md	1	2026-09-02	template doc: :201 gives entitlements paths as they exist before the rename
-docs/MIGRATING-TO-TUIST.md	23	2026-09-02	template doc: the largest single doc occurrence (23), all manifest and scheme examples for the pre-rename project
+docs/MIGRATING-TO-TUIST.md	20	2026-09-03	template doc: the largest single doc occurrence, all manifest and scheme examples for the pre-rename project. Count re-measured 2026-09-03 with the gate's own predicate when plan 05-13 replaced the section that documented the retired identity substitution: its three examples went with it and the count fell 23 -> 20. The gate reported `expected 23 line(s), found 20` first; not predicted.
 docs/PRINCIPLES.md	1	2026-09-02	template doc: :26 states the rule that a change breaking the stub app does not land
 docs/PRODUCT-IDENTITY.md	1	2026-09-02	template doc: :242 contrasts this fork's recorded identity with the template's placeholder, which requires naming the placeholder
 docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md	15	2026-09-02	template doc: xcodebuild/altool invocations shown against the pre-rename scheme and bundle id

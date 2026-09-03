@@ -19,7 +19,7 @@ The fork ↔ upstream sync property is the most important architectural invarian
 | Do **not** hardcode `APP_NAME` / `BUNDLE_ID` / ASC URLs in workflows or scripts | They resolve from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` — the one reader (D-57) | Edit `app/Identity.xcconfig` |
 | Do **not** edit files under `bin/`, `ci/`, `.github/workflows/`, `Makefile` | Template-owned | Override via env, or open an upstream issue at `indiagrams/ios-macos-smoketest` |
 | Do **not** commit secrets | `.bootstrap.env` and `.p8` files are gitignored | Commit `.bootstrap.env.example` only; real values live in GitHub Secrets / `~/.config/secrets/` |
-| Do **not** sed-substitute `SmokeApp` literals | The template resolves identity everywhere it matters | Run `bin/rename.sh MyApp com.example.myapp "My App" --email=you@example.com` once at fork creation; afterward, the app's identity is edited in `app/Identity.xcconfig` — fastlane and the release workflows read it through `bin/lib/xcconfig.rb`, and `.bootstrap.env` carries no identity consumer (Phase 5 removes the keys) |
+| Do **not** sed-substitute `SmokeApp` literals | The template resolves identity everywhere it matters | Edit the four keys of `app/Identity.xcconfig` — fastlane and the release workflows read it through `bin/lib/xcconfig.rb`, and `.bootstrap.env` carries no identity consumer (Phase 5 removes the keys) |
 
 ## Where your code goes
 

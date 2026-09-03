@@ -58,7 +58,8 @@
 # tracked tree, 0 unallowed, plus 12 icon filenames excluded as non-addresses.
 #
 # Re-measured 2026-09-03 with the same predicate after plan 05-12 deleted the rename
-# script's self-check and its three shell harnesses: 34 address occurrences, 0 unallowed.
+# script's self-check and its three shell harnesses and finished its own edits:
+# 35 address occurrences, 0 unallowed.
 # The `acme.com` row was REMOVED in that same commit rather than re-dated. Every one of
 # its 22 occurrences lived in a single deleted fixture, so after the deletion the domain
 # matched nothing anywhere in the tree — and a row matching nothing FAILS by design

@@ -188,10 +188,35 @@ jobs:
           ASC_API_KEY_ID:        ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
         run: |
+          # DISPLAY_NAME and ASC_APP_NAME are deliberately SYNTHETIC, in the same
+          # register as APP_EMAIL's RFC 2606 doctor-matrix@local.invalid two lines
+          # below. Both used to carry a real shipping product's prose name, which is
+          # the IDENT-15 / UL-045 blindness class on `main`: it carries NEITHER of the
+          # two template identity literals tools/check-contamination.rb is frozen on, so
+          # that gate exits 0 on it. (The two literals are deliberately not spelled in
+          # this comment: doing so cost the counted allowlist row for this file two extra
+          # occurrences, and prose explaining a gate should not have to be exempted from
+          # it.) A-08 fixes the named sites; the class stays Phase 6 criterion 7.
+          #
+          # ASC_APP_NAME is the one that mattered. It is the App Store Connect record
+          # name bootstrap creates or renames, and the value the store-listing name
+          # is generated from — a fixture must never carry a name a real listing
+          # could be renamed to.
+          #
+          # APP_NAME and BUNDLE_ID are NOT changed here. They are still READ:
+          # IdentityAdopted::ENV_AGREEMENT compares them against APP_PRODUCT_NAME and
+          # BUNDLE_ID in the smoketest checkout's app/Identity.xcconfig, so they are
+          # this cell's subject rather than decoration, and both are template
+          # literals covered by a counted row in tools/identity-allowlist.txt.
+          # DISPLAY_NAME is not in ENV_AGREEMENT and is not in Config::REQUIRED_ALWAYS
+          # — it is inert here, and removing the line rather than re-valuing it is
+          # 05-08's deferred item, which needs a real matrix run to validate. This
+          # workflow is upstream-only (`github.repository == 'indiagrams/apple-shipkit'`
+          # at :102), so no run of it can be produced from this fork.
           cat > smoketest/.bootstrap.env <<EOF
           APP_NAME=SmokeApp
           BUNDLE_ID=com.indiagram.smoke-app
-          DISPLAY_NAME='Indiagram Smoke App'
+          DISPLAY_NAME='Doctor Matrix Fixture'
           APP_EMAIL=doctor-matrix@local.invalid
           GENERATOR=$GENERATOR
           RELEASE_MODE=$RELEASE_MODE
@@ -207,7 +232,7 @@ jobs:
           KEYCHAIN_PASSWORD_FILE=$SECRETS_DIR/keychain-password
           ICON_1024_PATH=
           ASC_APP_SKU=indiagram-smoke-001
-          ASC_APP_NAME=Indiagram Smoke App
+          ASC_APP_NAME=Doctor Matrix Fixture
           EOF
           # Print without secrets for log clarity
           grep -vE "^(ASC_API_KEY_ID|ASC_API_KEY_ISSUER_ID|FASTLANE_TEAM_ID)=" smoketest/.bootstrap.env || true

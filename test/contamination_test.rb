@@ -695,7 +695,7 @@ ORG_LOCAL            = "maintainers"
 #
 # History, so the number is a dated measurement rather than a remembered one:
 #   62  2026-09-02  original, when the bound was written as >= 40
-#   34  2026-09-03  plan 05-12 deleted the rename self-check and its three shell
+#   35  2026-09-03  plan 05-12 deleted the rename self-check and its three shell
 #                   harnesses; those files carried 31 of the tree's addresses —
 #                   22 on the acme.com fixture domain, 4 on example.com, 3 on the
 #                   github.com ssh-user row and 2 on the org domain. The acme.com

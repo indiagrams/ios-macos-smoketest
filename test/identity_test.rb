@@ -39,7 +39,7 @@
 #
 #     FAIL <group> <path>: <message>
 #
-# where <group> is G1..G7 and <path> is the file the assertion is about, or a
+# where <group> is G1..G8 and <path> is the file the assertion is about, or a
 # single `-` when the assertion is not file-scoped (the G4 cache-flag sweep and
 # the G3 path-scoped git-grep sweep).
 #
@@ -144,6 +144,39 @@ REQUIRED_VARS     = %w[BUNDLE_ID APP_PRODUCT_NAME DISPLAY_NAME COPYRIGHT].freeze
 #     whatever this file holds simply IS the App Store listing name.
 COPYRIGHT_TXT     = "fastlane/metadata/copyright.txt"
 NAME_TXT          = "fastlane/metadata/en-US/name.txt"
+
+# ─── G8 vocabulary — the app's own user-visible copy ─────────────────────────
+#
+# Two files, and BOTH of them, because they carry the SAME sentence: the Swift
+# source as a literal, and the string catalog as the KEY and its `en` value. An
+# assertion over ContentView.swift alone goes green while the retired instruction
+# is still shipping in the catalog — measured, not imagined: A-08's original
+# wording named only the Swift file, and the catalog was found by grepping for
+# the string rather than by reading the plan.
+#
+# SCOPE, stated so it is not widened by the next reader. This group asserts the
+# absence of ONE retired command and the presence of the sentence that replaced
+# it. It is deliberately NOT a check on app-facing prose in general: the app's
+# title and its "iOS + macOS template" subtitle are still the template's and are
+# still here, Phase 6 replaces that screen wholesale under D-66/PRIV-06, and the
+# IDENT-15 / UL-045 gate-blindness CLASS is Phase 6 criterion 7. A group that
+# quietly grew into the prose class would fail this repository today for a reason
+# nobody in Phase 5 signed up to fix.
+APP_COPY_FILES  = %w[app/Shared/ContentView.swift app/Shared/Localizable.xcstrings].freeze
+# The retired script, spelled without its `bin/` prefix so the assertion also
+# catches a bare `rename.sh --help` written from inside bin/.
+RETIRED_SCRIPT  = "rename.sh"
+# The POSITIVE half. Without it, deleting the Text call outright — or emptying the
+# catalog — satisfies the negative half completely, which is the shape 05-11
+# recorded as "a scope assertion needs a positive half or an empty file satisfies
+# it". Spelled here as a frozen constant rather than read out of either file.
+APP_COPY_STRING = "Set this app's identity in `app/Identity.xcconfig`."
+# In the catalog the same sentence is BOTH the key and its `en` value, so it must
+# appear exactly twice. The pairing is asserted as a COUNT rather than by parsing
+# JSON on purpose: this file carries exactly ONE require-family line
+# (require_relative "../bin/lib/xcconfig"), which is what the `review notes` job's
+# bundler-cache: false rests on, and `require "json"` would be a second.
+APP_COPY_CATALOG_OCCURRENCES = 2
 
 # ─── G3 vocabulary — the Team ID and where it must never appear ──────────────
 # TEAM_ID is the literal VALUE. The assertions below use the value, never the
@@ -428,6 +461,42 @@ assert !xcconfig_display_name.nil? && xcconfig_display_name == listing_name,
        "a mismatch here means either this file was hand-edited away from the " \
        "identity config, or ASC_APP_NAME in .bootstrap.env deliberately differs " \
        "from DISPLAY_NAME, which a clone cannot see"
+
+# ─── G8: the app does not tell its user to run a retired script (A-08) ───────
+
+puts
+puts "G8 — no app-facing string names `#{RETIRED_SCRIPT}`, and the string that replaced it is present:"
+
+APP_COPY_FILES.each do |rel|
+  exists = File.exist?(File.join(ROOT, rel))
+  assert exists, "G8", rel, "exists"
+  next unless exists
+
+  text = read_utf8(rel)
+  hits = line_numbers(text) { |line| line.downcase.include?(RETIRED_SCRIPT.downcase) }
+  assert hits.empty?, "G8", rel,
+         "names no `#{RETIRED_SCRIPT}` — Phase 5 retired that script's identity " \
+         "substitution, so an instruction to run it is false in the shipped app " \
+         "(offending line(s): #{hits.join(', ')})"
+end
+
+# The positive half, one assertion per file so the message names which one moved.
+swift_rel = APP_COPY_FILES[0]
+if File.exist?(File.join(ROOT, swift_rel))
+  swift_hits = read_utf8(swift_rel).scan(APP_COPY_STRING).length
+  assert swift_hits == 1, "G8", swift_rel,
+         "carries the replacement string exactly once (found #{swift_hits}); without " \
+         "this half, deleting the Text call satisfies the absence check completely"
+end
+
+catalog_rel = APP_COPY_FILES[1]
+if File.exist?(File.join(ROOT, catalog_rel))
+  catalog_hits = read_utf8(catalog_rel).scan(APP_COPY_STRING).length
+  assert catalog_hits == APP_COPY_CATALOG_OCCURRENCES, "G8", catalog_rel,
+         "carries the replacement string exactly #{APP_COPY_CATALOG_OCCURRENCES} times, " \
+         "once as the catalog KEY and once as its `en` value (found #{catalog_hits}); a " \
+         "key that stops matching its source string stops resolving, silently"
+end
 
 # ─── verdict ─────────────────────────────────────────────────────────────────
 

@@ -18,7 +18,7 @@ struct ContentView: View {
             Text("iOS + macOS template")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("Rename me. Run `bin/rename.sh --help`.")
+            Text("Set this app's identity in `app/Identity.xcconfig`.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

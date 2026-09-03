@@ -1009,13 +1009,89 @@ def fixture_gitignore(ignore_local_xcconfig, token = TOKEN)
   "#{rows.join("\n")}\n"
 end
 
+
+# ─── the entry points a renamed fork carries OUTSIDE app/ ────────────────────
+#
+# Measured on a real fixture on 2026-09-03 rather than imagined: clone this
+# repository at e773cfc, run the pinned bin/rename.sh, and `git grep -lE` for a
+# generated project path or an app scheme name outside app/ returns SIXTEEN
+# tracked files. `.gitignore` is one of them and the migration already rewrites
+# it; `CHANGELOG.md` is another and the migration must NOT. The remaining
+# fourteen are the entry points a forker actually runs — `make check`,
+# `make ship`, `make screenshots` — plus the docs and comments that describe
+# them.
+#
+# The five below are a REPRESENTATIVE SAMPLE of that measurement, not a copy of
+# it: one shell entry point, one Makefile, one fastlane config, one prose doc,
+# and one file that must be left alone. Each carries the token in a different
+# syntactic position, because a rewriter anchored too tightly to `-project ` or
+# to a shell line would pass a fixture that only ever showed it one shape.
+#
+# Every string here spells the token as a PROJECT PATH or a SCHEME NAME. None
+# spells it bare: a bare-token fixture would be satisfied by the whole-tree
+# sweep this phase exists to retire, and bin/rename.sh:518's own comment records
+# why that sweep is dangerous.
+def entry_point_files(token)
+  {
+    # make check. This is the file 05-06 measured broken at line 68 after a real
+    # exit-0 migration, and the one the harness later EXECUTES.
+    "ci/local-check.sh" => <<~SH,
+      #!/usr/bin/env bash
+      set -euo pipefail
+      xcodebuild build \
+        -project app/#{token}.xcodeproj \
+        -scheme #{token}-iOS \
+        -configuration Debug
+      xcodebuild build \
+        -project app/#{token}.xcodeproj \
+        -scheme #{token}-macOS \
+        -configuration Debug
+    SH
+    # A help string, so the rewrite cannot be anchored to a flag.
+    "Makefile" => <<~MAKE,
+      help:
+      \t@echo "  generate         Regenerate #{token}.xcodeproj from app/project.yml"
+    MAKE
+    # Ruby-ish DSL, quoted differently again. make screenshots.
+    "fastlane/Snapfile" => <<~SNAP,
+      project("app/#{token}.xcodeproj")
+      scheme("#{token}-iOS")
+    SNAP
+    # Prose, and the ONLY fixture site carrying .xcworkspace. Both extensions are
+    # one class: they name the same generated project, .gitignore lists them on
+    # adjacent lines, and rewrite_gitignore has always treated them together.
+    "AGENTS.md" => <<~MD,
+      - **Unit tests**: `bundle exec fastlane scan --workspace app/#{token}.xcworkspace
+        --scheme #{token}-macOS` for a direct invocation.
+    MD
+    # MUST NOT BE REWRITTEN. Historical record (05-CONTEXT A-08): the token here
+    # sits inside a quoted CI failure message from a dated entry, and rewriting
+    # it would falsify a log line that was true when it was written. It is also
+    # not an entry point — nothing reads CHANGELOG.md to find a project.
+    "CHANGELOG.md" => <<~MD
+      ## Unreleased
+
+      - macOS UI screenshot test now skips on headless CI. Surfaced 2026-05-25 with
+        `Failed to activate application 'com.example.x at .../#{token}-macOS.app'`.
+      - `ci/take-screenshots.sh` no longer hardcodes `-project app/#{token}.xcodeproj`.
+    MD
+  }
+end
+
+# The same five files with the STRUCTURAL CONSTANT already in them — what a fork
+# that adopted the template's current copies before migrating looks like. Used by
+# the no-op case: the rewrite must find nothing to do and change no bytes.
+def migrated_entry_point_files
+  entry_point_files("App")
+end
+
 # A pre-#281 renamed fork in a real git repository with one commit and a CLEAN
 # working tree. Returns nil on success, or a String naming what went wrong —
 # never raises, so a fixture failure arrives as a FAIL line rather than as a
 # backtrace where a named refusal belongs.
 def build_migration_fixture(dir, branch: "main", team_id: FIXTURE_TEAM_ID,
                             ignore_local_xcconfig: true, with_local_xcconfig: true,
-                            with_xcodeproj: true)
+                            with_xcodeproj: true, entry_points: nil)
   FileUtils.mkdir_p(dir)
   write_file(dir, "app/project.yml", fixture_project_yml(TOKEN, team_id))
   write_file(dir, "app/Project.swift", fixture_project_swift(TOKEN, team_id))
@@ -1037,6 +1113,13 @@ def build_migration_fixture(dir, branch: "main", team_id: FIXTURE_TEAM_ID,
   write_file(dir, "app/Shared/PrivacyInfo.xcprivacy", privacy_info_xcprivacy(TOKEN))
   write_file(dir, "app/Shared/ContentView.swift", content_view_swift(TOKEN))
   write_file(dir, ".gitignore", fixture_gitignore(ignore_local_xcconfig))
+  # The fourteen-file class the migration did NOT reach before plan 05-16, plus the
+  # one file it must never reach. Seeded by DEFAULT so every case below — including
+  # M8, which predates them — migrates a tree shaped like a real fork rather than one
+  # whose only file outside app/ is .gitignore. They are written UNSTAGED-clean (the
+  # base commit picks them up), so the M8 index assertions still see exactly the five
+  # renames the migration itself staged.
+  (entry_points || entry_point_files(TOKEN)).each { |rel, text| write_file(dir, rel, text) }
   # Gitignored, exactly as they are in a real tree.
   write_file(dir, "app/iOS/Generated-Info.plist", generated_plist(display: FIXTURE_DISPLAY))
   write_file(dir, "app/macOS/Generated-Info.plist",
@@ -2073,6 +2156,215 @@ Dir.mktmpdir("migrate-structural") do |box|
     assert claim.nil?, "M8-structure",
            "a completed migration still asserts nothing about Apple's tolerance of the " \
            "executable-name change (found: #{claim.inspect})"
+  end
+end
+
+
+# ─── M9: the entry points outside app/ (plan 05-16, IDENT-14) ────────────────
+#
+# THE GAP THIS GROUP CLOSES, AND WHERE IT CAME FROM.
+#
+# Plan 05-06 ran a real exit-0 migration on a real fixture and then measured the
+# tree it produced: `bin/rename.sh` had substituted the fork's token into 49 of
+# the pre-rename template's 135 tracked files, the migration rewrote the ones
+# under app/ plus .gitignore, and `ci/local-check.sh:68` was still handing
+# `app/<N>.xcodeproj` to `xcodebuild -project` while the tree held only
+# `app/App.xcodeproj` with schemes `App-iOS` / `App-macOS`. `make check`,
+# `make ship` and `make screenshots` were all broken on a fork that had run one
+# documented command and done nothing else wrong.
+#
+# THE TWO TOKEN CLASSES, AND NOT A THIRD.
+#
+#   project path   <N>.xcodeproj / <N>.xcworkspace  ->  App.xcodeproj / App.xcworkspace
+#   scheme name    <N>-iOS / <N>-macOS              ->  App-iOS / App-macOS
+#
+# Both are ANCHORED: the token must be preceded by a non-identifier character
+# and followed immediately by one of those four suffixes. A bare `<N>` is never
+# rewritten anywhere, by anything, on any path — that is the whole-tree sweep
+# this phase exists to retire, and bin/rename.sh:518 carries its own comment
+# about why it is dangerous. The four must-not-touch files under app/ are the
+# in-tree instance of the same danger; CHANGELOG.md is the out-of-tree one.
+#
+# WHY THE SET IS ENUMERATED AND NOT LISTED.
+#
+# A file list written here would go stale by allocation the first time the
+# template gained or lost a consumer, which is exactly how four Phase 4 plans
+# were bitten. The command enumerates from `git ls-files` inside the fork it is
+# pointed at and reports the count; these cases assert the RESULT of that
+# enumeration on trees whose shape they control, never the list itself.
+
+puts
+puts "M9 — the rest of the fork: entry points outside app/, enumerated and rewritten:"
+
+# What the seeded fixture must look like AFTER a migration. Spelled out here by
+# hand rather than derived from entry_point_files("App"), for the same reason
+# the four D-70 signals are spelled out twice: a expectation computed by the
+# same helper that built the input is not an independent opinion.
+M9_EXPECTED = {
+  "ci/local-check.sh" => ["-project app/App.xcodeproj", "-scheme App-iOS", "-scheme App-macOS"],
+  "Makefile"          => ["Regenerate App.xcodeproj from app/project.yml"],
+  "fastlane/Snapfile" => ["project(\"app/App.xcodeproj\")", "scheme(\"App-iOS\")"],
+  "AGENTS.md"         => ["--workspace app/App.xcworkspace", "--scheme App-macOS"]
+}.freeze
+
+# ── M9-rewrite: a fork with stale references, migrated ──────────────────────
+
+Dir.mktmpdir("migrate-entry-points") do |box|
+  repo = File.join(box, "repo")
+  if (why = build_migration_fixture(repo))
+    fail_line("M9-rewrite", why)
+    @checks += 1
+  else
+    bin = build_tool_dir(box)
+
+    # BEFORE. The excluded file's digest has to be taken here or it compares to
+    # itself, and the seeded files have to be PROVEN stale here or "they were
+    # rewritten" is a claim about a fixture that was already correct.
+    changelog_before = digest_of(File.join(repo, "CHANGELOG.md"))
+    @checks += 1
+    stale_now = M9_EXPECTED.keys.reject do |rel|
+      text_of(File.join(repo, rel)).to_s.match?(/#{Regexp.escape(TOKEN)}(\.xcodeproj|\.xcworkspace|-iOS|-macOS)/)
+    end
+    assert stale_now.empty?, "M9-rewrite",
+           "every seeded entry point starts out naming #{TOKEN}'s project or schemes — " \
+           "without this the rewrite assertions below are true of files that were already " \
+           "correct (not stale: #{stale_now.inspect})"
+
+    out = assert_exit ["--root", repo], EXIT_OK,
+                      ["MIGRATION COMPLETE", "ci/local-check.sh", "fastlane/Snapfile"],
+                      "M9-rewrite",
+                      "the closing report names the entry points it rewrote, by path",
+                      env: { TOOL_DIR_ENV => bin }
+
+    # The count is the command's own measurement, read back off its report. A
+    # report that named files without a count could name three and rewrite one.
+    @checks += 1
+    reported = out.to_s[/entry points[^\n]*?(\d+) file\(s\)/, 1]
+    assert reported.to_s.to_i == M9_EXPECTED.length, "M9-rewrite",
+           "the report states it rewrote #{M9_EXPECTED.length} file(s) — the number is the " \
+           "command's own enumeration, not a constant (read back: #{reported.inspect})"
+
+    M9_EXPECTED.each do |rel, needles|
+      text = text_of(File.join(repo, rel)).to_s
+      needles.each do |needle|
+        assert text.include?(needle), "M9-rewrite",
+               "#{rel} now reads #{needle.inspect} " \
+               "(file is: #{text.lines.map(&:strip).reject(&:empty?).inspect})"
+      end
+      assert !text.match?(/#{Regexp.escape(TOKEN)}(\.xcodeproj|\.xcworkspace|-iOS|-macOS)/),
+             "M9-rewrite",
+             "#{rel} carries no remaining #{TOKEN} project path or scheme name " \
+             "(#{text.lines.select { |l| l.include?(TOKEN) }.map(&:strip).inspect})"
+    end
+
+    # ── the exclusion, by digest ─────────────────────────────────────────────
+    #
+    # CHANGELOG.md is historical record (05-CONTEXT A-08). Its occurrences here
+    # sit inside a quoted CI failure message from a dated entry; rewriting them
+    # would falsify a log line that was true when it was written. And nothing
+    # reads CHANGELOG.md to find a project, so leaving it costs no entry point.
+    changelog_after = digest_of(File.join(repo, "CHANGELOG.md"))
+    assert changelog_before == changelog_after, "M9-must-not-touch",
+           "CHANGELOG.md is BYTE-IDENTICAL across the migration — sha256 before " \
+           "#{changelog_before}, after #{changelog_after}"
+    @checks += 1
+    assert text_of(File.join(repo, "CHANGELOG.md")).to_s
+             .match?(/#{Regexp.escape(TOKEN)}(\.xcodeproj|-macOS)/),
+           "M9-must-not-touch",
+           "CHANGELOG.md still CARRIES the token in a class the rewrite would otherwise " \
+           "have taken — without this the byte-identity assertion above is true of a file " \
+           "the rewrite could never have reached"
+
+    # ── the command SAYS what it did not touch ───────────────────────────────
+    @checks += 1
+    assert out.to_s.include?("CHANGELOG.md"), "M9-must-not-touch",
+           "the closing report NAMES CHANGELOG.md as carrying a reference it did not rewrite. " \
+           "A migration that half-fixes the entry points is worse than one that names what it " \
+           "left alone (report: #{out.to_s.lines.grep(/entry point|CHANGELOG/).map(&:strip).inspect})"
+
+    # ── the four in-app/ must-not-touch files are still untouched ────────────
+    #
+    # Repeated here rather than left to M8: this group WIDENS what the migration
+    # writes, and a widening is exactly when a boundary needs re-asserting.
+    MUST_NOT_TOUCH.each do |rel|
+      path = File.join(repo, rel)
+      assert text_of(path).to_s.include?(TOKEN), "M9-must-not-touch",
+             "#{rel} still carries #{TOKEN} as the forker's own choice, not as structure"
+    end
+  end
+end
+
+# ── M9-noop: a fork already on the constant ─────────────────────────────────
+#
+# A forker who adopted the template's current copies of those files BEFORE
+# migrating. The enumeration must find nothing, the rewrite must write nothing,
+# and the exit code must not move — an idempotent step that changes the outcome
+# is not idempotent.
+
+Dir.mktmpdir("migrate-entry-noop") do |box|
+  repo = File.join(box, "repo")
+  if (why = build_migration_fixture(repo, entry_points: migrated_entry_point_files))
+    fail_line("M9-noop", why)
+    @checks += 1
+  else
+    bin = build_tool_dir(box)
+    before = M9_EXPECTED.keys.to_h { |rel| [rel, digest_of(File.join(repo, rel))] }
+
+    out = assert_exit ["--root", repo], EXIT_OK, ["MIGRATION COMPLETE"],
+                      "M9-noop",
+                      "a fork already on the constant still migrates to exit 0",
+                      env: { TOOL_DIR_ENV => bin }
+
+    @checks += 1
+    reported = out.to_s[/entry points[^\n]*?(\d+) file\(s\)/, 1]
+    assert reported == "0", "M9-noop",
+           "the report states 0 file(s) rewritten, because the enumeration found none — " \
+           "not because the step was skipped (read back: #{reported.inspect})"
+
+    before.each do |rel, digest|
+      assert digest_of(File.join(repo, rel)) == digest, "M9-noop",
+             "#{rel} is byte-identical: a no-op rewrite writes NO bytes, so a forker who " \
+             "already synced their tooling sees it untouched in the diff"
+    end
+  end
+end
+
+# ── M9-rollback: a failure after the rewrite restores every rewritten file ──
+#
+# The plan's requirement, and the one assertion in this group that is about
+# atomicity rather than about content: every file the rewrite touched joins the
+# rollback set, so a failure at any later stage restores the tree exactly. Driven
+# through the MIGRATE_IDENTITY_FAIL_AFTER knob, which is the only way to reach
+# the rollback path without breaking the command on purpose.
+
+Dir.mktmpdir("migrate-entry-rollback") do |box|
+  repo = File.join(box, "repo")
+  if (why = build_migration_fixture(repo))
+    fail_line("M9-rollback", why)
+    @checks += 1
+  else
+    bin = build_tool_dir(box)
+    before = M9_EXPECTED.keys.to_h { |rel| [rel, digest_of(File.join(repo, rel))] }
+    head_before = head_of(repo)
+
+    assert_exit ["--root", repo], EXIT_MUTATION,
+                ["entry-points", "rolled back"],
+                "M9-rollback",
+                "an injected failure AFTER the entry-point rewrite exits 4 naming the stage",
+                env: { TOOL_DIR_ENV => bin, FAIL_AFTER_ENV => "entry-points" }
+
+    before.each do |rel, digest|
+      after = digest_of(File.join(repo, rel))
+      assert after == digest, "M9-rollback",
+             "#{rel} is restored BYTE-IDENTICALLY by the rollback — sha256 before #{digest}, " \
+             "after #{after}. A rewrite that the rollback could not undo would leave a fork " \
+             "whose tooling points at a project the failed migration never created."
+    end
+
+    assert head_of(repo) == head_before, "M9-rollback",
+           "the rollback left HEAD where it was (#{head_before.inspect})"
+    assert porcelain_of(repo).to_s.strip.empty?, "M9-rollback",
+           "the tree is clean after the rollback (#{porcelain_of(repo).inspect})"
   end
 end
 

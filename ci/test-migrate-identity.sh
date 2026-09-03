@@ -7,8 +7,10 @@
 # reconstructed on demand from an immutable git object; that the reconstruction is what we
 # believe it is BEFORE any migration runs against it; that ONE documented command migrates it
 # onto the config-based identity scheme; that the migrated tree BUILDS on iOS and
-# builds-and-tests on macOS; and that the identity the BUILT .app carries is the identity
-# app/Identity.xcconfig declares.
+# builds-and-tests on macOS; that the identity the BUILT .app carries is the identity
+# app/Identity.xcconfig declares; and — added by plan 05-16 — that the migrated fork can RUN
+# its own entry points afterwards, proven by executing ci/local-check.sh and reading the
+# project path it resolves rather than by grepping the file for a string.
 #
 # ── WHY THE ASSERTIONS READ THE BUILT BUNDLE AND NOT THE MANIFEST ────────────
 #
@@ -26,7 +28,7 @@
 #
 # Neither was visible to app/project.yml, to test/identity_test.rb or to
 # tools/identity-parity.rb. Both were found by an actual xcodebuild and by reading a built
-# bundle. So steps 16 and 18 below read four keys out of each platform's BUILT Info.plist with
+# bundle. So steps 17 and 19 below read four keys out of each platform's BUILT Info.plist with
 # `plutil -extract`, locating it from BUILT_PRODUCTS_DIR + INFOPLIST_PATH in that build's own
 # -showBuildSettings dump, and compare each to what bin/lib/xcconfig.rb resolves from the
 # tracked app/Identity.xcconfig. Eight reads, both platforms, no manifest consulted.
@@ -37,7 +39,7 @@
 # command did not exist yet; it exited 1 by design through phase 5 waves 1-4 so that a
 # deliberately-red script never put a false failure signal on the phase branch. Plan 05-05
 # (this change) wired steps 11-21 and .github/workflows/migrate.yml. The exit-2 red baseline
-# 05-01 recorded at step 9 is NOT discarded: step 14 measures the green half and both halves
+# 05-01 recorded at what is now step 10 is NOT discarded: step 15 measures the green half, and both
 # are printed on one greppable line, which is what makes criterion 1 falsifiable rather than
 # merely satisfied.
 #
@@ -106,8 +108,13 @@
 # summary lives here, in the tracked artifact, the way bin/preflight-identity.rb's header
 # records how its own exit paths were re-observed.
 #
-# Step numbers in the three 05-01 entries below are that plan's TEN-step numbering. The same
-# three guards are now steps 3/21, 6/21 and 10/21; nothing about them changed.
+# Step numbers in the three 05-01 entries below are that plan's TEN-step numbering, and the four
+# 05-05 entries below them use the 21-step numbering that plan built. THIS FILE NOW HAS 23
+# STEPS: plan 05-16 inserted the stale-entry-point enumeration at 9 and the entry-point
+# execution at 21, so old N maps to new N for N<=8, to N+1 for 9<=N<=19, and 20/21 -> 22/23.
+# The transcripts below are LEFT at the numbers they were taken at — a transcript rewritten to
+# match a later file is not a transcript. The three 05-01 guards are now steps 3/23, 6/23 and
+# 11/23; nothing about them changed.
 #
 #   control=fixture-blob-pin — exit 1 at step 3/10, before the clone. The RENAME_SH_BLOB
 #     constant was replaced with an all-zero SHA and the script refused with the drift
@@ -161,7 +168,7 @@
 # Apple Team ID in this tree to move"). That refusal is correct, is asserted in
 # test/migrate_identity_test.rb's M7-team-id case, and is documented in
 # docs/MIGRATING-FROM-RENAME.md. This harness is not testing the refusal — it is testing the
-# end-to-end migration — so step 11a substitutes a synthetic ten-character Team ID into both
+# end-to-end migration — so step 12a substitutes a synthetic ten-character Team ID into both
 # manifests and asserts the substitution landed. The migration then exercises the Team-ID MOVE
 # into gitignored app/Local.xcconfig, which is the path a real forker takes. The value is
 # obviously not a real Apple Team ID and reaches nothing but a tmpdir.
@@ -174,7 +181,7 @@
 # weakening the CI command to make a local run comfortable is how a gate stops covering the
 # thing it exists for. But a full-scheme unsigned macOS `xcodebuild test` launches an unsigned
 # AppMacOSUITests-Runner, and macOS shows the OPERATOR a "damaged, move to Trash" dialog on
-# their own desktop. So a local runner sets this knob (typically to AppMacOSTests) and step 17
+# their own desktop. So a local runner sets this knob (typically to AppMacOSTests) and step 18
 # adds `-only-testing:` — announcing itself LOUDLY on every use, the discipline
 # bin/preflight-identity.rb:154-163 established for --config, so a scoped run can never be
 # mistaken for a full one in a log. The other sanctioned local escape is an ad-hoc signature
@@ -206,7 +213,7 @@ cleanup() {
 }
 trap 'cleanup' EXIT INT TERM
 
-# ── Helpers for the built-artefact reads (steps 16 and 18) ───────────────────
+# ── Helpers for the built-artefact reads (steps 17 and 19) ───────────────────
 
 # One setting out of an xcodebuild -showBuildSettings dump. sed, not awk, because the value
 # may contain ' = ' and awk -F' = ' would split it; and the result is a display/extraction
@@ -400,14 +407,14 @@ esac
 # ── The macOS test-scoping knob, announced on every use ──────────────────────
 #
 # See "THE ONE ANNOUNCING KNOB" above. Unset is the CI shape: the FULL App-macOS scheme,
-# UI targets included. Set, it narrows step 17 with -only-testing: and says so loudly.
+# UI targets included. Set, it narrows step 18 with -only-testing: and says so loudly.
 if [ -n "${MIGRATE_MACOS_ONLY_TESTING:-}" ]; then
   MACOS_SCOPED=true
 else
   MACOS_SCOPED=false
 fi
 
-step "0/21 Fixture selection"
+step "0/23 Fixture selection"
 printf '    fixture base: %s (%s)\n' "$FIXTURE_REF" "$FIXTURE_MODE"
 printf '    pre-rename token: %s   post-rename token: %s\n' "$FIXTURE_TOKEN" "$RENAMED_TOKEN"
 if [ "$FIXTURE_REF_OVERRIDDEN" = true ]; then
@@ -415,7 +422,7 @@ if [ "$FIXTURE_REF_OVERRIDDEN" = true ]; then
 fi
 if [ "$MACOS_SCOPED" = true ]; then
   printf '    ==== MIGRATE_MACOS_ONLY_TESTING IN EFFECT ====\n'
-  printf '    step 17 will run ONLY -only-testing:%s on the macOS scheme.\n' "$MIGRATE_MACOS_ONLY_TESTING"
+  printf '    step 18 will run ONLY -only-testing:%s on the macOS scheme.\n' "$MIGRATE_MACOS_ONLY_TESTING"
   printf '    The macOS UI-test target is NOT exercised by this run; CI is the arbiter for it.\n'
 fi
 
@@ -434,14 +441,14 @@ if [ -z "$RUBY_BIN" ]; then
 fi
 printf '    ruby: %s (%s)\n' "$RUBY_BIN" "$("$RUBY_BIN" -e 'print RUBY_VERSION')"
 
-# ── 1/21 Non-shallow self-assertion ──────────────────────────────────────────
+# ── 1/23 Non-shallow self-assertion ──────────────────────────────────────────
 #
 # Asserted HERE, in the test, and not left to `fetch-depth: 0` in the workflow. That YAML line
 # is a config line anybody can delete with nothing going red — deleting it would blind this
 # test rather than break it. Same discipline as tools/gitleaks.rb, recorded in place at
 # .github/workflows/review-notes.yml:92. actions/checkout defaults to depth 1 and structurally
 # cannot see e773cfc.
-step "1/21 Non-shallow self-assertion"
+step "1/23 Non-shallow self-assertion"
 cd "$REPO_ROOT"
 
 SHALLOW="$(git rev-parse --is-shallow-repository)"
@@ -453,8 +460,8 @@ git rev-parse --verify --quiet "${FIXTURE_REF}^{commit}" >/dev/null || \
   fail "fixture commit ${FIXTURE_REF} does not resolve in this repository"
 ok "fixture commit ${FIXTURE_REF} resolves"
 
-# ── 2/21 Pre-flight ──────────────────────────────────────────────────────────
-step "2/21 Pre-flight"
+# ── 2/23 Pre-flight ──────────────────────────────────────────────────────────
+step "2/23 Pre-flight"
 test -x bin/rename.sh          || fail "bin/rename.sh not executable in $REPO_ROOT"
 command -v git      >/dev/null || fail "git not on PATH"
 command -v xcodegen >/dev/null || fail "xcodegen not on PATH — run 'make bootstrap' first"
@@ -471,11 +478,11 @@ git merge-base --is-ancestor "$FIXTURE_REF" "$ANCESTOR_REF" || \
   fail "${FIXTURE_REF} is not an ancestor of ${ANCESTOR_REF} — this is not the history the fixture was pinned against"
 ok "${FIXTURE_REF} is an ancestor of ${ANCESTOR_REF}"
 
-# ── 3/21 Blob pin ────────────────────────────────────────────────────────────
+# ── 3/23 Blob pin ────────────────────────────────────────────────────────────
 #
 # Both fixture commits, by name. Never the repository's current copy — that equality is what
 # plan 05-10 ends, and depending on it is how this fixture would go quietly vacuous.
-step "3/21 Blob pin on bin/rename.sh"
+step "3/23 Blob pin on bin/rename.sh"
 for pinned_ref in e773cfc 9589de1; do
   actual_blob="$(git rev-parse "${pinned_ref}:bin/rename.sh")"
   [ "$actual_blob" = "$RENAME_SH_BLOB" ] || \
@@ -483,8 +490,8 @@ for pinned_ref in e773cfc 9589de1; do
   ok "${pinned_ref}:bin/rename.sh == ${RENAME_SH_BLOB}"
 done
 
-# ── 4/21 Clone to tmpdir ─────────────────────────────────────────────────────
-step "4/21 Clone to tmpdir"
+# ── 4/23 Clone to tmpdir ─────────────────────────────────────────────────────
+step "4/23 Clone to tmpdir"
 WORK_DIR="$(mktemp -d -t test-migrate-identity-XXXXXX)"
 ok "tmpdir: $WORK_DIR"
 
@@ -499,8 +506,8 @@ cd "$WORK_DIR"
   fail "cd to the tmpdir did not take: PWD='$PWD' but WORK_DIR='$WORK_DIR' — refusing to run anything destructive"
 ok "CWD is the tmpdir"
 
-# ── 5/21 Fixture base ────────────────────────────────────────────────────────
-step "5/21 Fixture base ${FIXTURE_REF}"
+# ── 5/23 Fixture base ────────────────────────────────────────────────────────
+step "5/23 Fixture base ${FIXTURE_REF}"
 # The branch MUST be named 'main': bin/rename.sh's gate_on_main reads it, and a detached
 # worktree reports 'HEAD' and fails the gate.
 git checkout -q -B main "$FIXTURE_REF" || \
@@ -514,12 +521,12 @@ ok "on branch main at ${FIXTURE_REF} (gate_on_main will pass)"
 git clean -qffdx
 ok "tmpdir tree clean (gate_clean_tree will pass)"
 
-# ── 6/21 Base assertions, BEFORE use ─────────────────────────────────────────
+# ── 6/23 Base assertions, BEFORE use ─────────────────────────────────────────
 #
 # Driven red in 05-01 Task 2 as control=fixture-base-shape by pointing the checkout at the
 # repository's current commit, which has app/Shared/App.swift, `name: App` and DOES ship
 # app/Identity.xcconfig. Without that control these three lines could be vacuous.
-step "6/21 Base assertions"
+step "6/23 Base assertions"
 [ -f "app/Shared/${FIXTURE_TOKEN}.swift" ] || \
   fail "fixture base wrong: app/Shared/${FIXTURE_TOKEN}.swift is missing at ${FIXTURE_REF}"
 ok "app/Shared/${FIXTURE_TOKEN}.swift present"
@@ -532,8 +539,8 @@ ok "app/project.yml carries 'name: ${FIXTURE_TOKEN}'"
   fail "fixture base wrong: app/Identity.xcconfig EXISTS at ${FIXTURE_REF} — a pre-#281 fork has no identity config, and its presence would make the exit-2 red baseline unreachable"
 ok "app/Identity.xcconfig absent, as a pre-#281 fork must be"
 
-# ── 7/21 Rename (regeneration bases only) ────────────────────────────────────
-step "7/21 Structural rename"
+# ── 7/23 Rename (regeneration bases only) ────────────────────────────────────
+step "7/23 Structural rename"
 if [ "$RUN_RENAME" = true ]; then
   # Exit code captured under `set +e`/`set -e`. Never piped through sed or grep first — $? would
   # become the pipeline's last exit code (05-RESEARCH.md Pitfall 9).
@@ -552,8 +559,8 @@ else
   ok "skipped — ${FIXTURE_REF} is already renamed; re-renaming it would destroy the ground truth"
 fi
 
-# ── 8/21 Renamed-shape assertions — the property the migration must undo ─────
-step "8/21 Renamed-shape assertions"
+# ── 8/23 Renamed-shape assertions — the property the migration must undo ─────
+step "8/23 Renamed-shape assertions"
 if [ "$EXPECT_XCODEPROJ" = true ]; then
   [ -d "app/${RENAMED_TOKEN}.xcodeproj" ] || \
     fail "renamed shape wrong: app/${RENAMED_TOKEN}.xcodeproj is not a directory"
@@ -582,8 +589,85 @@ ok "app/project.yml carries 'name: ${RENAMED_TOKEN}'"
   fail "renamed shape wrong: app/Identity.xcconfig exists post-rename — rename.sh does not write it, so something else did"
 ok "app/Identity.xcconfig still absent — the fixture is un-migrated"
 
-# ── 9/21 Red baseline — recorded, not asserted away ──────────────────────────
-step "9/21 Red baseline: the identity gate against the un-migrated fixture"
+# ── 9/23 Stale entry-point enumeration — the gap plan 05-06 measured ─────────
+#
+# 05-06 ran a real exit-0 migration on this fixture family and then measured what was left:
+# bin/rename.sh had substituted the fork token into 49 of the pre-rename template's 135 tracked
+# files, the migration rewrote the ones under app/ plus .gitignore, and ci/local-check.sh:68 was
+# still passing app/<N>.xcodeproj to `xcodebuild -project` while the tree held only
+# app/App.xcodeproj. `make check`, `make ship` and `make screenshots` were all broken on a fork
+# that had done nothing wrong. Plan 05-16 closes that inside the command; this step and step 21
+# are the two halves of its proof.
+#
+# THE SET IS ENUMERATED FROM THE FIXTURE, NEVER HARDCODED. Four Phase 4 plans were bitten by a
+# plan-time literal that went stale by allocation; a list of files written here would go stale
+# the first time the template gained or lost one. `git grep -lE` over the tracked tree is the
+# measurement, and its count is printed so a run that enumerated NOTHING is visible rather than
+# silently green.
+#
+# This predicate is written out here rather than read from the command: a set read out of the
+# thing it is supposed to check is not a second opinion. It deliberately spells the same two
+# token classes tools/migrate-identity.rb rewrites — a generated project path
+# (<N>.xcodeproj / <N>.xcworkspace) and an app scheme name (<N>-iOS / <N>-macOS) — and nothing
+# else. There is no bare-token sweep here for the same reason there is none in the command.
+#
+# CHANGELOG.md is excluded on BOTH sides. It is historical record (05-CONTEXT A-08), it is not
+# an entry point, and its occurrences sit inside quoted CI error messages from 2026-05 that a
+# rewrite would falsify. Step 21 asserts it is byte-identical across the migration, which is
+# the stronger claim than "the count went to zero because we stopped looking".
+step "9/23 Stale entry-point enumeration"
+
+ENTRY_POINT_ERE="${RENAMED_TOKEN}\.(xcodeproj|xcworkspace)|${RENAMED_TOKEN}-(iOS|macOS)"
+
+# grep exits 1 on "no match" and 2 on ERROR, and `|| true` cannot tell them apart — 05-06 hit
+# exactly this and every gate in that plan's evidence records grep_raw= beside exit= for it.
+# So the raw status is captured, branched on, and printed.
+set +e
+STALE_FILES="$(git grep -lE "$ENTRY_POINT_ERE" -- . ":!app/" ":!CHANGELOG.md")"
+STALE_GREP_RAW=$?
+set -e
+case "$STALE_GREP_RAW" in
+  0|1) : ;;
+  *) fail "git grep -lE exited ${STALE_GREP_RAW} enumerating stale entry points — that is grep's ERROR status, not 'no match', and a gate that read it as zero matches would be green on a broken invocation" ;;
+esac
+# grep -c prints 0 AND exits 1 on no match; the `|| true` keeps set -e off the value, and the
+# value itself is grep's stdout, never an appended echo (a trap .continue-here.md records).
+STALE_COUNT="$(printf '%s' "$STALE_FILES" | grep -c . || true)"
+printf 'RESULT enumeration=stale-entry-points count=%s grep_raw=%s\n' "$STALE_COUNT" "$STALE_GREP_RAW"
+printf '%s\n' "$STALE_FILES" | sed '/^$/d; s/^/      /'
+
+[ "$STALE_COUNT" -ge 1 ] || \
+  fail "the enumeration found NO tracked file outside app/ naming ${RENAMED_TOKEN}.xcodeproj or a ${RENAMED_TOKEN}-iOS/-macOS scheme. This fixture cannot exercise the entry-point rewrite, so step 21 would be vacuous, and a count of zero here is the shape a gate rots into rather than a pass."
+ok "${STALE_COUNT} tracked file(s) outside app/ still name the fork's project or schemes"
+
+# Anti-vacuity, and the reason it is one named file rather than a list: step 21 EXECUTES
+# ci/local-check.sh and reads the project path it resolves. If this fixture's copy did not
+# carry a stale reference to begin with, that execution would prove nothing at all.
+printf '%s\n' "$STALE_FILES" | grep -qx 'ci/local-check.sh' || \
+  fail "ci/local-check.sh is NOT among the enumerated stale files. Step 21 runs that script and asserts the project path it resolves; if it never named the fork's project, that assertion is satisfied by a file that was already correct and measures nothing."
+ok "ci/local-check.sh is among them — step 21's execution assertion is not vacuous"
+
+# Held across the migration and compared in step 21. Captured HERE, before any mutation: a
+# digest taken afterwards would compare the file to itself.
+CHANGELOG_SHA_BEFORE=""
+if [ -f CHANGELOG.md ]; then
+  CHANGELOG_SHA_BEFORE="$(shasum -a 256 CHANGELOG.md | cut -d" " -f1)"
+  set +e
+  grep -qE "$ENTRY_POINT_ERE" CHANGELOG.md
+  CHANGELOG_MATCH_RAW=$?
+  set -e
+  case "$CHANGELOG_MATCH_RAW" in
+    0) ok "CHANGELOG.md carries the token in the excluded class (sha256 ${CHANGELOG_SHA_BEFORE:0:12}…) — the must-not-rewrite assertion in step 21 is not vacuous" ;;
+    1) fail "CHANGELOG.md carries NO occurrence of the two rewritten classes, so step 21's byte-identical assertion would be true of a file the rewrite could never have reached. This fixture cannot exercise the exclusion." ;;
+    *) fail "grep -qE on CHANGELOG.md exited ${CHANGELOG_MATCH_RAW} — grep's ERROR status, not a match result" ;;
+  esac
+else
+  fail "the fixture has no CHANGELOG.md; the exclusion this harness asserts has no subject"
+fi
+
+
+# ── 10/23 Red baseline — recorded, not asserted away ──────────────────────────
+step "10/23 Red baseline: the identity gate against the un-migrated fixture"
 set +e
 PREFLIGHT_OUT="$("$RUBY_BIN" "$REPO_ROOT/bin/preflight-identity.rb" --config "$PWD/app/Identity.xcconfig" 2>&1)"
 PREFLIGHT_EXIT=$?
@@ -594,7 +678,7 @@ printf 'RESULT baseline=preflight-unmigrated-fixture exit=%s expected=2\n' "$PRE
 ${PREFLIGHT_OUT}"
 ok "exit 2 — the RED half of criterion 1's falsifiable pair (plan 05-05 adds the green half)"
 
-# ── 10/21 Precondition refusal ───────────────────────────────────────────────
+# ── 11/23 Precondition refusal ───────────────────────────────────────────────
 #
 # TWO named refusals, not one, and both exit 1. Plan 05-02 shares wave 1 with this plan and
 # creates tools/migrate-identity.rb; with parallelization on and worktrees off, that file may or
@@ -604,19 +688,19 @@ ok "exit 2 — the RED half of criterion 1's falsifiable pair (plan 05-05 adds t
 #
 # The shape is test/doctor_identity_test.rb:100-114's RED precondition block: a NAMED condition,
 # never a backtrace, and never a silent pass.
-step "10/21 Precondition: the migration command"
+step "11/23 Precondition: the migration command"
 MIGRATE_CMD="$REPO_ROOT/tools/migrate-identity.rb"
 [ -e "$MIGRATE_CMD" ] || fail "migration command not present at tools/migrate-identity.rb — the harness has nothing to drive"
 [ -r "$MIGRATE_CMD" ] || fail "migration command at tools/migrate-identity.rb is not readable"
 ok "tools/migrate-identity.rb present"
 
-# ── 11/21 Pre-migration build settings — the collapse guard ──────────────────
+# ── 12/23 Pre-migration build settings — the collapse guard ──────────────────
 #
 # 11a first: the fixture needs a Team ID before the migration can move one. See "THE FIXTURE
 # CARRIES A SYNTHETIC APPLE TEAM ID" in the header. The substitution is asserted to have
 # LANDED before anything depends on it — a silently-failed edit here would send the migration
 # to its exit-4 placeholder refusal, which is a real refusal for the wrong reason.
-step "11/21 Pre-migration build settings"
+step "12/23 Pre-migration build settings"
 
 [ "$PWD" = "$WORK_DIR" ] || fail "refusing to edit manifests outside the tmpdir: PWD='$PWD'"
 for manifest in app/project.yml app/Project.swift; do
@@ -662,7 +746,7 @@ ok "fixture committed at ${FIXTURE_HEAD} — clean tree, on branch main"
 # The collapse guard. A-05, measured rather than predicted: a pre-#281 renamed fork resolves
 # TWO PRODUCT_NAME values because nothing sets it and Xcode defaults it to each target's own
 # name, platform suffix included. If the two are ALREADY equal this is not a pre-#281 fork,
-# the migration has nothing to collapse, and every assertion after step 19 would be vacuous.
+# the migration has nothing to collapse, and every assertion after step 20 would be vacuous.
 #
 # THE DESTINATION IS PINNED, and that is not decoration. MEASURED on this machine
 # 2026-09-03: `xcodebuild -showBuildSettings` with no -destination warns "Using the first of
@@ -711,8 +795,8 @@ case "$PRE_PRODUCT_NAME_MACOS" in
   *) fail "pre-migration macOS PRODUCT_NAME '${PRE_PRODUCT_NAME_MACOS}' does not end in -macOS; this is not the target-name default a pre-#281 fork resolves" ;;
 esac
 
-# ── 12/21 Migrate ────────────────────────────────────────────────────────────
-step "12/21 Migrate"
+# ── 13/23 Migrate ────────────────────────────────────────────────────────────
+step "13/23 Migrate"
 # Exit code captured under `set +e`/`set -e`, never through a pipe: piping into sed or grep
 # first would make $? the FILTER's status (05-RESEARCH.md Pitfall 9).
 set +e
@@ -724,8 +808,8 @@ printf '%s\n' "$MIGRATE_OUT" | sed 's/^/    | /'
 printf '%s\n' "$MIGRATE_OUT" | grep -q '^MIGRATE-IDENTITY: ==== MIGRATION COMPLETE ====$' || fail "the migration exited 0 but never printed its MIGRATION COMPLETE report; an exit code with no report is the silent exit 0 D-70 rejected by name"
 ok "migration exit 0, with the MIGRATION COMPLETE report"
 
-# ── 13/21 Structural assertions on the migrated tree ─────────────────────────
-step "13/21 Structural assertions"
+# ── 14/23 Structural assertions on the migrated tree ─────────────────────────
+step "14/23 Structural assertions"
 [ -f app/Shared/App.swift ] || fail "migrated tree has no app/Shared/App.swift"
 ok "app/Shared/App.swift present"
 
@@ -749,8 +833,8 @@ ok "app/Identity.xcconfig present"
 git check-ignore -q app/Local.xcconfig || fail "git does not consider app/Local.xcconfig ignored in the migrated fixture; the Apple Team ID would land in the next commit (T-05-11)"
 ok "git confirms app/Local.xcconfig is ignored"
 
-# ── 14/21 Identity gate, GREEN half ──────────────────────────────────────────
-step "14/21 Identity gate: the GREEN half of criterion 1"
+# ── 15/23 Identity gate, GREEN half ──────────────────────────────────────────
+step "15/23 Identity gate: the GREEN half of criterion 1"
 set +e
 GREEN_OUT="$("$RUBY_BIN" "$REPO_ROOT/bin/preflight-identity.rb" --config "$PWD/app/Identity.xcconfig" 2>&1)"
 GREEN_EXIT=$?
@@ -759,10 +843,10 @@ printf 'RESULT pair=criterion-1-identity-gate red=%s green=%s\n' "$PREFLIGHT_EXI
 [ "$GREEN_EXIT" -eq 0 ] || fail "the identity gate exited ${GREEN_EXIT} against the MIGRATED fixture (expected 0); output:
 ${GREEN_OUT}"
 [ "$PREFLIGHT_EXIT" -eq 2 ] || fail "the recorded red half is ${PREFLIGHT_EXIT}, not 2; without both halves the pair is not falsifiable"
-ok "exit 0 on the same tree that exited 2 at step 9 — the pair is complete"
+ok "exit 0 on the same tree that exited 2 at step 10 — the pair is complete"
 
-# ── 15/21 iOS build ──────────────────────────────────────────────────────────
-step "15/21 iOS build (unsigned, generic device)"
+# ── 16/23 iOS build ──────────────────────────────────────────────────────────
+step "16/23 iOS build (unsigned, generic device)"
 DD_IOS="$WORK_DIR/dd-ios"
 IOS_FLAGS=(-sdk iphoneos -destination 'generic/platform=iOS')
 # pipefail is already set at the top of this file, so a build failure upstream of xcbeautify
@@ -806,15 +890,15 @@ set -e
 [ "$IOS_BUILD_EXIT" -eq 0 ] || fail "the migrated fixture failed to build for iOS (xcodebuild exited ${IOS_BUILD_EXIT}); the tail of its log is above and the temporary tree is about to be removed"
 ok "iOS build exit 0"
 
-# ── 16/21 iOS built-artefact read ────────────────────────────────────────────
-step "16/21 iOS built-artefact read"
+# ── 17/23 iOS built-artefact read ────────────────────────────────────────────
+step "17/23 iOS built-artefact read"
 ARTEFACT_LABEL="iOS"
 ARTEFACT_SCHEME="App-iOS"
 ARTEFACT_DD="$DD_IOS"
 ARTEFACT_FLAGS=("${IOS_FLAGS[@]}")
 assert_built_identity
 
-# ── 17/21 macOS build and test ───────────────────────────────────────────────
+# ── 18/23 macOS build and test ───────────────────────────────────────────────
 #
 # THE FULL SCHEME, DELIBERATELY. CI is the arbiter for the UI targets and this command is not
 # weakened to make a local run comfortable. A LOCAL run must instead set
@@ -822,7 +906,7 @@ assert_built_identity
 # CODE_SIGNING_ALLOWED=YES), because an unsigned macOS UI-test runner makes Gatekeeper show
 # the operator a "damaged, move to Trash" dialog on their own desktop. Never `open` a built
 # app, and never delete these flags to silence that dialog.
-step "17/21 macOS build and test"
+step "18/23 macOS build and test"
 DD_MACOS="$WORK_DIR/dd-macos"
 MACOS_FLAGS=(-destination 'platform=macOS')
 MACOS_SCOPE_FLAGS=()
@@ -868,25 +952,25 @@ set -e
 [ "$MACOS_TEST_EXIT" -eq 0 ] || fail "the migrated fixture failed to build-and-test on macOS (xcodebuild exited ${MACOS_TEST_EXIT}); the tail of its log is above and the temporary tree is about to be removed"
 ok "macOS build and test exit 0"
 
-# ── 18/21 macOS built-artefact read ──────────────────────────────────────────
-step "18/21 macOS built-artefact read"
+# ── 19/23 macOS built-artefact read ──────────────────────────────────────────
+step "19/23 macOS built-artefact read"
 ARTEFACT_LABEL="macOS"
 ARTEFACT_SCHEME="App-macOS"
 ARTEFACT_DD="$DD_MACOS"
 ARTEFACT_FLAGS=("${MACOS_FLAGS[@]}")
 assert_built_identity
 
-# ── 19/21 Post-migration PRODUCT_NAME collapse ───────────────────────────────
+# ── 20/23 Post-migration PRODUCT_NAME collapse ───────────────────────────────
 #
 # The change is STATED. It is not characterised as safe, no Apple documentation is cited, and
 # nothing here decides for a forker whether their live listing can take it: assumption A1 is
 # unverified (05-RESEARCH.md), and A-05 makes this a warning the migration hands over rather
 # than a claim this repository makes.
-step "19/21 Post-migration PRODUCT_NAME collapse"
+step "20/23 Post-migration PRODUCT_NAME collapse"
 POST_PRODUCT_NAME_IOS=""
 POST_PRODUCT_NAME_MACOS=""
 for platform in iOS macOS; do
-  # Same destination pinning as step 11, and for the same measured reason.
+  # Same destination pinning as step 12, and for the same measured reason.
   if [ "$platform" = "iOS" ]; then
     POST_FLAGS=("${IOS_FLAGS[@]}")
   else
@@ -932,8 +1016,148 @@ printf '    harness reports the change and nothing more: whether it is acceptabl
 printf '    App Store listing is not a question this repository answers. See\n'
 printf '    docs/MIGRATING-FROM-RENAME.md.\n'
 
-# ── 20/21 Idempotency ────────────────────────────────────────────────────────
-step "20/21 Idempotency: a second run changes nothing"
+# ── 21/23 Entry points: the migrated fork RUNS its own ci/local-check.sh ─────
+#
+# This is the half of plan 05-16 that cannot be satisfied by a grep, and the reason is a
+# measurement rather than a preference. Plan 05-04 found this project shipping a migration
+# whose generated project could not run its own tests — TEST_HOST resolved to an app that
+# never existed — while EVERY file-level assertion about it was green. That was the second
+# TEST_HOST-behind-a-green-manifest defect here after UL-043. So this step does not read
+# ci/local-check.sh; it EXECUTES it, and reads the project path and scheme that the running
+# script actually handed to xcodebuild.
+#
+# HOW IT REACHES THE INVOCATION AND NO FURTHER. ci/local-check.sh has no dry-run flag at any
+# ref this harness runs against (measured, not assumed: its argv case accepts only --fast,
+# --owner-app, --owner-app-sim and -h/--help). So the script is run in full under a PATH whose
+# first entry holds ONE file: a recording xcodebuild. It is not a wrapper and never execs the
+# real tool — it appends its argv to a log and then does the one thing a real xcodebuild would
+# do first, which is refuse when -project names something that is not on disk. That refusal is
+# what makes exit 0 here mean "the path this fork resolved exists", instead of "a stub said
+# yes". Everything upstream of xcodebuild in that script runs for real: the ci/lib SHA256SUMS
+# integrity check, the mode dispatch, and a genuine `cd app && xcodegen generate`.
+#
+# The real xcodebuild is then used, OFF the stub PATH, to list the project the entry point
+# named — because a project that exists but does not contain the scheme the script asked for
+# is the same defect one layer down.
+step "21/23 Entry points: the migrated fork runs its own ci/local-check.sh"
+
+[ "$PWD" = "$WORK_DIR" ] || fail "refusing to run the entry point outside the tmpdir: PWD='$PWD'"
+
+# ── 21a: re-measure the enumeration with the SAME predicate step 9 used ──────
+set +e
+POST_STALE_FILES="$(git grep -lE "$ENTRY_POINT_ERE" -- . ":!app/" ":!CHANGELOG.md")"
+POST_GREP_RAW=$?
+set -e
+case "$POST_GREP_RAW" in
+  0|1) : ;;
+  *) fail "git grep -lE exited ${POST_GREP_RAW} re-enumerating stale entry points after the migration — grep's ERROR status, not 'no match'" ;;
+esac
+POST_STALE_COUNT="$(printf '%s' "$POST_STALE_FILES" | grep -c . || true)"
+printf 'RESULT pair=entry-points red=%s green=%s grep_raw=%s\n' "$STALE_COUNT" "$POST_STALE_COUNT" "$POST_GREP_RAW"
+if [ "$POST_STALE_COUNT" -ne 0 ]; then
+  printf '%s\n' "$POST_STALE_FILES" | sed '/^$/d; s/^/      /'
+  fail "${POST_STALE_COUNT} tracked file(s) outside app/ still name ${RENAMED_TOKEN}.xcodeproj or a ${RENAMED_TOKEN}-iOS/-macOS scheme after an exit-0 migration; they are listed above"
+fi
+ok "the enumerated set went ${STALE_COUNT} -> 0 under the same predicate"
+
+# ── 21b: CHANGELOG.md, the excluded file, byte-identical ────────────────────
+CHANGELOG_SHA_AFTER="$(shasum -a 256 CHANGELOG.md | cut -d" " -f1)"
+[ "$CHANGELOG_SHA_AFTER" = "$CHANGELOG_SHA_BEFORE" ] || \
+  fail "CHANGELOG.md changed across the migration: sha256 ${CHANGELOG_SHA_BEFORE} -> ${CHANGELOG_SHA_AFTER}. It is historical record (05-CONTEXT A-08); its occurrences of the token sit inside quoted CI error messages that a rewrite would falsify."
+ok "CHANGELOG.md is byte-identical across the migration (sha256 ${CHANGELOG_SHA_AFTER:0:12}…)"
+
+# ── 21c: build the recording xcodebuild ─────────────────────────────────────
+ENTRY_BIN="$WORK_DIR/entry-point-bin"
+ENTRY_ARGV_LOG="$WORK_DIR/entry-point-argv.txt"
+rm -rf "$ENTRY_BIN"
+mkdir -p "$ENTRY_BIN"
+rm -f "$ENTRY_ARGV_LOG"
+
+# Written with a QUOTED heredoc delimiter so not one $ in it is expanded by this script. An
+# unquoted one would bake this harness's variables into the stub and the stub would then be
+# measuring the harness rather than the fork.
+cat > "$ENTRY_BIN/xcodebuild" <<'ENTRY_STUB'
+#!/usr/bin/env bash
+# Recording xcodebuild for ci/test-migrate-identity.sh step 21. Writes one argv element per
+# line to $ENTRY_ARGV_LOG, then refuses exactly as the real tool refuses when -project names a
+# path that is not there. It never builds and never execs the real xcodebuild.
+set -u
+: "${ENTRY_ARGV_LOG:?ENTRY_ARGV_LOG must be set for the recording xcodebuild}"
+printf '%s\n' "$@" >> "$ENTRY_ARGV_LOG"
+
+project=""
+want=""
+for a in "$@"; do
+  if [ "$want" = "1" ]; then project="$a"; want=""; fi
+  if [ "$a" = "-project" ]; then want="1"; fi
+done
+
+if [ -n "$project" ] && [ ! -d "$project" ]; then
+  echo "xcodebuild: error: the project '$project' does not exist." >&2
+  exit 66
+fi
+exit 0
+ENTRY_STUB
+chmod +x "$ENTRY_BIN/xcodebuild"
+[ -x "$ENTRY_BIN/xcodebuild" ] || fail "could not create the recording xcodebuild at $ENTRY_BIN/xcodebuild"
+bash -n "$ENTRY_BIN/xcodebuild" || fail "the recording xcodebuild does not parse"
+ok "recording xcodebuild at $ENTRY_BIN/xcodebuild"
+
+# ── 21d: RUN the entry point ────────────────────────────────────────────────
+#
+# --fast is the mode the pre-push hook uses and the one that reaches the iOS invocation with
+# the fewest side effects. The PATH override is scoped to this one command; nothing else in
+# this harness sees the stub.
+set +e
+ENTRY_OUT="$(ENTRY_ARGV_LOG="$ENTRY_ARGV_LOG" PATH="$ENTRY_BIN:$PATH" bash ci/local-check.sh --fast 2>&1)"
+ENTRY_EXIT=$?
+set -e
+printf '%s\n' "$ENTRY_OUT" | sed 's/^/    | /'
+
+[ -s "$ENTRY_ARGV_LOG" ] || \
+  fail "ci/local-check.sh exited ${ENTRY_EXIT} without ever invoking xcodebuild — the argv log is empty, so this step measured nothing. An exit code with no recorded invocation is the vacuous pass this whole step exists to avoid."
+
+ENTRY_PROJECT="$(awk '/^-project$/{getline; print; exit}' "$ENTRY_ARGV_LOG")"
+ENTRY_SCHEME="$(awk '/^-scheme$/{getline; print; exit}' "$ENTRY_ARGV_LOG")"
+printf 'RESULT gate=entry-point-local-check exit=%s project=%s scheme=%s\n' \
+  "$ENTRY_EXIT" "${ENTRY_PROJECT:-<none>}" "${ENTRY_SCHEME:-<none>}"
+
+[ "$ENTRY_EXIT" -eq 0 ] || \
+  fail "the migrated fork's own ci/local-check.sh --fast exited ${ENTRY_EXIT}. It resolved -project '${ENTRY_PROJECT:-<none>}' -scheme '${ENTRY_SCHEME:-<none>}'; the tree holds app/App.xcodeproj. This is 'make check' on a fork that ran one documented command and did nothing else wrong. Output is above."
+ok "ci/local-check.sh --fast exit 0"
+
+[ "$ENTRY_PROJECT" = "app/App.xcodeproj" ] || \
+  fail "the entry point resolved -project '${ENTRY_PROJECT:-<none>}', not app/App.xcodeproj. Read from the argv the running script actually handed xcodebuild, never from the file's text — plan 05-04 established that file-level assertions stayed green while the resolved value was wrong."
+ok "resolved -project is app/App.xcodeproj, read off the invocation"
+
+[ "$ENTRY_SCHEME" = "App-iOS" ] || \
+  fail "the entry point resolved -scheme '${ENTRY_SCHEME:-<none>}', not App-iOS"
+ok "resolved -scheme is App-iOS"
+
+[ -d "$ENTRY_PROJECT" ] || fail "the resolved project ${ENTRY_PROJECT} is not a directory on disk"
+
+# ── 21e: the REAL xcodebuild, off the stub PATH, lists the scheme it named ───
+#
+# A project that exists but does not carry the scheme the entry point asked for is the same
+# class of defect one layer down, and the recording stub structurally cannot see it.
+set +e
+ENTRY_LIST="$(xcodebuild -list -project "$ENTRY_PROJECT" 2>&1)"
+ENTRY_LIST_EXIT=$?
+set -e
+[ "$ENTRY_LIST_EXIT" -eq 0 ] || \
+  fail "xcodebuild -list -project ${ENTRY_PROJECT} exited ${ENTRY_LIST_EXIT}; the entry point named a project the real tool cannot read:
+${ENTRY_LIST}"
+set +e
+printf '%s\n' "$ENTRY_LIST" | grep -qE "^[[:space:]]+${ENTRY_SCHEME}$"
+ENTRY_SCHEME_RAW=$?
+set -e
+[ "$ENTRY_SCHEME_RAW" -eq 0 ] || \
+  fail "xcodebuild -list on ${ENTRY_PROJECT} reports no scheme line for ${ENTRY_SCHEME} (grep raw ${ENTRY_SCHEME_RAW}; 2 would mean the grep itself broke):
+${ENTRY_LIST}"
+ok "the real xcodebuild lists ${ENTRY_SCHEME} in ${ENTRY_PROJECT} — the entry point is runnable end to end"
+
+# ── 22/23 Idempotency ────────────────────────────────────────────────────────
+step "22/23 Idempotency: a second run changes nothing"
 PORCELAIN_BEFORE="$(git status --porcelain)"
 set +e
 RERUN_OUT="$("$RUBY_BIN" "$MIGRATE_CMD" --root "$PWD" 2>&1)"
@@ -952,12 +1176,12 @@ ${PORCELAIN_BEFORE}
 ${PORCELAIN_AFTER}"
 ok "git status --porcelain is byte-identical across the re-run"
 
-# ── 21/21 Tuist cell, guarded and never silent ───────────────────────────────
+# ── 23/23 Tuist cell, guarded and never silent ───────────────────────────────
 #
 # Assumption A4: Tuist has no pre-generation hook and a content-keyed manifest cache, so this
 # cell is the only real coverage the Tuist path gets in this harness. A skip must be VISIBLE.
 # This runs last because `tuist generate` replaces app/App.xcodeproj with its own.
-step "21/21 Tuist generation (guarded)"
+step "23/23 Tuist generation (guarded)"
 if command -v tuist >/dev/null; then
   set +e
   ( cd app && tuist generate --no-open ) > "$WORK_DIR/tuist.log" 2>&1
@@ -976,4 +1200,5 @@ fi
 # ── Done ─────────────────────────────────────────────────────────────────────
 step "DONE"
 printf '    fixture base %s migrated, built on both platforms, and every identity key read\n' "$FIXTURE_REF"
-printf '    out of the BUILT bundle matched the tracked app/Identity.xcconfig.\n'
+printf '    out of the BUILT bundle matched the tracked app/Identity.xcconfig. Its own\n'
+printf '    ci/local-check.sh then RAN and resolved app/App.xcodeproj / App-iOS.\n'

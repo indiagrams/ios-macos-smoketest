@@ -195,6 +195,27 @@ jobs:
           # passing on a developer machine. Measured in a clone before this line
           # was added, not assumed.
           ruby test/doctor_identity_test.rb
+          # IDENT-10's scope assertion (ROADMAP Phase 5 criterion 2). WHAT IT PROVES:
+          # bin/rename.sh spells none of the four literals its retired substitution
+          # steps used to write — the template bundle id, the display-name placeholder,
+          # the app-name sweep token and the Team ID placeholder, each asserted
+          # separately and case-insensitively — AND that it still spells the two
+          # literals of the steps criterion 2 KEEPS, and still declares both of those
+          # steps. That second half is not decoration: without it every assertion in
+          # the first half is satisfied by an EMPTY FILE, which is this repository's
+          # dominant defect class. Both halves were driven red against a deliberately
+          # broken script before this line was added
+          # (.planning/…/evidence/05-11-rename-scope-controls.txt).
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. This suite reads TEXT. It says the
+          # script no longer spells an identity literal; it does not run the script,
+          # and it says nothing about whether a personalization the script performs is
+          # correct. Nor can it see a NEW identity surface introduced under a name
+          # nobody has frozen into its list — that is tools/check-contamination.rb's
+          # job, two steps below, and the two are complementary rather than redundant.
+          #
+          # Zero require-family lines, so bundler-cache: false above still holds.
+          ruby test/rename_scope_test.rb
           # IDENT-11's gate (D-65, D-69). tools/check-contamination.rb asks whether the
           # TEMPLATE's identity — BOTH of them, this fork's original placeholder and the one
           # 04-01's sync brought in from upstream, spelled out in the gate's own header and its

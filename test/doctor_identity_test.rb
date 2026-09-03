@@ -34,6 +34,13 @@
 #   ruby test/doctor_identity_test.rb
 #   /opt/homebrew/opt/ruby@4.0/bin/ruby test/doctor_identity_test.rb
 #
+# CI caller: .github/workflows/review-notes.yml's Ruby step, inside the job
+# named `review notes` — one of the nine required status contexts. That runner
+# is ubuntu-latest with bundler-cache: false, no Xcode, no .bootstrap.env and
+# NO GENERATED app/App.xcodeproj, so nothing here may depend on any of them.
+# The tier-3 group below substitutes a fixture project directory for exactly
+# that reason; see check_identity's `xcodeproj:` argument.
+#
 # Stdlib only, and NO network / Apple / xcodebuild: Sh.run is stubbed with a
 # lambda table keyed on argv[0..1], the same shape test/gh_secrets_test.rb uses.
 
@@ -213,13 +220,35 @@ def settings_dump(bundle_id:, product_name:)
   DUMP
 end
 
-def check_identity(xcconfig_path, config, sh_table)
+# `xcodeproj:` substitutes the generated project directory the tier-3 gate looks
+# for. app/App.xcodeproj is GITIGNORED — XcodeGen or Tuist generates it — so on a
+# fresh checkout (a CI runner, a clone, a forker who has not run `make bootstrap`
+# yet) it does not exist, and `check` short-circuits to a tier-2 warn before
+# xcodebuild is ever consulted. Measured 2026-09-03: seven assertions in the
+# tier-3 group below failed exactly that way in a clone with no generated
+# project, while passing on a machine that happened to have one. Substituting a
+# fixture directory keeps this a unit test of how `check` reads xcodebuild's
+# OUTPUT — which is already stubbed — instead of a test of whether this machine
+# has generated a project.
+def check_identity(xcconfig_path, config, sh_table, xcodeproj: nil)
   with_env("IDENTITY_XCCONFIG" => xcconfig_path) do
     step = Bootstrap::IdentityAdopted.new(config)
+    unless xcodeproj.nil?
+      fixture = Pathname.new(xcodeproj)
+      step.define_singleton_method(:xcodeproj_path) { fixture }
+    end
     result = nil
     capture_stderr { result = with_sh_stub(sh_table) { step.check } }
     [step, result]
   end
+end
+
+# A generated project is a DIRECTORY (`.xcodeproj` is a bundle), which is what
+# the tier-3 gate tests for.
+def write_xcodeproj_fixture(dir, name = "App.xcodeproj")
+  path = File.join(dir, name)
+  Dir.mkdir(path)
+  path
 end
 
 puts "Bootstrap::IdentityAdopted — tier 1 (the thing exists)"
@@ -291,10 +320,24 @@ Dir.mktmpdir do |dir|
   table = XCODEBUILD_PRESENT.merge(
     %w[xcodebuild -project] => ->(_) { ["xcodebuild: error: could not open project\n", false] }
   )
-  step, result = check_identity(path, config_for, table)
+  step, result = check_identity(path, config_for, table, xcodeproj: write_xcodeproj_fixture(dir))
   assert_blocked(result, "tier 3: no verdict — xcodebuild exit",
                  "a failed xcodebuild is NO VERDICT, never :done")
   assert_eq(step.tier_reached, 2, "a no-verdict tier 3 leaves tier_reached at 2")
+end
+
+# The branch a fresh checkout actually takes: xcodebuild is present, the
+# project is not. It had no coverage until the CI-eligibility check for this
+# suite hit it. `table` is XCODEBUILD_PRESENT with NO xcodebuild -project
+# handler, so if the gate ever stopped returning before shelling out, the stub
+# would raise "unstubbed Sh.run" rather than quietly passing.
+Dir.mktmpdir do |dir|
+  path  = write_fixture(dir, SOUND_XCCONFIG)
+  ghost = File.join(dir, "Ungenerated.xcodeproj")
+  step, result = check_identity(path, config_for, XCODEBUILD_PRESENT, xcodeproj: ghost)
+  assert_warn(result, "tier 3 not reached: #{ghost} does not exist",
+              "an ungenerated project is a warn that NAMES the path, never a silent done")
+  assert_eq(step.tier_reached, 2, "tier_reached stays 2 when the project was never generated")
 end
 
 Dir.mktmpdir do |dir|
@@ -316,7 +359,7 @@ Dir.mktmpdir do |dir|
       [settings_dump(bundle_id: "com.indiagram.shipkitpipes.ios", product_name: "ShipkitPipes"), true]
     }
   )
-  step, result = check_identity(path, config_for, table)
+  step, result = check_identity(path, config_for, table, xcodeproj: write_xcodeproj_fixture(dir))
   assert_eq(result, :done, "a sound tree whose build agrees is :done")
   assert_eq(step.tier_reached, 3, "tier_reached is 3")
   assert(step.detail.to_s.start_with?("verified to tier 3:"),
@@ -333,7 +376,7 @@ Dir.mktmpdir do |dir|
       [settings_dump(bundle_id: "com.indiagram.smokeapp", product_name: "SmokeApp"), true]
     }
   )
-  _step, result = check_identity(path, config_for, table)
+  _step, result = check_identity(path, config_for, table, xcodeproj: write_xcodeproj_fixture(dir))
   assert_blocked(result,
                  "tier 3 failed: PRODUCT_BUNDLE_IDENTIFIER resolved to com.indiagram.smokeapp",
                  "a stale generated project is caught at tier 3 even though tier 2 passed")
@@ -348,7 +391,7 @@ Dir.mktmpdir do |dir|
       [settings_dump(bundle_id: "com.indiagram.shipkitpipes.ios", product_name: "SmokeApp"), true]
     }
   )
-  _step, result = check_identity(path, config_for, table)
+  _step, result = check_identity(path, config_for, table, xcodeproj: write_xcodeproj_fixture(dir))
   assert_blocked(result, "tier 3 failed: PRODUCT_NAME resolved to SmokeApp",
                  "PRODUCT_NAME is checked too, not just the bundle id")
 end

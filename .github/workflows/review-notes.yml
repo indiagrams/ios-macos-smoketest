@@ -157,6 +157,44 @@ jobs:
           # abort actually fires through fastlane is observed LOCALLY, both directions,
           # in .planning/…/evidence/04-04-T2-fastlane-integration-controls.txt.
           ruby test/fastlane_identity_test.rb
+          # A-01 and A-02's guard (Phase 5). WHAT IT PROVES HERE: the three
+          # retired identity keys — APP_NAME, BUNDLE_ID, DISPLAY_NAME — carry no
+          # assignment in the tracked .bootstrap.env.example, and nothing under
+          # bin/ ci/ fastlane/ reads one of them off the config object; and
+          # bin/lib/bootstrap.rb VERIFIES app/Identity.xcconfig rather than
+          # writing it, which is the direction A-01 reversed. Both halves read
+          # only TRACKED files, which is what makes this suite eligible here at
+          # all — its sibling half of the drift question (does a forker's own
+          # .bootstrap.env agree with the xcconfig?) structurally cannot run on a
+          # runner, because .gitignore excludes that file.
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. It says nothing about any
+          # individual fork's .bootstrap.env: the env-vs-xcconfig agreement check
+          # and `make doctor` reaching tier 3 both need a real one, and it is
+          # absent here. Those stay LOCAL checks with recorded transcripts under
+          # the phase's evidence/ directory. Nor does it say the doctor works —
+          # this asserts how the identity steps judge their inputs, with
+          # xcodebuild stubbed, not that a doctor run on a real tree is green.
+          #
+          # WHY IT NEEDS NO GEM, which is what keeps bundler-cache: false above
+          # honest: bin/lib/bootstrap.rb's top-level requires are base64, digest,
+          # fileutils, json, open3, pathname, securerandom, shellwords and tmpdir
+          # plus a require_relative of bin/lib/xcconfig.rb, all shipped with the
+          # interpreter; every `require "spaceship"` in that file is LAZY, inside
+          # a method none of these assertions calls. Verified rather than
+          # inherited: after loading this suite, $LOADED_FEATURES matches nothing
+          # for spaceship under 3.3.12 and 4.0.6, and with GEM_HOME, GEM_PATH and
+          # BUNDLE_GEMFILE all cleared it still exits 0 under 3.3, the version
+          # this job pins. (Under 4.0 that same probe fails on base64, which left
+          # the default gems in Ruby 3.4 — a bundled gem the interpreter ships,
+          # not something bundler installs, so it does not affect this job.)
+          #
+          # AND NO GENERATED PROJECT. app/App.xcodeproj is gitignored, so the
+          # tier-3 assertions substitute a fixture directory; without that they
+          # short-circuit to a tier-2 warn and seven of them fail here while
+          # passing on a developer machine. Measured in a clone before this line
+          # was added, not assumed.
+          ruby test/doctor_identity_test.rb
           # IDENT-11's gate (D-65, D-69). tools/check-contamination.rb asks whether the
           # TEMPLATE's identity — BOTH of them, this fork's original placeholder and the one
           # 04-01's sync brought in from upstream, spelled out in the gate's own header and its

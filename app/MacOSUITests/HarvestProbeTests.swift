@@ -80,6 +80,27 @@ final class HarvestProbeTests: XCTestCase {
             0,
             "the probe reached the app but every harvested string was whitespace"
         )
+
+        // TEMPORARY, for exactly one CI run (plan 06-01 Task 2, second push).
+        //
+        // Run 33924732185 proved the probe executes on the runner and passes both
+        // assertions -- and that NOT ONE of the print() lines above reached the
+        // xcodebuild log. A macOS UI-test bundle is injected into
+        // AppMacOSUITests-Runner.app, launched by testmanagerd; its stdout is not
+        // connected to xcodebuild's pipe, so print() is invisible in CI. An XCTest
+        // failure message, by contrast, travels over XCTest's own IPC and is
+        // rendered by xcbeautify.
+        //
+        // The counts must be READ, not inferred from a green assertion, so they are
+        // emitted here as a deliberate failure -- observed red once, then removed by
+        // the next commit. Placed last, so a red run also proves both assertions
+        // above passed first.
+        let counters = "PROBE_COUNTERS runner_headless=\(headless)"
+            + " harvested_strings=\(strings.count)"
+            + " harvested_distinct=\(Set(strings).count)"
+            + " probe_reached_subject=\(!strings.isEmpty)"
+        let sample = strings.prefix(40).joined(separator: " | ")
+        XCTFail("\(counters) sample=\(sample)")
     }
 
     /// Appends the non-empty `label`, `title`, `placeholderValue` and string `value` at

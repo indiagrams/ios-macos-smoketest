@@ -1695,7 +1695,7 @@ module Bootstrap
                      when metadata_dir then EN_US_FIELD_ENV[basename]
                      end
           next if env_name && !ENV[env_name].to_s.strip.empty?
-          content = File.read(f)
+          content = File.read(f, encoding: "UTF-8")
           if content.match?(PLACEHOLDER_PATTERN)
             todos << Pathname.new(f).relative_path_from(REPO_ROOT).to_s
           elsif content.strip.empty?
@@ -1708,7 +1708,7 @@ module Bootstrap
       # for ASC_COPYRIGHT works the same as the en-US URL fields.
       copyright = root_dir.join("copyright.txt")
       if copyright.file? && ENV[COPYRIGHT_FIELD_ENV].to_s.strip.empty?
-        content = File.read(copyright)
+        content = File.read(copyright, encoding: "UTF-8")
         if content.match?(PLACEHOLDER_PATTERN)
           todos << Pathname.new(copyright).relative_path_from(REPO_ROOT).to_s
         elsif content.strip.empty?
@@ -2551,7 +2551,7 @@ module Bootstrap
     Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
       key_id:    ENV.fetch("ASC_API_KEY_ID"),
       issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
-      key:       File.read(p8_path),
+      key:       File.binread(p8_path),
     )
   end
 

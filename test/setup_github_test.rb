@@ -95,7 +95,7 @@ end
 #
 # Reads the script as text. Never executes it.
 
-source = File.read(SCRIPT)
+source = File.read(SCRIPT, encoding: "UTF-8")
 lines  = source.lines
 
 # Bash `if`/`fi` depth walk from a gate line, returning the index range the block spans.
@@ -178,7 +178,7 @@ def run_script(env)
       "SETUP_GITHUB_EXTRA_CHECKS" => nil
     }
     stdout, stderr, status = Open3.capture3(base.merge(env), "bash", SCRIPT, REPO, chdir: ROOT)
-    gh_log = File.exist?(log) ? File.read(log) : ""
+    gh_log = File.exist?(log) ? File.read(log, encoding: "UTF-8") : ""
     return [stdout, stderr, status.exitstatus, gh_log]
   end
 end

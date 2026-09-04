@@ -76,7 +76,7 @@ end
 
 def notes_at(root)
   path = File.join(root, NOTES)
-  File.exist?(path) ? File.read(path) : nil
+  File.exist?(path) ? File.read(path, encoding: "UTF-8") : nil
 end
 
 def doc_with(body, id: "core")

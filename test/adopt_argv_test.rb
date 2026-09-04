@@ -156,6 +156,16 @@ def run_case(sandbox, argv)
   out, err, status = Open3.capture3(
     env, RbConfig.ruby, File.join(tree, "bin", "adopt.rb"), *argv, chdir: tree
   )
+  # UL-048's class, arriving through process output rather than a file read, and
+  # caught by running this suite in a CLONE with the locale cleared rather than by
+  # reasoning about it. Open3 tags what it captures with Encoding.default_external,
+  # which is US-ASCII when LANG and LC_ALL are unset -- and bin/adopt.rb's usage
+  # text carries an em dash. Concatenating or matching those bytes then raises
+  # ArgumentError, which would have made this suite red on any runner without a
+  # locale. There is no encoding argument to give a captured stream, so the bytes
+  # are re-tagged at the boundary, once, before any assertion touches them.
+  out = out.dup.force_encoding(Encoding::UTF_8).scrub
+  err = err.dup.force_encoding(Encoding::UTF_8).scrub
   logged = if File.exist?(shim_log)
              File.read(shim_log, encoding: "UTF-8").lines.map(&:chomp).reject(&:empty?)
            else

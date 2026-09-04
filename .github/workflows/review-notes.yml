@@ -267,6 +267,35 @@ jobs:
           #
           # Zero require-family lines in the gate process, so bundler-cache: false still holds.
           ruby test/encoding_test.rb
+          # UL-051's gate, and the direct consequence of the step above. `make adopt`
+          # contacts App Store Connect and overwrites this repository's local
+          # fastlane/metadata and fastlane/screenshots trees, and until 2026-09-04
+          # bin/adopt.rb parsed no arguments at all -- its last statement is an exec
+          # into the lane, so anything typed after the script name was ignored and the
+          # lane ran. A `--help` typed as a usage probe on 2026-09-03 did exactly that.
+          # It was strictly WORSE after the encoding fix above: a cleared locale used
+          # to crash that script before the exec, so the obvious probe was safe only
+          # because of a defect, and pinning the read removed the accident that was
+          # guarding it.
+          #
+          # HOW IT OBSERVES THAT, which is the only reason this suite is worth a
+          # required badge: it never runs bin/adopt.rb in place. It copies the script
+          # into a temp directory beside a synthetic fixture dotenv and puts a
+          # directory first on PATH holding a `bundle` that records its argv and exits
+          # 0. Reaching that shim is the failure condition, and the count is asserted
+          # NUMERICALLY rather than through an exit code -- because the exit code
+          # discriminates nothing here: --help exited 0 when it ran the lane and exits
+          # 0 now that it prints usage. A bare, fully-configured invocation must still
+          # reach the shim, so the suite cannot pass by being incapable of observing an
+          # exec at all.
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. It proves the FRONT DOOR refuses:
+          # --help, -h, --dry-run and an unrecognised argument reach nothing. It says
+          # nothing whatever about the adopt_existing_app lane, which this suite never
+          # reaches by construction, and nothing about whether an adoption somebody
+          # consents to does the right thing. No network, no gem, no .bootstrap.env and
+          # no generated project, so bundler-cache: false above still holds.
+          ruby test/adopt_argv_test.rb
           # .gitleaks.toml's own gate (IDENT-12, D-62). The secret scan below can
           # only report what its allowlist does not swallow, and one
           # [[allowlists]] entry with a match-everything regex was observed

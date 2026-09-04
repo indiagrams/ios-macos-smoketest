@@ -240,6 +240,33 @@ jobs:
           # the UL-003 failure class). Zero require lines, so bundler-cache: false still holds.
           ruby tools/check-contamination.rb
           ruby test/contamination_test.rb
+          # UL-048's gate, and the merge-blocking half of a two-gate pair. Ruby takes the
+          # encoding of a file it reads from the environment; with LANG and LC_ALL unset it is
+          # US-ASCII, so an unpinned read of tracked text hands back a String whose bytes are
+          # not what its tag says, and the next strip, scan or match raises. This repository
+          # produced FOUR instances of that one defect, the third of which killed `make doctor`
+          # on a fresh clone. Three one-site fixes did not hold, so this gate demands a stated
+          # verdict -- pinned, binary, or an exemption carrying a written reason -- for EVERY
+          # read in the tracked tree, and fails on a site that has none.
+          #
+          # WHY IT LIVES HERE, stated rather than chosen silently. It needs the checkout and
+          # nothing else: no .bootstrap.env, no secrets, no Xcode, no network. It enumerates
+          # through `git ls-files` on whatever tree it is handed, so nothing about its result
+          # depends on local state -- which matters, because a suite once certified CI-eligible
+          # by unsetting environment variables passed only thanks to a gitignored generated
+          # project on disk, and failed 7 assertions in a clone. This one was verified in a
+          # clone with the gem paths cleared, under both pinned interpreters.
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. It reads source text plus ONE dynamic probe:
+          # a locale-cleared child that runs the real metadata-scanning step against the real
+          # tracked copyright file. It does NOT run `make doctor` end to end under a cleared
+          # locale. That execution regression lives in bootstrap-doctor-matrix.yml and is not
+          # required, because it needs a .bootstrap.env, which is gitignored and structurally
+          # absent from a pull-request checkout. The static half blocks merge precisely because
+          # the execution half cannot.
+          #
+          # Zero require-family lines in the gate process, so bundler-cache: false still holds.
+          ruby test/encoding_test.rb
           # .gitleaks.toml's own gate (IDENT-12, D-62). The secret scan below can
           # only report what its allowlist does not swallow, and one
           # [[allowlists]] entry with a match-everything regex was observed

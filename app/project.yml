@@ -200,6 +200,22 @@ targets:
     platform: iOS
     sources:
       - path: Tests
+      # The conversion engine and the tests that cover it, compiled into BOTH
+      # unit-test targets — the same shape as the shared selector enum on
+      # AppUITests above, and the same reason: single source of truth
+      # preserved (same path, listed twice). One corpus, asserted twice; two
+      # copies would drift.
+      #
+      # This is how 06-RESEARCH Open Question 1 was routed. The alternative was
+      # `@testable import <the app module>`, which works — but the module name
+      # resolves from APP_PRODUCT_NAME in Identity.xcconfig, so that import
+      # spells the fork's identity inside a test file, and
+      # tools/migrate-identity.rb's MUST_NOT_TOUCH list does not cover
+      # app/Tests or app/MacOSTests. A fork that renamed itself would get a
+      # silently broken test build. The engine is pure value types with no
+      # dependency on the app module, so compiling it in costs nothing.
+      - path: Shared/Engine
+      - path: EngineTests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).tests
@@ -248,6 +264,11 @@ targets:
     platform: macOS
     sources:
       - path: MacOSTests
+      # See AppTests above — the same two paths for the same reason
+      # (06-RESEARCH Open Question 1). One engine, one corpus, two unit
+      # targets, no identity literal in any test file.
+      - path: Shared/Engine
+      - path: EngineTests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).mactests

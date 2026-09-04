@@ -425,12 +425,21 @@ def runner_method_body(name)
   rest[0...stop].lines.reject { |l| l.strip.start_with?("#") }.join
 end
 
-# The two halves of every Runner step. `check` reports; `do_it` acts. Which of
-# the two an entry point calls IS the read-only/mutating distinction in this
-# codebase, and it is what separates bin/doctor.rb from bin/bootstrap-fork.rb
-# even though the two drivers are 18 and 20 lines of nearly identical text.
-STEP_REPORTS = "step.check"
-STEP_ACTS    = "step.#{%w[do it].join('_')}"
+# The two halves of every Runner step. `check` reports; the other one acts.
+# Which of the two an entry point calls IS the read-only/mutating distinction in
+# this codebase, and it is what separates bin/doctor.rb from
+# bin/bootstrap-fork.rb even though the two drivers are 18 and 20 lines of
+# nearly identical text.
+#
+# MATCHED ON THE CALL, NOT ON THE RECEIVER, AND A RED CONTROL IS WHY. These were
+# first written as the literal `step.` plus the method name -- the spelling both
+# entry points happen to use today. The control that adds the acting half to
+# Runner#doctor spelled it through a different receiver, and the gate STAYED
+# GREEN: a receiver-specific needle exempts every other way of reaching the same
+# method, which is a gate that checks a coding style rather than a behaviour.
+# Anchoring on the call makes the control trip, which is what it is for.
+STEP_REPORTS = Regexp.new('\.check\b')
+STEP_ACTS    = Regexp.new('\.' + %w[do it].join("_") + '\b')
 
 DISPOSITIONS = {
   # ── front_door_required ───────────────────────────────────────────────────
@@ -626,15 +635,15 @@ DISPOSITIONS = {
       ["and it names no App Store Connect write verb of its own",
        ->(c) { ASC_WRITE_PATTERNS.none? { |p| c[:src].match?(p) } }],
       ["Runner#doctor asks each step to REPORT",
-       ->(_c) { runner_method_body("doctor").to_s.include?(STEP_REPORTS) }],
+       ->(_c) { runner_method_body("doctor").to_s.match?(STEP_REPORTS) }],
       ["and asks NO step to act -- comment text stripped, because doctor's body mentions the " \
        "acting half in prose while never calling it, and counting that prose would have " \
        "misclassified the one read-only driver in the enumeration",
-       ->(_c) { !runner_method_body("doctor").to_s.include?(STEP_ACTS) }],
+       ->(_c) { !runner_method_body("doctor").to_s.match?(STEP_ACTS) }],
       ["the positive control: Runner#bootstrap, the entry point bin/bootstrap-fork.rb uses, " \
        "DOES ask steps to act -- so the assertion above is a property of doctor rather than " \
        "of a pattern that matches nothing",
-       ->(_c) { runner_method_body("bootstrap").to_s.include?(STEP_ACTS) }]
+       ->(_c) { runner_method_body("bootstrap").to_s.match?(STEP_ACTS) }]
     ]
   },
   "bin/setup-github.sh" => {

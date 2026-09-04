@@ -827,8 +827,9 @@ DISPOSITIONS = {
        ->(c) { BEFORE.call(c[:src], "ARGV", c[:src] =~ /require ['"]spaceship['"]/) }],
       ["-h and --help are answered and exit 0",
        ->(c) { c[:src].match?(/when ["']-h["'], ["']--help["']/) }],
-      ["an argument that is not a version is refused BY NAME rather than becoming the version",
-       ->(c) { c[:src].match?(/TAG_SHAPE|VERSION_SHAPE/) && c[:src].match?(/abort .*#\{arg/) }],
+      ["an argument that is not a version is refused BY NAME rather than becoming the version " \
+       "-- the refusal INTERPOLATES the offending argument, so it cannot be a generic usage dump",
+       ->(c) { c[:src].match?(/TAG_SHAPE|VERSION_SHAPE/) && c[:src].match?(/Unrecognised argument: #\{arg\}/) }],
       ["and that shape is anchored at BOTH ends, so a flag with a version buried in it cannot " \
        "pass a partial match",
        ->(c) { c[:src].match?(/\\A.*\\z|\^.*\$/) && c[:src].match?(/(TAG|VERSION)_SHAPE\s*=\s*%r|\/\\A/) }],

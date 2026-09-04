@@ -31,8 +31,43 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-if [ $# -lt 1 ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-  sed -n 's/^# \?//p' "$0" | head -32
+# The release tag shape, anchored at both ends. Deliberately the same shape
+# ci/local-release-check.sh:205 enforces and ci/bump-asc-version.rb re-checks, so
+# the two ends of one release cannot disagree about what a version is.
+TAG_SHAPE='^v?[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$'
+
+usage() { sed -n 's/^# \?//p' "$0" | head -32; }
+
+# WHY POSITION 1 IS CHECKED AGAINST A SHAPE AND NOT JUST AGAINST TWO SPELLINGS.
+# Until 2026-09-04 the guard here read $1 for exactly --help and -h, and the
+# `case` of known flags below only ever saw "${@:2}" — so every OTHER
+# probe-shaped word in position 1 became the TAG. Measured in a sandbox on
+# 2026-09-04: `ci/bump-asc-version.sh --dry-run` captured screenshots and then
+# reached `bundle exec ruby ci/bump-asc-version.rb --dry-run`, which PATCHed the
+# App Store version string on both platforms. The sharpest arm was
+# `--no-capture` — a real flag OF THIS SCRIPT — which a person types without a
+# tag and which bumped App Store Connect to the literal "--no-capture".
+#
+# So the refusal is a shape check, and it sits above the screenshot capture:
+# a refusal after the mutation is not a refusal.
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    echo "error: no version given" >&2
+    echo >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
+if ! printf '%s' "$1" | grep -Eq "$TAG_SHAPE"; then
+  echo "error: refuse to treat '$1' as a version — expected a tag such as v0.0.11" >&2
+  echo "       nothing was captured, contacted or written." >&2
+  echo >&2
+  usage >&2
   exit 2
 fi
 

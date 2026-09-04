@@ -18,6 +18,23 @@ import XCTest
 /// question with silence, and the whole point of the probe is that a gate which has never
 /// executed is an untested belief with CI syntax. It is superseded by
 /// `VisibleStringSweep.swift` in plan 06-17, which should delete it.
+///
+/// **Answer, measured on GitHub Actions run 33925478706, job `app (macOS)`, commit
+/// `6cfecdc`:** `runner_headless=true harvested_strings=114 harvested_distinct=109
+/// probe_reached_subject=true`. The tree is fully populated on a headless runner without any
+/// foreground-activation call — and 110 of those 114 strings are macOS system chrome (the
+/// Apple menu, the application menu, Services), not app content. The four app strings were
+/// `Indiagram Smoke App`, `iOS + macOS template`, `Set this app's identity in
+/// app/Identity.xcconfig.` and the app name. Plan 06-17's sweep must therefore scope or
+/// exempt chrome explicitly; harvesting the whole tree is the wrong population for a
+/// criterion-6 assertion about strings the *app* renders.
+///
+/// **And the counts cannot be surfaced with `print`.** Run 33924732161 executed this test
+/// green and not one `print` line below reached the xcodebuild log: the macOS UI-test bundle
+/// is injected into `AppMacOSUITests-Runner.app`, launched by `testmanagerd`, whose stdout is
+/// not connected to xcodebuild's pipe. Only XCTest's own IPC — assertion and failure messages
+/// — crosses back. The `print` calls below are kept for a local run; anything CI must *read*
+/// has to travel in an assertion message or the `.xcresult`.
 @MainActor
 final class HarvestProbeTests: XCTestCase {
     private var app: XCUIApplication!
@@ -80,27 +97,6 @@ final class HarvestProbeTests: XCTestCase {
             0,
             "the probe reached the app but every harvested string was whitespace"
         )
-
-        // TEMPORARY, for exactly one CI run (plan 06-01 Task 2, second push).
-        //
-        // Run 33924732185 proved the probe executes on the runner and passes both
-        // assertions -- and that NOT ONE of the print() lines above reached the
-        // xcodebuild log. A macOS UI-test bundle is injected into
-        // AppMacOSUITests-Runner.app, launched by testmanagerd; its stdout is not
-        // connected to xcodebuild's pipe, so print() is invisible in CI. An XCTest
-        // failure message, by contrast, travels over XCTest's own IPC and is
-        // rendered by xcbeautify.
-        //
-        // The counts must be READ, not inferred from a green assertion, so they are
-        // emitted here as a deliberate failure -- observed red once, then removed by
-        // the next commit. Placed last, so a red run also proves both assertions
-        // above passed first.
-        let counters = "PROBE_COUNTERS runner_headless=\(headless)"
-            + " harvested_strings=\(strings.count)"
-            + " harvested_distinct=\(Set(strings).count)"
-            + " probe_reached_subject=\(!strings.isEmpty)"
-        let sample = strings.prefix(40).joined(separator: " | ")
-        XCTFail("\(counters) sample=\(sample)")
     }
 
     /// Appends the non-empty `label`, `title`, `placeholderValue` and string `value` at

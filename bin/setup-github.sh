@@ -172,6 +172,25 @@ contexts_get() {
   gh api "repos/$REPO/branches/main/protection/required_status_checks/contexts"
 }
 
+# ── Front door ────────────────────────────────────────────────────────────────
+#
+# `-h` / `--help` is answered BEFORE any argument is consumed and before any
+# `gh` call. Without this the flag fell through to the slug check below and was
+# refused as `invalid repo '--help'` — safe, because that refusal precedes the
+# first gh_write, but it read as a defect rather than as usage. The refusal
+# stays exactly where it is; this only gives the two flags an answer.
+#
+# Follows bin/rename.sh's convention: the usage block IS the header comment, so
+# the two cannot drift apart.
+
+print_usage() {
+  sed -n '2,/^set -euo pipefail$/{ /^set -euo pipefail$/!p; }' "$0" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+  -h|--help) print_usage; exit 0 ;;
+esac
+
 # ── Resolve target repo ───────────────────────────────────────────────────────
 
 if [ $# -ge 1 ]; then

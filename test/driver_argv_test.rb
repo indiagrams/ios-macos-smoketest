@@ -647,14 +647,15 @@ DISPOSITIONS = {
     ]
   },
   "bin/setup-github.sh" => {
-    disposition: :measured_safe,
+    disposition: :already_correct,
     why: "its first argument is a repository slug, not a flag, and any argument that is not " \
-         "shaped owner/name is refused BY NAME before the first write. So the probe this whole " \
-         "class is about -- a reader typing --help -- is refused rather than acted on. It is " \
-         "measured safe rather than already correct because it does not HONOUR a help flag: it " \
-         "refuses one as an invalid slug. That is a usage gap, not a hazard, and closing it " \
-         "would mean editing the script that applies branch protection -- the PUT this " \
-         "repository already logs as its destructive-array anti-pattern -- for no measured gain",
+         "shaped owner/name is refused BY NAME before the first write -- so the probe this whole " \
+         "class is about was never a hazard here. It was classified measured_safe on 2026-09-04 " \
+         "because it did not HONOUR a help flag, only refuse one as an invalid slug: safe, but it " \
+         "read as a defect. Closing that usage gap was taken as a deliberate follow-up, additively: " \
+         "the -h/--help case answers BEFORE any argument is consumed, and the slug guard below is " \
+         "byte-unchanged. Both properties are asserted, because the point of the change was to add " \
+         "an answer without moving the refusal that made the script safe in the first place",
     evidence: "static, against its source. Never executed by this suite: its consenting path " \
               "rewrites branch protection on a live repository",
     asserts: [
@@ -668,7 +669,14 @@ DISPOSITIONS = {
        ->(c) { BEFORE.call(c[:src], '[[ "$REPO" =~ ^[^/]+/[^/]+$ ]]', c[:src] =~ /gh_write [A-Z]/) }],
       ["the positive control: this script DOES write, so the ordering above is a property of " \
        "the guard rather than of a script with nothing to guard",
-       ->(c) { c[:src].scan(/gh_write [A-Z]/).length >= 1 }]
+       ->(c) { c[:src].scan(/gh_write [A-Z]/).length >= 1 }],
+      ["-h and --help are ANSWERED, not merely refused as a malformed slug",
+       ->(c) { c[:src].match?(/-h\|--help\)\s*print_usage;\s*exit 0/) }],
+      ["and that answer sits BEFORE the slug guard, so honouring the flag did not move the " \
+       "refusal that makes this script safe -- an ordering, not a presence check",
+       ->(c) { BEFORE.call(c[:src], 'case "${1:-}" in', c[:src] =~ /\[\[ "\$REPO" =~/) }],
+      ["the slug refusal survives the addition verbatim -- the follow-up was additive",
+       ->(c) { c[:src].include?('fail "invalid repo') }]
     ]
   },
   "ci/gen-macos-icons.swift" => {

@@ -123,7 +123,35 @@
 #       treated as a real run
 #   A6  bin/mint-local-certs.rb: the RELEASE_MODE guard refuses, observed
 #   A7  the two measured-safe drivers, asserted against their source
-#   A8  restoration: the sandbox is gone and this repository was never the subject
+#   A9  the population, enumerated from the Makefile, and completeness in BOTH
+#       directions: an unclassified member fails, and a classification naming a
+#       script no recipe launches fails as stale
+#   A10 the reason behind every disposition, asserted rather than commented
+#   A11 bin/bootstrap-fork.rb, observed in a tree with no .bootstrap.env
+#   A12 restoration: the sandbox is gone and this repository was never the subject
+#
+# WHY THE TABLE IS ENUMERATED AND NOT LISTED (added 2026-09-04, plan 05-21,
+# gap GAP-05-04). The five drivers above were audited by hand. A hand-maintained
+# list of "the scripts we checked" is the same stale-by-allocation defect as a
+# hand-maintained list of "the arguments we parse", one level up -- and it proved
+# it inside a day. The inventory that scoped this work was built with a grep for
+# `$1`, which does not match `${1:-}`, the form every shell script in bin/ uses.
+# It reported bin/init-bootstrap-env.sh as parsing nothing and put it on the fix
+# list, when in fact it refuses an unknown argument at exit 64 and will not
+# overwrite an existing .bootstrap.env without --force. A table built by eye was
+# wrong within a day and pointed at unnecessary work on correct code.
+#
+# So the population is PARSED OUT OF THE MAKEFILE at run time, every member
+# carries one of three dispositions, and a member without one is a FAILURE naming
+# its path. The convention this file guards did not arrive with 05-19: it already
+# existed. bin/clean-revoked-certs.rb and bin/revoke-orphan-certs.rb -- the two
+# most destructive scripts in this tree, both of which revoke Apple certificates
+# against a quota -- have had --help, --dry-run and a named refusal since the day
+# they were written. Three siblings drifted from it and nothing noticed, because
+# the convention lived in code rather than in a check. That is the whole argument
+# for this group existing: adding front doors one at a time leaves the identical
+# hole open for the next script, and the structural fix is a gate that cannot be
+# satisfied by a table that has gone stale.
 #
 # WHAT A GREEN RUN DOES NOT PROVE. It says the front doors refuse. It says
 # nothing about the release, staging, submission or adoption lanes themselves,
@@ -211,13 +239,11 @@ FIXTURE_ENV = {
 # make a green result be about the stub.
 LIB_FILES = %w[bootstrap.rb xcconfig.rb version_resolver.rb].freeze
 
-DRIVERS = %w[
-  bin/submit.rb
-  bin/ship.rb
-  bin/adopt.rb
-  bin/mint-local-certs.rb
-  bin/verify-testflight.rb
-].freeze
+# DRIVERS is no longer a literal. It is DERIVED, below, from the population this
+# suite enumerates out of the Makefile at run time and from the disposition each
+# member carries -- because a hand-maintained list of "the scripts we checked" is
+# the same stale-by-allocation defect as a hand-maintained list of "the arguments
+# we parse", one level up. See the population section after Result.
 
 @checks   = 0
 @failures = 0
@@ -250,6 +276,415 @@ Result = Struct.new(:rel, :argv, :status, :stdout, :stderr, :shim_argv) do
     argv.empty? ? "(no arguments)" : argv.join(" ")
   end
 end
+
+# ─── the population, ENUMERATED from the Makefile at run time ────────────────
+#
+# WHY THIS IS PARSED RATHER THAN LISTED. The five drivers this suite started with
+# were chosen by a human reading `bin/`. That list was correct on the day it was
+# written and had no way of staying correct: a script that gains a make target
+# six months from now arrives with nobody's argument parsing and nothing to
+# notice. Worse, the AUDIT that produced the list is itself a hand-maintained
+# artifact, so it carries the identical defect one level up -- and it demonstrated
+# that within a day. The inventory this plan was written from was built with a
+# grep for `$1`, which does not match `${1:-}`, the form every shell script in
+# `bin/` actually uses. It therefore reported bin/init-bootstrap-env.sh as
+# parsing zero arguments and put it on the fix list, when the file refuses an
+# unknown argument at exit 64 and gates its overwrite behind --force. A table
+# built by eye was wrong within a day and pointed at unnecessary work on correct
+# code. That is the argument for enumerating instead of listing, made by the list.
+#
+# WHAT COUNTS AS A MEMBER. A script this repository ships that some `make` recipe
+# launches. The Makefile is the population's definition rather than a proxy for
+# it: `make <target>` is how a reader who does not yet know what a command does
+# reaches these scripts, which is the exact reader the front-door convention
+# exists for. The seven bin/ scripts with no make target are deliberately out --
+# and that is now an enumerated fact rather than an assumption, because a target
+# added to any of them puts them in without anybody editing this file.
+
+MAKEFILE_PATH = File.join(ROOT, "Makefile")
+
+SCRIPT_EXTS  = %w[rb sh swift].freeze
+SCRIPT_TOKEN = Regexp.new('[A-Za-z0-9_./-]+\.(?:' + SCRIPT_EXTS.join('|') + ')(?![A-Za-z0-9])')
+
+# A recipe line whose command is one of these NAMES a script without launching
+# it: `make help` prints `ci/local-check.sh --fast` as prose. Excluding them is
+# the only judgement in this parser, so it is not made silently -- A9 asserts
+# that every script named in narration is ALSO launched by some recipe, which is
+# what makes the exclusion safe. A help text advertising a script no recipe runs
+# would turn this gate red rather than quietly shrinking the population, which is
+# the vacuous-enumeration shape this phase has been bitten by.
+NARRATING_COMMANDS = %w[echo printf].freeze
+
+# Returns [invoked, narrated], each a path => [line numbers] map.
+def scan_makefile
+  invoked  = {}
+  narrated = {}
+  File.read(MAKEFILE_PATH, encoding: "UTF-8").lines.each_with_index do |line, idx|
+    # A recipe line, in GNU make's only spelling for one: a leading tab. This
+    # skips variable assignments, target lines, conditionals and comments, and
+    # it keeps continuation lines (each carries its own tab), which is how the
+    # multi-line `icons:` recipe stays in the population.
+    next unless line.start_with?("\t")
+    body   = line[1..].to_s.sub(/\A[\s@+-]+/, "") # strip make's recipe modifiers
+    bucket = NARRATING_COMMANDS.include?(body.split(/\s/).first.to_s) ? narrated : invoked
+    body.scan(SCRIPT_TOKEN).each { |tok| (bucket[tok] ||= []) << (idx + 1) }
+  end
+  [invoked, narrated]
+end
+
+MAKE_INVOKED, MAKE_NARRATED = begin
+  cannot_run("#{MAKEFILE_PATH} is not readable") unless File.file?(MAKEFILE_PATH)
+  scan_makefile
+end
+POPULATION = MAKE_INVOKED.keys.sort.freeze
+
+# ─── the disposition of every member, with its reason as an ASSERTION ────────
+#
+# Three dispositions, and each one's REASON is asserted rather than written in a
+# comment, because an unnamed safe script is indistinguishable from an unaudited
+# one and a commented reason cannot go red when it stops being true:
+#
+#   front_door_required  parses argv before it does anything, answers a help
+#                        flag by printing rather than by acting, refuses an
+#                        unrecognised argument BY NAME, and reaches no subprocess
+#                        while doing any of that
+#   already_correct      the same properties, already present, and NOT a fix
+#                        target. bin/clean-revoked-certs.rb and
+#                        bin/revoke-orphan-certs.rb are the two most destructive
+#                        scripts in this tree -- both revoke Apple certificates
+#                        against a quota -- and both were written this way from
+#                        the start. They are the REFERENCE IMPLEMENTATION. A
+#                        failure in this group is a regression to REPORT, not
+#                        something to fix by rewriting a live cert-revocation
+#                        path to match a newer style.
+#   measured_safe        no front door, and the SPECIFIC property that makes that
+#                        safe is asserted, so removing the property turns this
+#                        gate red rather than silently promoting the member into
+#                        the first group without anybody noticing.
+#
+# THE GATE-COLLISION HAZARD, IN THIS SECTION SPECIFICALLY. Six consecutive plans
+# in this phase were bitten by a gate matching its own source. The patterns below
+# are matched ONLY against enumerated members, never against this file, and A9
+# MEASURES that this file is not itself in the population rather than excluding
+# itself by path. Where a member's property is about a subprocess launch, the
+# check reuses the runtime-assembled LAUNCH_PATTERNS above instead of a literal,
+# because writing that literal here would turn A0's own zero-candidate
+# measurement red -- the hazard arriving through the fix for it.
+
+# A source with its WHOLE-LINE COMMENTS blanked, line count preserved so the
+# remaining offsets still read in file order.
+#
+# MEASURED TWICE, IN OPPOSITE DIRECTIONS, ON THE FIRST RUN OF THIS GROUP -- which
+# is why it is a helper rather than a detail. Counting prose as code misclassified
+# a member each way. Runner#doctor's body MENTIONS the acting half in a comment
+# while never calling it, so a naive count called the one read-only driver in the
+# enumeration a mutating one and would have sent this plan to add a front door to
+# a script that needs none. And bin/adopt.rb's header says, in prose, that it
+# ends by exec-ing its lane -- at line 17, above the parse it gained in 05-19 --
+# so a naive offset comparison reported a driver whose front door is CORRECT as
+# parsing its arguments too late, which is a false regression report about the
+# very file this whole class was discovered through. Prose about code is not code.
+CODE_ONLY = lambda do |src|
+  src.lines.map { |l| l.strip.start_with?("#") || l.strip.start_with?("//") ? "\n" : l }.join
+end
+
+# The first offset at which a source launches a subprocess, or nil.
+FIRST_LAUNCH = ->(src) { LAUNCH_PATTERNS.filter_map { |p| src =~ p }.min }
+
+# `earlier` appears, `later` appears, and `earlier` comes first. A guard that
+# sits AFTER the thing it guards reads as present and protects nothing.
+BEFORE = lambda do |src, earlier, later|
+  a = src.index(earlier)
+  b = later.is_a?(Integer) ? later : src.index(later)
+  !a.nil? && !b.nil? && a < b
+end
+
+LIB_SOURCE = begin
+  File.read(File.join(ROOT, "bin", "lib", "bootstrap.rb"), encoding: "UTF-8")
+rescue SystemCallError => e
+  cannot_run("bin/lib/bootstrap.rb could not be read: #{e.message}")
+end
+
+# One method body from Bootstrap::Runner, WITH WHOLE-LINE COMMENTS REMOVED.
+#
+# The stripping is not tidiness, it is the difference between the right answer
+# and the wrong one. MEASURED 2026-09-04: a naive count of the mutating call over
+# Runner#doctor's body returns 1 -- and that one occurrence is a COMMENT, saying
+# that bootstrap-fork will auto-fix what doctor only reports. A gate that counted
+# it would have called the read-only entry point a mutating one, refused
+# bin/doctor.rb its measured-safe disposition, and sent this plan to add a front
+# door to a script that needs none. Comment text is prose about code, not code.
+def runner_method_body(name)
+  start = LIB_SOURCE.index(/^    def #{name}\b/)
+  return nil unless start
+
+  rest = LIB_SOURCE[start..]
+  stop = rest.index(/^    end$/)
+  return nil unless stop
+
+  rest[0...stop].lines.reject { |l| l.strip.start_with?("#") }.join
+end
+
+# The two halves of every Runner step. `check` reports; `do_it` acts. Which of
+# the two an entry point calls IS the read-only/mutating distinction in this
+# codebase, and it is what separates bin/doctor.rb from bin/bootstrap-fork.rb
+# even though the two drivers are 18 and 20 lines of nearly identical text.
+STEP_REPORTS = "step.check"
+STEP_ACTS    = "step.#{%w[do it].join('_')}"
+
+DISPOSITIONS = {
+  # ── front_door_required ───────────────────────────────────────────────────
+  "bin/submit.rb" => {
+    disposition: :front_door_required,
+    sandbox: :exec,
+    why: "its last act hands off to the fastlane staging or submission lane, an App Store " \
+         "Connect mutation, and before 05-20 it parsed zero arguments",
+    evidence: "observed by A1-A5",
+    asserts: [
+      ["it parses its argument vector BEFORE the first subprocess launch site",
+       ->(c) { BEFORE.call(c[:src], "ARGV", FIRST_LAUNCH.call(c[:src])) }]
+    ]
+  },
+  "bin/ship.rb" => {
+    disposition: :front_door_required,
+    sandbox: :exec,
+    why: "it dispatches the release workflow, and before 05-20 it SNIFFED two arguments with " \
+         "ARGV.include? and parsed none, so every near-miss spelling of --dry-run shipped for real",
+    evidence: "observed by A1-A5",
+    asserts: [
+      ["it parses its argument vector BEFORE the first subprocess launch site",
+       ->(c) { BEFORE.call(c[:src], "ARGV", FIRST_LAUNCH.call(c[:src])) }]
+    ]
+  },
+  "bin/adopt.rb" => {
+    disposition: :front_door_required,
+    sandbox: :exec,
+    why: "on 2026-09-03 a `--help` typed as a usage probe drove its live adoption lane, " \
+         "overwriting 13 tracked files. This is the driver the whole class was found through",
+    evidence: "observed by A1-A5",
+    asserts: [
+      ["it parses its argument vector BEFORE the first subprocess launch site",
+       ->(c) { BEFORE.call(c[:src], "ARGV", FIRST_LAUNCH.call(c[:src])) }]
+    ]
+  },
+  "bin/bootstrap-fork.rb" => {
+    disposition: :front_door_required,
+    sandbox: :noenv,
+    why: "it creates repositories, writes GitHub secrets, pushes straight to main and applies " \
+         "branch protection. It is the sharpest unaudited member in the enumeration: 20 lines, " \
+         "no argument parsing of any kind, and a body that is a config load followed by the " \
+         "library entry point that CALLS every step's acting half",
+    evidence: "observed by A11, on its refusing paths only -- its consenting path creates " \
+              "repositories and there is no sandbox for that",
+    asserts: [
+      ["it parses its argument vector BEFORE the config read, so a refusal happens before " \
+       "anything reads credentials or opens a connection",
+       ->(c) { BEFORE.call(c[:src], "ARGV", "Config.load!") }],
+      ["it DOCUMENTS the exit code an unrecognised argument gets, so a caller can tell " \
+       "'I do not understand you' apart from 'a step is blocked'. This is the one probe in " \
+       "the table that reads the header comment on purpose, so it takes the raw source",
+       ->(c) { c[:raw].match?(/^#.*\b2\b.*argument/i) }]
+    ]
+  },
+
+  # ── already_correct: the reference implementation, NOT a fix target ───────
+  "bin/clean-revoked-certs.rb" => {
+    disposition: :already_correct,
+    why: "it revokes nothing without being asked: it deletes locally-cached certs Apple no " \
+         "longer lists, and it has parsed its arguments since the day it was written",
+    evidence: "static, against its source. Never executed by this suite -- its consenting path " \
+              "deletes from the operator's real login keychain",
+    asserts: [
+      ["it iterates the argument vector rather than sniffing it, so every argument is inspected",
+       ->(c) { c[:src].include?("ARGV.each") }],
+      ["it answers a help flag by printing and exiting 0 rather than by acting",
+       ->(c) { BEFORE.call(c[:argv_block].to_s, "-h", "exit 0") }],
+      ["it offers a dry run, so the reader has a harmless way to look first",
+       ->(c) { c[:argv_block].to_s.include?("--dry-run") }],
+      ["its refusal NAMES the offending argument rather than printing a generic error",
+       ->(c) { c[:argv_block].to_s.include?("unknown arg: \#{arg}") }],
+      ["the whole parse sits BEFORE the config read",
+       ->(c) { BEFORE.call(c[:src], "ARGV.each", "Config.load!") }]
+    ]
+  },
+  "bin/revoke-orphan-certs.rb" => {
+    disposition: :already_correct,
+    why: "it revokes Apple-side certificates against a per-team quota -- the most destructive " \
+         "act any script in this tree performs -- and it too was written with a front door",
+    evidence: "static, against its source. Never executed by this suite",
+    asserts: [
+      ["it iterates the argument vector rather than sniffing it",
+       ->(c) { c[:src].include?("ARGV.each") }],
+      ["it answers a help flag by printing and exiting 0 rather than by acting",
+       ->(c) { BEFORE.call(c[:argv_block].to_s, "-h", "exit 0") }],
+      ["it offers a dry run",
+       ->(c) { c[:argv_block].to_s.include?("--dry-run") }],
+      ["its refusal NAMES the offending argument",
+       ->(c) { c[:argv_block].to_s.include?("unknown flag: \#{arg}") }],
+      ["and refuses at exit 2, distinguishable from the exit 1 a failed preflight uses",
+       ->(c) { c[:argv_block].to_s.include?("exit 2") }],
+      ["the whole parse sits BEFORE the config read",
+       ->(c) { BEFORE.call(c[:src], "ARGV.each", "Config.load!") }]
+    ]
+  },
+  "bin/init-bootstrap-env.sh" => {
+    disposition: :already_correct,
+    why: "it writes .bootstrap.env -- the file holding a fork's real Apple Team ID, App Store " \
+         "Connect key coordinates and GitHub PAT -- and it REFUSES to overwrite an existing one " \
+         "unless --force is passed. The audit that produced this plan reported it as parsing " \
+         "zero arguments, because the grep behind that audit searched for $1 and this file " \
+         "spells it ${1:-}. Reading the file settles it, and moves it into the reference set",
+    evidence: "static, against its source. Never executed by this suite: running it is the one " \
+              "thing that could overwrite the operator's real credentials file",
+    asserts: [
+      ["it parses its first argument rather than ignoring the vector",
+       ->(c) { c[:src].include?('case "${1:-}"') }],
+      ["an unrecognised argument is refused at exit 64, distinguishable from the exit 1 it " \
+       "uses for a refused precondition",
+       ->(c) { c[:src].include?("exit 64") }],
+      ["and the refusal happens BEFORE the copy that would overwrite the file",
+       ->(c) { BEFORE.call(c[:src], "exit 64", 'cp "$SRC" "$DST"') }],
+      ["overwriting an EXISTING .bootstrap.env is gated behind an explicit --force, and that " \
+       "gate sits before the copy -- so the data-loss path over real Apple credentials cannot " \
+       "be reached by a bare run",
+       ->(c) { BEFORE.call(c[:src], "Pass --force to overwrite", 'cp "$SRC" "$DST"') }]
+    ]
+  },
+  "bin/phase-runbook.sh" => {
+    disposition: :already_correct,
+    why: "it prints a checklist and contacts nothing outward, and it already parses in the " \
+         "shape this convention asks for",
+    evidence: "static, against its source",
+    asserts: [
+      ["a help flag prints and exits 0, before any work",
+       ->(c) { BEFORE.call(c[:src], '"${1:-}" = "--help"', "exit 0") }],
+      ["it walks the whole vector rather than inspecting only the first argument",
+       ->(c) { c[:src].include?("while [ $# -gt 0 ]") }],
+      ["and its refusal NAMES the offending argument",
+       ->(c) { c[:src].include?('fail "unknown arg: $1"') }]
+    ]
+  },
+  "ci/local-check.sh" => {
+    disposition: :already_correct,
+    why: "it builds locally and uploads nothing, and it already refuses an unrecognised mode",
+    evidence: "static, against its source",
+    asserts: [
+      ["a help flag prints and exits 0",
+       ->(c) { BEFORE.call(c[:src], "-h|--help", "exit 0") }],
+      ["an unrecognised mode is refused BY NAME at exit 2",
+       ->(c) { c[:src].include?("unknown mode '$mode'") && c[:src].include?("exit 2") }],
+      ["and the refusal sits before the first build step is defined, so no work starts first",
+       ->(c) { BEFORE.call(c[:src], "unknown mode '$mode'", "require_cmd") }]
+    ]
+  },
+  "ci/take-screenshots.sh" => {
+    disposition: :already_correct,
+    why: "its --upload flag is the only outward act and it is opt-in; the parse already covers " \
+         "every argument rather than the first",
+    evidence: "static, against its source",
+    asserts: [
+      ["it iterates EVERY argument, so a second unrecognised one cannot slip past",
+       ->(c) { c[:src].include?('for arg in "$@"') }],
+      ["a help flag prints and exits 0",
+       ->(c) { BEFORE.call(c[:src], "-h|--help", "exit 0") }],
+      ["an unrecognised argument is refused BY NAME at exit 2",
+       ->(c) { c[:src].include?("unknown arg '$arg'") && c[:src].include?("exit 2") }]
+    ]
+  },
+
+  # ── measured_safe: no front door, and the reason asserted ─────────────────
+  "bin/mint-local-certs.rb" => {
+    disposition: :measured_safe,
+    sandbox: :exec,
+    why: "a RELEASE_MODE guard refuses before it touches the login keychain, and this fork is " \
+         "ci mode",
+    evidence: "asserted by A7 and OBSERVED refusing by A6",
+    asserts: []
+  },
+  "bin/verify-testflight.rb" => {
+    disposition: :measured_safe,
+    sandbox: :exec,
+    why: "every App Store Connect call it makes is a query, and the one subprocess it launches " \
+         "is a git tag fetch rather than a lane handoff",
+    evidence: "asserted by A7",
+    asserts: []
+  },
+  "bin/doctor.rb" => {
+    disposition: :measured_safe,
+    why: "it is 18 lines that load the config and call the library's REPORTING entry point. " \
+         "Runner#doctor calls each step's `check` half and never its acting half, which is what " \
+         "makes `make doctor` the honest read-only preview of `make bootstrap-fork` -- the same " \
+         "steps, reported rather than run. That is also why bin/bootstrap-fork.rb below gets no " \
+         "--dry-run: this repository already has one, spelled `make doctor`, and inventing a " \
+         "second would be the dishonest-dry-run shape 05-20 found in ship.rb",
+    evidence: "static, against bin/lib/bootstrap.rb, with a positive control that the same " \
+              "pattern DOES match the mutating entry point",
+    asserts: [
+      ["the driver's whole body is a config load and the reporting entry point -- it launches " \
+       "no subprocess of its own",
+       ->(c) { FIRST_LAUNCH.call(c[:src]).nil? }],
+      ["and it names no App Store Connect write verb of its own",
+       ->(c) { ASC_WRITE_PATTERNS.none? { |p| c[:src].match?(p) } }],
+      ["Runner#doctor asks each step to REPORT",
+       ->(_c) { runner_method_body("doctor").to_s.include?(STEP_REPORTS) }],
+      ["and asks NO step to act -- comment text stripped, because doctor's body mentions the " \
+       "acting half in prose while never calling it, and counting that prose would have " \
+       "misclassified the one read-only driver in the enumeration",
+       ->(_c) { !runner_method_body("doctor").to_s.include?(STEP_ACTS) }],
+      ["the positive control: Runner#bootstrap, the entry point bin/bootstrap-fork.rb uses, " \
+       "DOES ask steps to act -- so the assertion above is a property of doctor rather than " \
+       "of a pattern that matches nothing",
+       ->(_c) { runner_method_body("bootstrap").to_s.include?(STEP_ACTS) }]
+    ]
+  },
+  "bin/setup-github.sh" => {
+    disposition: :measured_safe,
+    why: "its first argument is a repository slug, not a flag, and any argument that is not " \
+         "shaped owner/name is refused BY NAME before the first write. So the probe this whole " \
+         "class is about -- a reader typing --help -- is refused rather than acted on. It is " \
+         "measured safe rather than already correct because it does not HONOUR a help flag: it " \
+         "refuses one as an invalid slug. That is a usage gap, not a hazard, and closing it " \
+         "would mean editing the script that applies branch protection -- the PUT this " \
+         "repository already logs as its destructive-array anti-pattern -- for no measured gain",
+    evidence: "static, against its source. Never executed by this suite: its consenting path " \
+              "rewrites branch protection on a live repository",
+    asserts: [
+      ["every argument must match the owner/name slug shape",
+       ->(c) { c[:src].include?('[[ "$REPO" =~ ^[^/]+/[^/]+$ ]]') }],
+      ["a rejected one is NAMED in the refusal rather than generically reported",
+       ->(c) { c[:src].include?("invalid repo '$REPO'") }],
+      ["and the shape guard sits BEFORE the first write call site, not merely before the write " \
+       "helper's definition -- a guard after the first write would read as present and protect " \
+       "nothing",
+       ->(c) { BEFORE.call(c[:src], '[[ "$REPO" =~ ^[^/]+/[^/]+$ ]]', c[:src] =~ /gh_write [A-Z]/) }],
+      ["the positive control: this script DOES write, so the ordering above is a property of " \
+       "the guard rather than of a script with nothing to guard",
+       ->(c) { c[:src].scan(/gh_write [A-Z]/).length >= 1 }]
+    ]
+  },
+  "ci/gen-macos-icons.swift" => {
+    disposition: :measured_safe,
+    why: "it takes three filesystem paths and refuses any invocation that is not exactly three, " \
+         "so a flag-shaped argument is refused on arity before anything is written. It touches " \
+         "no network and no credential. It is in the population because `make icons` launches " \
+         "it -- and it is the DELTA between the enumeration and the audit this plan was written " \
+         "from, which listed 14 members and missed this one because it looked only at bin/",
+    evidence: "static, against its source. Not executed: it would write over an icon set",
+    asserts: [
+      ["an arity guard refuses any invocation that is not exactly three paths",
+       ->(c) { c[:src].include?("argv.count == 4") }],
+      ["the guard prints usage naming what the three paths are",
+       ->(c) { c[:src].include?("usage: swift ci/gen-macos-icons.swift") }],
+      ["and it sits BEFORE the first filesystem write",
+       ->(c) { BEFORE.call(c[:src], "argv.count == 4", "FileManager.default.createDirectory") }]
+    ]
+  }
+}.freeze
+
+# DERIVED, not listed. The scripts this suite copies into the sandbox and RUNS,
+# and the one it runs in a config-less tree, both fall out of the table above.
+DRIVERS      = DISPOSITIONS.select { |_, e| e[:sandbox] == :exec }.keys.freeze
+NOENV_DRIVER = DISPOSITIONS.find { |_, e| e[:sandbox] == :noenv }&.first
 
 # ─── the executed-driver table ───────────────────────────────────────────────
 #
@@ -344,8 +779,11 @@ EXECUTED = [
 
 # ─── the sandbox ─────────────────────────────────────────────────────────────
 
+# Every member of the enumerated population is READ -- the five that are also
+# copied and run, and the ten that are classified from their source alone. The
+# restoration group at the end proves this suite left all of them byte-identical.
 sources_before = {}
-DRIVERS.each do |rel|
+POPULATION.each do |rel|
   sources_before[rel] = begin
     File.read(File.join(ROOT, rel), encoding: "UTF-8")
   rescue SystemCallError => e
@@ -360,9 +798,13 @@ shim_log = nil
 
 # Runs a sandbox copy with the shim directory first on PATH. Returns the exit
 # status, both streams, and every argv the shims recorded.
-run_case = lambda do |rel, argv, extra_env = {}|
+# `in_tree` overrides the default sandbox tree. A11 uses it to run
+# bin/bootstrap-fork.rb in a tree that deliberately has NO .bootstrap.env, which
+# is what turns its config layer into an observable boundary.
+run_case = lambda do |rel, argv, extra_env = {}, in_tree = nil|
   FileUtils.rm_f(shim_log)
   shim_dir = File.join(sandbox, "shim")
+  run_tree = in_tree || tree
 
   env = {
     "PATH"             => "#{shim_dir}#{File::PATH_SEPARATOR}#{ENV.fetch('PATH')}",
@@ -384,7 +826,7 @@ run_case = lambda do |rel, argv, extra_env = {}|
   env.merge!(extra_env)
 
   out, err, status = Open3.capture3(
-    env, RbConfig.ruby, File.join(tree, rel), *argv, chdir: tree
+    env, RbConfig.ruby, File.join(run_tree, rel), *argv, chdir: run_tree
   )
   # UL-048's class, arriving through process output rather than a file read.
   # Open3 tags what it captures with Encoding.default_external, which is US-ASCII
@@ -436,6 +878,27 @@ begin
     FileUtils.cp(File.join(ROOT, "bin", "lib", f), File.join(tree, "bin", "lib", f))
   end
 
+  # ─── the config-less tree, for A11 ─────────────────────────────────────────
+  #
+  # A SECOND sandbox tree, identical in shape to the first except that it has NO
+  # .bootstrap.env. That absence is the whole design: bin/bootstrap-fork.rb's
+  # consenting path creates repositories, writes secrets and pushes, and there is
+  # no sandbox for any of that -- so instead of shimming its way through the work
+  # path, this tree makes the work path UNREACHABLE at the config layer, whose
+  # refusal is deliberate, named, and observable in the output. That gives A11 a
+  # boundary that holds whether the front door works or not, which is what makes
+  # it safe to run the driver at all. The same containment is what lets the RED
+  # commit for this plan exist: an unfixed bin/bootstrap-fork.rb run here reaches
+  # the config refusal and stops, exactly as a fixed one does for a bare run.
+  noenv_tree = File.join(sandbox, "tree-noenv")
+  FileUtils.mkdir_p(File.join(noenv_tree, "bin", "lib"))
+  if NOENV_DRIVER
+    FileUtils.cp(File.join(ROOT, NOENV_DRIVER), File.join(noenv_tree, NOENV_DRIVER))
+  end
+  LIB_FILES.each do |f|
+    FileUtils.cp(File.join(ROOT, "bin", "lib", f), File.join(noenv_tree, "bin", "lib", f))
+  end
+
   File.write(
     File.join(tree, ".bootstrap.env"),
     FIXTURE_ENV.map { |k, v| "#{k}=#{v}" }.join("\n") + "\n"
@@ -481,6 +944,24 @@ begin
   # in-progress check asks for databaseId,status and must find nothing (so the
   # script proceeds to dispatch, which is what A1 observes), while the
   # post-dispatch lookup asks for databaseId,status,createdAt and gets an id.
+  # `git` and `security` live in a SEPARATE directory, prepended only for A11.
+  # bin/bootstrap-fork.rb is the one member whose work path could reach either,
+  # and shimming them globally would change what the five drivers above observe
+  # -- bin/adopt.rb's clean-tree gate reads `git status`, so a git that always
+  # succeeds silently would alter A1's meaning for a driver this plan is not
+  # about. Belt and braces for one group rather than a behaviour change for five.
+  noenv_shim = File.join(sandbox, "shim-noenv")
+  FileUtils.mkdir_p(noenv_shim)
+  %w[git security].each do |name|
+    path = File.join(noenv_shim, name)
+    File.write(path, <<~SH)
+      #!/bin/sh
+      printf '#{name} %s\\n' "$*" >> "#{shim_log}"
+      exit 0
+    SH
+    File.chmod(0o755, path)
+  end
+
   gh = File.join(shim_dir, "gh")
   File.write(gh, <<~SH)
     #!/bin/sh
@@ -753,6 +1234,220 @@ begin
   assert LAUNCH_PATTERNS.any? { |p| sources_before["bin/submit.rb"].match?(p) },
          "A7", "bin/submit.rb",
          "the launch patterns DO match a driver that launches a subprocess, for the same reason"
+
+  # ─── A9: the population, and completeness in BOTH directions ───────────────
+  #
+  # A one-directional check rots in the other direction. "Every member is
+  # classified" goes green forever once somebody deletes a member's make target
+  # and leaves its entry behind, and "every entry names a real member" goes green
+  # on an empty population. Both are asserted, and each is driven red on its own.
+  assert !POPULATION.empty?, "A9", "Makefile",
+         "the enumeration found #{POPULATION.length} make-invocable script(s). An empty " \
+         "population would satisfy the completeness assertion below trivially -- nothing " \
+         "unclassified, because nothing enumerated -- which is the vacuous-enumeration shape " \
+         "this phase has been bitten by"
+
+  suite_rel = File.join("test", File.basename(__FILE__))
+  assert !POPULATION.include?(suite_rel), "A9", suite_rel,
+         "this suite is NOT itself in the population it enumerates, so it can never become its " \
+         "own subject. MEASURED rather than excluded by path: a self-exclusion would still be " \
+         "here after somebody gave this file a make target, and the gate-collision hazard bit " \
+         "six consecutive plans in this phase"
+
+  missing_on_disk = POPULATION.reject { |rel| File.file?(File.join(ROOT, rel)) }
+  assert missing_on_disk.empty?, "A9", "Makefile",
+         "every enumerated path resolves to a file that exists (#{missing_on_disk.inspect}). A " \
+         "make target pointing at a script that was renamed or deleted is a broken entry point, " \
+         "and it would otherwise reach a reader as a shell error rather than as a gate failure"
+
+  narrated_only = MAKE_NARRATED.keys - MAKE_INVOKED.keys
+  assert narrated_only.empty?, "A9", "Makefile",
+         "every script the help text NAMES is also launched by some recipe (#{narrated_only.inspect}). " \
+         "This is the check that makes the echo/printf exclusion safe to make: without it, the " \
+         "one judgement in the parser could silently shrink the population, and a member would " \
+         "leave the gate by being mentioned in prose"
+
+  all_tokens  = File.read(MAKEFILE_PATH, encoding: "UTF-8").scan(SCRIPT_TOKEN).uniq
+  unaccounted = all_tokens - MAKE_INVOKED.keys - MAKE_NARRATED.keys
+  assert unaccounted.empty?, "A9", "Makefile",
+         "every script path appearing ANYWHERE in the Makefile is accounted for as either " \
+         "launched or narrated (#{unaccounted.inspect}). This is the parser's own blind-spot " \
+         "control: a script reached through a variable assignment, a conditional, or any other " \
+         "form the recipe-line scan does not read would land here rather than vanishing from " \
+         "the population -- which is exactly how the hand-built inventory this plan corrects " \
+         "lost a member"
+
+  unclassified = POPULATION.reject { |rel| DISPOSITIONS.key?(rel) }
+  unclassified.each do |rel|
+    assert false, "A9", rel,
+           "this script is launched by the Makefile and has NO entry in the disposition table. " \
+           "Every make-invocable script must be classified front_door_required, already_correct " \
+           "or measured_safe, with its reason asserted -- an unclassified member is an " \
+           "unaudited one, and this is the assertion that makes a script added six months from " \
+           "now impossible to land silently"
+  end
+  assert unclassified.empty?, "A9", "-",
+         "all #{POPULATION.length} enumerated member(s) carry a disposition " \
+         "(#{unclassified.length} unclassified)"
+
+  stale = DISPOSITIONS.keys.reject { |rel| POPULATION.include?(rel) }
+  stale.each do |rel|
+    assert false, "A9", rel,
+           "the disposition table classifies this script, but no Makefile recipe launches it " \
+           "any more. A stale exemption is how a check keeps passing about something that is " \
+           "gone -- remove the entry, or restore the target"
+  end
+  assert stale.empty?, "A9", "-",
+         "no disposition entry names a script the Makefile no longer launches (#{stale.length} stale)"
+
+  KNOWN = %i[front_door_required already_correct measured_safe].freeze
+  DISPOSITIONS.each do |rel, entry|
+    assert KNOWN.include?(entry[:disposition]), "A9", rel,
+           "carries one of the three known dispositions (got #{entry[:disposition].inspect})"
+    assert !entry[:why].to_s.strip.empty? && !entry[:evidence].to_s.strip.empty?, "A9", rel,
+           "carries a stated reason and a stated form of evidence, so a reader can tell a " \
+           "measurement from an assumption"
+  end
+
+  # ─── A10: the reason behind each disposition, ASSERTED ─────────────────────
+  #
+  # A disposition without an asserted reason is a comment. The point of these is
+  # that REMOVING the property that makes a member safe turns this gate red --
+  # bin/setup-github.sh losing its slug-shape guard, bin/init-bootstrap-env.sh
+  # losing its --force gate, Runner#doctor gaining a call to a step's acting half.
+  # `:src` here is the member's source WITH COMMENTS BLANKED -- see CODE_ONLY
+  # above for the two measurements that made that necessary. `:raw` keeps the
+  # original for anything that genuinely is about the file's text.
+  ctx_for = lambda do |rel, raw|
+    src = CODE_ONLY.call(raw)
+    a = src.index("ARGV.each")
+    b = src.index("Config.load!")
+    { path: rel, raw: raw, src: src, argv_block: (a && b && a < b ? src[a...b] : nil) }
+  end
+
+  DISPOSITIONS.each do |rel, entry|
+    src = sources_before[rel]
+    next assert(false, "A10", rel, "source was read for classification") if src.nil?
+
+    ctx = ctx_for.call(rel, src)
+    entry[:asserts].each do |label, probe|
+      ok = begin
+        probe.call(ctx)
+      rescue StandardError => e
+        puts "FAIL A10 #{rel}: the reason probe raised #{e.class}: #{e.message}"
+        @checks += 1
+        @failures += 1
+        next
+      end
+      assert ok, "A10", rel, "#{entry[:disposition]} -- #{label}"
+    end
+  end
+
+  # ─── A11: bin/bootstrap-fork.rb, observed in a config-less tree ────────────
+  #
+  # THE CONTROL IS DIFFERENT IN KIND FROM A1, ON PURPOSE, AND THIS SAYS SO
+  # RATHER THAN LETTING IT BE INFERRED. For the five drivers above, the positive
+  # control is a bare run reaching a capturing shim. That control cannot exist
+  # here: this driver's consenting path creates GitHub repositories, writes
+  # repository secrets, pushes straight to main and applies branch protection,
+  # and no shim directory makes that safe to attempt -- the work is done by a
+  # library that talks to Apple and GitHub through several routes, not by one
+  # launcher that a PATH entry can stand in front of.
+  #
+  # So the observable boundary is moved EARLIER, to the config layer. The tree
+  # this runs in has no .bootstrap.env, and Bootstrap::Config.load! refuses by
+  # name when it cannot find one. That refusal is the signal:
+  #
+  #   a bare run          MUST reach it -- proving the front door does not
+  #                       swallow a consenting invocation, and proving the
+  #                       process really executed rather than dying on line 1
+  #   --help / -h         MUST NOT reach it -- proving the parse short-circuits
+  #                       BEFORE anything reads credentials or opens a connection
+  #   an unknown argument MUST NOT reach it -- same, and refused by name
+  #
+  # That differential is what an empty shim log alone could never show, and it is
+  # why the emptiness assertions below are stated as a property of the CONTAINMENT
+  # rather than as evidence about the front door.
+  if NOENV_DRIVER
+    CONFIG_REFUSAL = ".bootstrap.env not found"
+    noenv_env = { "PATH" => [noenv_shim, shim_dir, ENV.fetch("PATH")].join(File::PATH_SEPARATOR) }
+    noenv_run = ->(argv) { run_case.call(NOENV_DRIVER, argv, noenv_env, noenv_tree) }
+
+    bare = noenv_run.call([])
+    counts["bootstrap-fork"]["bare"] = bare.shim_argv.length
+
+    assert bare.printed.include?(CONFIG_REFUSAL), "A11", NOENV_DRIVER,
+           "THE CONSENT CONTROL, and it runs first: a bare invocation is NOT swallowed by the " \
+           "front door -- it runs through the parse and reaches the config layer, which refuses " \
+           "by name because this tree has no .bootstrap.env. Without this, every 'did not reach " \
+           "the config layer' assertion below could be satisfied by a script that dies on its " \
+           "first line, which is the vacuous shape 05-19 and 05-20 both measured " \
+           "(printed: #{bare.printed[0, 160].inspect})"
+    assert !bare.status.zero?, "A11", NOENV_DRIVER,
+           "and it exits non-zero (got #{bare.status.inspect}) -- a front door that turned a " \
+           "consenting invocation into a silent success would be a regression wearing a fix's " \
+           "clothes"
+    assert !bare.stderr.match?(BACKTRACE), "A11", NOENV_DRIVER,
+           "the refusal is deliberate rather than a raise: this driver stops at a named check, " \
+           "not at a crash that happens to look like safety"
+    assert bare.shim_argv.empty?, "A11", NOENV_DRIVER,
+           "the containment held: even a CONSENTING run in this tree reached no subprocess, " \
+           "because the config layer stops it first. This is a property of the sandbox, not " \
+           "evidence about the front door, and it is what makes running this driver at all " \
+           "safe -- it holds whether the front door works or not"
+
+    %w[--help -h].each do |flag|
+      res = noenv_run.call([flag])
+      counts["bootstrap-fork"][flag] = res.shim_argv.length
+
+      assert res.status.zero?, "A11", NOENV_DRIVER,
+             "`#{flag}` exits 0 (got #{res.status.inspect}) -- asking what a command does is " \
+             "not an error, and on this driver it was previously the command itself"
+      [
+        ["bin/bootstrap-fork.rb", "the usage names the driver it describes"],
+        ["GitHub", "the usage says which service it acts on"],
+        ["secret", "the usage says it writes repository secrets"],
+        ["push", "the usage says it pushes"],
+        ["branch protection", "the usage names the branch-protection write"],
+        ["make doctor", "the usage names where the READ-ONLY preview lives. This driver has no " \
+                        "--dry-run and must not pretend to: `make doctor` runs the same steps " \
+                        "and asks each one only to report, which is a real dry run rather than " \
+                        "an invented flag that does something subtly different"]
+      ].each do |needle, why|
+        assert res.printed.include?(needle), "A11", NOENV_DRIVER,
+               "`#{flag}` prints usage containing #{needle.inspect}: #{why}"
+      end
+      assert !res.printed.include?(CONFIG_REFUSAL), "A11", NOENV_DRIVER,
+             "`#{flag}` did NOT reach the config layer -- the parse short-circuits before " \
+             "anything reads credentials or opens a connection. Paired with the consent control " \
+             "above, which DID reach it, this is a differential rather than an absence"
+      assert_reached_nothing.call(res, "A11")
+    end
+
+    # `--dry-run` is included on purpose. This driver does not have one, and the
+    # honest answer is a refusal that points at `make doctor` -- not a flag that
+    # runs something subtly different, which is the trap 05-20 measured in
+    # bin/ship.rb, where --dry-run dispatches a real workflow run.
+    %w[--bogus bootstrap-everything --dry-run].each do |offender|
+      res = noenv_run.call([offender])
+      counts["bootstrap-fork"][offender] = res.shim_argv.length
+
+      assert res.status == 2, "A11", NOENV_DRIVER,
+             "`#{offender}` is refused at this driver's documented argv exit code 2 (got " \
+             "#{res.status.inspect}), distinguishable from the exit 1 a blocked step uses"
+      assert res.printed.include?(offender), "A11", NOENV_DRIVER,
+             "the refusal NAMES #{offender.inspect} verbatim. 05-19 and 05-20 both measured a " \
+             "neutered refusal printing the right words while the lane ran, so this assertion " \
+             "is paired with the two below rather than trusted alone"
+      assert !res.printed.include?(CONFIG_REFUSAL), "A11", NOENV_DRIVER,
+             "`#{offender}` did not reach the config layer either -- it was refused BEFORE the " \
+             "credential read, which is the behaviour the message claims"
+      assert_reached_nothing.call(res, "A11")
+    end
+  else
+    assert false, "A11", "-",
+           "the disposition table names a driver to observe in the config-less tree"
+  end
 rescue StandardError => e
   # A crash is not a pass. The subject of this suite is an unwanted EXECUTION, so
   # an exception that leaves the shim log empty is exactly the shape that reads as
@@ -766,11 +1461,15 @@ ensure
   FileUtils.remove_entry(sandbox) if sandbox && File.exist?(sandbox)
 end
 
-# ─── A8: restoration ─────────────────────────────────────────────────────────
-assert sandbox && !File.exist?(sandbox), "A8", "-",
+# ─── A12: restoration ────────────────────────────────────────────────────────
+#
+# Over the WHOLE enumerated population, not just the five that are executed. Ten
+# of these are classified from their source alone and this suite only ever reads
+# them -- but "only ever reads them" is a claim, and this is the measurement.
+assert sandbox && !File.exist?(sandbox), "A12", "-",
        "the sandbox was removed (#{sandbox})"
-DRIVERS.each do |rel|
-  assert File.read(File.join(ROOT, rel), encoding: "UTF-8") == sources_before[rel], "A8", rel,
+POPULATION.each do |rel|
+  assert File.read(File.join(ROOT, rel), encoding: "UTF-8") == sources_before[rel], "A12", rel,
          "the tracked script is byte-identical to what it was before this suite ran -- this " \
          "suite reads it and copies it, and never executes it in place"
 end
@@ -778,11 +1477,27 @@ end
 # ─── the transcript lines ────────────────────────────────────────────────────
 exit_code = @failures.zero? ? 0 : 1
 puts
-(EXECUTED.map { |d| [d[:slug], d[:rel]] } + [["mint", "bin/mint-local-certs.rb"]]).each do |slug, rel|
+observed = EXECUTED.map { |d| [d[:slug], d[:rel]] } +
+           [["mint", "bin/mint-local-certs.rb"]] +
+           (NOENV_DRIVER ? [["bootstrap-fork", NOENV_DRIVER]] : [])
+observed.each do |slug, rel|
   recorded = counts[slug].map { |k, v| "#{k.tr(' ', '_')}=#{v}" }.join(" ")
   puts "RESULT control=driver-exec-reachable driver=#{rel} exit=#{exit_code} " \
        "shim_invocations #{recorded.empty? ? '(none recorded)' : recorded} restored=ok"
 end
+# The population COUNT is printed rather than hardcoded. An expected number
+# asserted here would be the same stale-by-allocation artifact the enumeration
+# exists to replace -- the completeness and staleness assertions in A9 are what
+# hold the table honest, and they do it without anybody having to remember a
+# literal. Recorded here so a reader can see the number move when a script gains
+# or loses a make target.
+by_disposition = DISPOSITIONS.values.group_by { |e| e[:disposition] }
+                             .transform_values(&:length).sort.map { |k, v| "#{k}=#{v}" }.join(" ")
+n_unclassified = POPULATION.count { |rel| !DISPOSITIONS.key?(rel) }
+n_stale        = DISPOSITIONS.keys.count { |rel| !POPULATION.include?(rel) }
+puts "RESULT control=driver-argv-table-complete exit=#{exit_code} " \
+     "population=#{POPULATION.length} classified=#{DISPOSITIONS.length} " \
+     "missing=#{n_unclassified} stale=#{n_stale} #{by_disposition} restored=ok"
 puts "RESULT control=driver-argv-front-door exit=#{exit_code} " \
      "drivers=#{DRIVERS.length} executed=#{EXECUTED.length} restored=ok"
 puts

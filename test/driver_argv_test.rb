@@ -293,13 +293,47 @@ end
 # built by eye was wrong within a day and pointed at unnecessary work on correct
 # code. That is the argument for enumerating instead of listing, made by the list.
 #
-# WHAT COUNTS AS A MEMBER. A script this repository ships that some `make` recipe
-# launches. The Makefile is the population's definition rather than a proxy for
-# it: `make <target>` is how a reader who does not yet know what a command does
-# reaches these scripts, which is the exact reader the front-door convention
-# exists for. The seven bin/ scripts with no make target are deliberately out --
-# and that is now an enumerated fact rather than an assumption, because a target
-# added to any of them puts them in without anybody editing this file.
+# WHAT COUNTS AS A MEMBER. Three enumerated sources, unioned. None is a list.
+#
+#   1. A script some `make` recipe launches. `make <target>` is how a reader who
+#      does not yet know what a command does reaches these scripts, which is the
+#      exact reader the front-door convention exists for.
+#   2. A tracked script under ci/ carrying git's executable bit. The 100755 mode
+#      is the repository's OWN declaration that a file is meant to be run, so it
+#      is evidence rather than opinion, and it is read from the git index rather
+#      than from the filesystem so a local chmod cannot move the population.
+#   3. A script that a member of 1 or 2 launches THROUGH AN INTERPRETER on a code
+#      line. This is what puts ci/bump-asc-version.rb in: it is mode 100644 and no
+#      recipe names it, but ci/bump-asc-version.sh:91 runs it with the operator's
+#      first argument, and its own header documents direct invocation too.
+#
+# WHY SOURCE 2 AND 3 EXIST (added 2026-09-04, after 05-21). Source 1 alone was
+# correct and was still not enough, and this was MEASURED rather than argued.
+# ci/bump-asc-version.sh has no make target and no workflow job -- it is typed by
+# a human at the end of a release, documented at fastlane/Fastfile:33 -- so it sat
+# outside the population by construction. Its help guard reads $1 against exactly
+# two spellings and its `case` of known flags only ever sees "${@:2}", so every
+# other probe-shaped word in position 1 became the TAG: a sandboxed run of
+# `ci/bump-asc-version.sh --dry-run` captured screenshots and then reached
+# `bundle exec ruby ci/bump-asc-version.rb --dry-run`, and that script had no
+# shape check at all, so `--dry-run` went to App Store Connect as the version
+# string on both platforms. That is the 2026-09-03 bin/adopt.rb incident in a
+# second costume, one level out: the receiver is the App Store record rather than
+# 13 tracked files. Enumerating from the Makefile alone could not have found it.
+#
+# WHAT IS STILL OUT, AND SAID RATHER THAN LEFT TO BE NOTICED. Source 2 is scoped
+# to ci/. The tracked executables under bin/ that no recipe launches are NOT
+# enumerated here; their count is PRINTED in the transcript so it moves when
+# somebody adds one, and closing that half is UL-052. Scoping it was a choice, so
+# it is stated: widening source 2 to bin/ adds nine unmeasured members at once,
+# and a disposition written without a measurement behind it is the assumption
+# this whole group exists to refuse.
+#
+# Source 3 matches an interpreter-launch SHAPE on a comment-stripped line, which
+# also matches a usage string inside a heredoc (`bundle exec ruby bin/adopt.rb`
+# in a USAGE block hits). That errs toward including a member, which is the safe
+# direction for a population, and it is recorded here rather than left for a
+# reader to discover.
 
 MAKEFILE_PATH = File.join(ROOT, "Makefile")
 
@@ -336,7 +370,58 @@ MAKE_INVOKED, MAKE_NARRATED = begin
   cannot_run("#{MAKEFILE_PATH} is not readable") unless File.file?(MAKEFILE_PATH)
   scan_makefile
 end
-POPULATION = MAKE_INVOKED.keys.sort.freeze
+
+# ─── source 2: tracked executables, read from the git INDEX ──────────────────
+#
+# `git ls-files -s` reports the mode git records, not the mode the filesystem
+# happens to carry. A chmod in a working tree therefore cannot add or remove a
+# member, which matters because this suite must reach the same answer in a bare
+# clone as it does here -- the CI-eligibility shape 05-20 measured, where a green
+# depended on local state the real environment lacks.
+def tracked_executables(dir)
+  out, _err, status = Open3.capture3("git", "-C", ROOT, "ls-files", "-s", "--", dir)
+  cannot_run("git ls-files -s -- #{dir} failed in #{ROOT}") unless status.success?
+  out.lines.filter_map do |line|
+    mode, rest = line.split(" ", 2)
+    next unless mode == "100755"
+    path = rest.to_s.split("\t", 2)[1].to_s.chomp
+    path if SCRIPT_EXTS.any? { |e| path.end_with?(".#{e}") }
+  end
+end
+
+EXECUTABLE_CI = tracked_executables("ci").freeze
+
+# ─── source 3: launched through an interpreter by a member of 1 or 2 ─────────
+#
+# Anchored on the interpreter and the script path together, so a bare mention of
+# a path in a string does not qualify and a launch through `bundle exec ruby`
+# does. Scoped to ci/ for the same reason source 2 is: see the header note.
+INTERPRETERS = %w[ruby python3 swift bash sh].freeze
+INTERP_LAUNCH = Regexp.new(
+  '(?:^|[|&;(]|\bexec\s|\bbundle\s+exec\s)\s*(?:/usr/bin/env\s+)?' \
+  '(?:' + INTERPRETERS.join('|') + ')\s+(' + SCRIPT_TOKEN.source + ')'
+)
+
+def blank_comment_lines(src)
+  src.lines.map { |l| l =~ %r{\A\s*(#|//)} ? "\n" : l }.join
+end
+
+SEED_POPULATION = (MAKE_INVOKED.keys + EXECUTABLE_CI).uniq.freeze
+INTERP_LAUNCHED = SEED_POPULATION.each_with_object({}) do |rel, acc|
+  path = File.join(ROOT, rel)
+  next unless File.file?(path)
+  blank_comment_lines(File.read(path, encoding: "UTF-8")).scan(INTERP_LAUNCH) do |m|
+    tgt = m[0]
+    (acc[tgt] ||= []) << rel if tgt.start_with?("ci/")
+  end
+end.freeze
+
+POPULATION = (SEED_POPULATION + INTERP_LAUNCHED.keys).uniq.sort.freeze
+
+# Printed, never asserted against a literal -- see the transcript note at the
+# foot of this file. This is the half of source 2 that is deliberately not
+# enumerated, and the number is how a reader sees it grow.
+UNENUMERATED_BIN = (tracked_executables("bin") - POPULATION).sort.freeze
 
 # ─── the disposition of every member, with its reason as an ASSERTION ────────
 #
@@ -694,6 +779,203 @@ DISPOSITIONS = {
        ->(c) { c[:src].include?("usage: swift ci/gen-macos-icons.swift") }],
       ["and it sits BEFORE the first filesystem write",
        ->(c) { BEFORE.call(c[:src], "argv.count == 4", "FileManager.default.createDirectory") }]
+    ]
+  },
+
+  # ── the ci/ members, added 2026-09-04 with sources 2 and 3 ────────────────
+  #
+  # The two front doors below are the fix for a MEASURED hazard, not a tidy-up.
+  # Every other entry here records a property that was already true and is now
+  # asserted, so removing it turns this gate red.
+  "ci/bump-asc-version.sh" => {
+    disposition: :front_door_required,
+    why: "no make target and no workflow job -- it is typed by a human at the end of a release " \
+         "(fastlane/Fastfile:33). Its help guard read $1 against exactly --help and -h, and its " \
+         "`case` of known flags only ever saw \"${@:2}\", so every other probe-shaped word in " \
+         "position 1 became the TAG. A sandboxed run of `--dry-run` captured screenshots and " \
+         "then reached the App Store Connect bump with --dry-run as the version",
+    evidence: "measured 2026-09-04 in a sandbox copy under `bash -x`, with take-screenshots.sh " \
+              "shimmed and bundler inert (no Gemfile at or above the tree, verified first). " \
+              "--help and -h refused nothing-launched; --dry-run and --no-capture both launched",
+    asserts: [
+      ["the FIRST argument is validated against the tag shape, not just against two help spellings",
+       ->(c) { c[:src].match?(/TAG_SHAPE=/) }],
+      ["and a first argument that fails that shape is refused BY NAME",
+       ->(c) { c[:src].match?(/refuse .*\$1|unrecognised first argument/i) }],
+      ["the refusal sits BEFORE the first subprocess launch, which is the screenshot capture -- " \
+       "an ordering, because a refusal after the mutation is not a refusal",
+       ->(c) { BEFORE.call(c[:src], "TAG_SHAPE=", c[:src] =~ %r{\./ci/take-screenshots\.sh}) }],
+      ["-h and --help are ANSWERED at exit 0 rather than sharing the no-arguments exit",
+       ->(c) { c[:src].match?(/--help\).*\n?.*exit 0|-h\|--help\)/) }],
+      ["the positive control: this script DOES reach an App Store Connect write, so the " \
+       "ordering above is a property of the guard and not of a script with nothing to guard",
+       ->(c) { c[:src].include?("ci/bump-asc-version.rb") && c[:src].include?("upload_metadata") }]
+    ]
+  },
+  "ci/bump-asc-version.rb" => {
+    disposition: :front_door_required,
+    why: "its only argument check was ARGV.empty?, and ARGV[0] went to " \
+         "patch_app_store_version as the versionString for BOTH platforms with no shape " \
+         "validation. Fixing only the shell wrapper would not close it: this file's own header " \
+         "documents `bundle exec ruby ci/bump-asc-version.rb v0.0.11` as a supported entry point",
+    evidence: "measured 2026-09-04 offline against a stub Spaceship with fake key material: " \
+              "`--help` produced two ASC-WRITE records, {versionString: \"--help\"} on IOS and " \
+              "on MAC_OS, at exit 0",
+    asserts: [
+      ["the argument vector is parsed BEFORE the App Store Connect library is required, so a " \
+       "refusal cannot depend on a gem being installed or on a credential being readable",
+       ->(c) { BEFORE.call(c[:src], "ARGV", c[:src] =~ /require ['"]spaceship['"]/) }],
+      ["-h and --help are answered and exit 0",
+       ->(c) { c[:src].match?(/when ["']-h["'], ["']--help["']/) }],
+      ["an argument that is not a version is refused BY NAME rather than becoming the version",
+       ->(c) { c[:src].match?(/TAG_SHAPE|VERSION_SHAPE/) && c[:src].match?(/abort .*#\{arg/) }],
+      ["and that shape is anchored at BOTH ends, so a flag with a version buried in it cannot " \
+       "pass a partial match",
+       ->(c) { c[:src].match?(/\\A.*\\z|\^.*\$/) && c[:src].match?(/(TAG|VERSION)_SHAPE\s*=\s*%r|\/\\A/) }],
+      ["the positive control: this script DOES write to App Store Connect, so the assertions " \
+       "above are properties of the guard rather than of a script with nothing to guard",
+       ->(c) { c[:src].include?("patch_app_store_version") }]
+    ]
+  },
+  "ci/local-release-check.sh" => {
+    disposition: :already_correct,
+    why: "--help prints usage at exit 0, and -- the property that actually matters -- any TAG " \
+         "not matching the release tag shape is refused BY NAME before the first mutation. So " \
+         "-h, --dry-run and every other probe are refused at the tag gate rather than at a " \
+         "help guard, which is why this file needed no change",
+    evidence: "static, against its source. Not executed: it archives and signs",
+    asserts: [
+      ["--help prints usage and exits 0",
+       ->(c) { c[:src].match?(/\$\{1:-\}" = "--help".*\n(.*\n)?.*exit 0/) }],
+      ["a tag that does not match the release shape is refused by name",
+       ->(c) { c[:src].match?(/fail "Tag '\$TAG' does not match/) }],
+      ["and that refusal sits BEFORE the generator runs and before build/ is created -- the " \
+       "two mutations a probe would otherwise reach",
+       ->(c) do
+         BEFORE.call(c[:src], "does not match", c[:src] =~ /xcodegen generate/) &&
+           BEFORE.call(c[:src], "does not match", c[:src] =~ %r{mkdir -p "\$REPO_ROOT/build"})
+       end]
+    ]
+  },
+  "ci/check-identity.sh" => {
+    disposition: :already_correct,
+    why: "read-only, and it hands its whole argument vector to bin/preflight-identity.rb, which " \
+         "has a real front door of its own (-h/--help exit 0, an unknown argument exit 1). The " \
+         "pass-through is deliberate and its header says so",
+    evidence: "static, against its source and against the receiver's",
+    asserts: [
+      ["it passes the argument vector through rather than interpreting it",
+       ->(c) { c[:src].include?('ruby bin/preflight-identity.rb "$@"') }],
+      ["and the receiver it hands them to answers -h/--help itself, so the pass-through lands " \
+       "on a front door rather than on nothing",
+       ->(_c) do
+         rx = File.read(File.join(ROOT, "bin/preflight-identity.rb"), encoding: "UTF-8")
+         rx.match?(/when ["']-h["'], ["']--help["']/)
+       end]
+    ]
+  },
+  "ci/check-embedded-floors.sh" => {
+    disposition: :already_correct,
+    why: "read-only. An empty argument vector prints usage at exit 2, and an argument that is " \
+         "not a directory is refused BY NAME at exit 2 -- so a flag-shaped probe is named and " \
+         "rejected rather than ignored",
+    evidence: "static, against its source",
+    asserts: [
+      ["an empty argument vector prints usage and exits 2",
+       ->(c) { c[:src].match?(/if \[ -z "\$APP" \]/) && c[:src].include?("exit 2") }],
+      ["an argument that is not an app bundle is refused BY NAME, quoting what was passed",
+       ->(c) { c[:src].match?(/CANNOT RUN: no app bundle at '\$APP'/) }],
+      ["it deliberately FAILS rather than skipping on a missing input -- a check that quietly " \
+       "does nothing is the shape this phase measured nine times",
+       ->(c) { BEFORE.call(c[:src], "CANNOT RUN", c[:src] =~ /Embedded framework floor check/) }]
+    ]
+  },
+  "ci/extract-mac-screenshots.sh" => {
+    disposition: :already_correct,
+    why: "it writes into fastlane/Mac_screenshots/ and deletes prior macos-*.png there, so it " \
+         "does mutate the working tree -- but a non-directory argument is refused BY NAME before " \
+         "either, which is the ordering that makes the mutation unreachable by a probe",
+    evidence: "static, against its source. Not executed: it deletes screenshots",
+    asserts: [
+      ["a non-directory argument is refused by name, quoting what was passed",
+       ->(c) { c[:src].match?(/error: xcresult bundle not found: \$XCRESULT/) }],
+      ["and that refusal sits BEFORE the directory is created and BEFORE the delete",
+       ->(c) do
+         BEFORE.call(c[:src], "xcresult bundle not found", c[:src] =~ /mkdir -p "\$OUT_DIR"/) &&
+           BEFORE.call(c[:src], "xcresult bundle not found", c[:src] =~ /rm -f "\$OUT_DIR"/)
+       end],
+      ["the positive control: it DOES delete, so the ordering above guards something",
+       ->(c) { c[:src].match?(%r{rm -f "\$OUT_DIR"/macos-}) }]
+    ]
+  },
+  "ci/check-app-icon.sh" => {
+    disposition: :measured_safe,
+    why: "it reads NO argument vector at all -- the positional references in it are function " \
+         "parameters -- and it is read-only apart from removing its own mktemp scratch file. A " \
+         "flag-shaped probe simply runs the check. That is a usage gap and not a hazard, and it " \
+         "is recorded as one rather than closed, because this is a template-owned file adopted " \
+         "byte-identical from upstream (UL-034)",
+    evidence: "static, against its source",
+    asserts: [
+      ["it reads no argument vector: no positional reference outside a function body",
+       ->(c) { !c[:src].match?(/^[A-Z_]+="\$\{?1/) }],
+      ["its only removal targets the scratch file it created itself",
+       ->(c) { c[:src].scan(/rm -f (\S+)/).flatten.all? { |t| t.include?("bmp") } }]
+    ]
+  },
+  "ci/test-migrate-identity.sh" => {
+    disposition: :measured_safe,
+    why: "argument-blind, and every mutation is confined to a mktemp -d clone. It even refuses " \
+         "to continue if the cd into that clone did not take, which is a containment that holds " \
+         "whether the rest of the script is right or not",
+    evidence: "static, against its source. Not executed: it builds both platforms",
+    asserts: [
+      ["its work tree is a mktemp -d, not the repository",
+       ->(c) { c[:src].match?(/WORK_DIR="\$\(mktemp -d/) }],
+      ["which it populates by CLONING rather than by writing into the running tree",
+       ->(c) { c[:src].match?(/git clone .*"\$REPO_ROOT" "\$WORK_DIR"/) }],
+      ["and it refuses by name if the cd into that tree did not take, rather than proceeding " \
+       "in whatever directory it is actually in",
+       ->(c) { c[:src].include?("refusing to run anything destructive") }]
+    ]
+  },
+  "ci/test-switch-to-tuist.sh" => {
+    disposition: :measured_safe,
+    why: "argument-blind; it clones the repository into a mktemp -d and exercises the generator " \
+         "switch only there. --help runs the full integration test, which costs time rather " \
+         "than correctness",
+    evidence: "static, against its source. Not executed: it runs a full build",
+    asserts: [
+      ["its work tree is a mktemp -d clone, so the running tree is read and never written",
+       ->(c) do
+         c[:src].match?(/WORK_DIR="\$\(mktemp -d/) &&
+           c[:src].match?(/git clone .*"\$REPO_ROOT" "\$WORK_DIR"/)
+       end],
+      ["every invocation of the script under test is made inside that tree",
+       ->(c) do
+         calls = c[:src].scan(/^\s*\(?\s*cd "\$WORK_DIR".*bin\/switch-to-tuist\.sh/)
+         bare  = c[:src].scan(/^\s*bin\/switch-to-tuist\.sh/)
+         !calls.empty? && bare.empty?
+       end]
+    ]
+  },
+  "ci/test-switch-to-xcodegen.sh" => {
+    disposition: :measured_safe,
+    why: "the inverse direction of the same harness, with the same containment: argument-blind, " \
+         "and every mutation lands in a mktemp -d clone",
+    evidence: "static, against its source. Not executed: it runs a full build",
+    asserts: [
+      ["its work tree is a mktemp -d clone, so the running tree is read and never written",
+       ->(c) do
+         c[:src].match?(/WORK_DIR="\$\(mktemp -d/) &&
+           c[:src].match?(/git clone .*"\$REPO_ROOT" "\$WORK_DIR"/)
+       end],
+      ["every invocation of the script under test is made inside that tree",
+       ->(c) do
+         calls = c[:src].scan(/^\s*\(?\s*cd "\$WORK_DIR".*bin\/switch-to-xcodegen\.sh/)
+         bare  = c[:src].scan(/^\s*bin\/switch-to-xcodegen\.sh/)
+         !calls.empty? && bare.empty?
+       end]
     ]
   }
 }.freeze
@@ -1259,10 +1541,36 @@ begin
   # and leaves its entry behind, and "every entry names a real member" goes green
   # on an empty population. Both are asserted, and each is driven red on its own.
   assert !POPULATION.empty?, "A9", "Makefile",
-         "the enumeration found #{POPULATION.length} make-invocable script(s). An empty " \
+         "the enumeration found #{POPULATION.length} script(s). An empty " \
          "population would satisfy the completeness assertion below trivially -- nothing " \
          "unclassified, because nothing enumerated -- which is the vacuous-enumeration shape " \
          "this phase has been bitten by"
+
+  # Each of the three sources must contribute, and each is asserted separately.
+  # A union hides a source that has stopped working: if the executable-bit scan
+  # started returning nothing, the population would still be non-empty and every
+  # other assertion here would stay green while the reason source 2 was added --
+  # a human-typed release script outside the Makefile -- silently left the gate.
+  assert !MAKE_INVOKED.keys.empty?, "A9", "Makefile",
+         "source 1 contributes #{MAKE_INVOKED.keys.length} member(s): the Makefile scan found " \
+         "recipes that launch scripts"
+  assert !EXECUTABLE_CI.empty?, "A9", "ci/",
+         "source 2 contributes #{EXECUTABLE_CI.length} member(s): git's index reports tracked " \
+         "ci/ scripts carrying mode 100755. A source that silently returned nothing would leave " \
+         "the population non-empty and every completeness assertion green"
+  assert !INTERP_LAUNCHED.empty?, "A9", "-",
+         "source 3 contributes #{INTERP_LAUNCHED.length} member(s) " \
+         "(#{INTERP_LAUNCHED.map { |k, v| "#{k} <- #{v.uniq.join(',')}" }.join('; ')}). This is " \
+         "the source that reaches a script no recipe names and no executable bit marks, which " \
+         "is exactly how ci/bump-asc-version.rb sat unaudited"
+
+  # The executable-bit scan reads git's index, not the filesystem. Asserted,
+  # because "it reads the index" is a claim and a suite that fell back to a
+  # filesystem stat would behave differently in a bare clone -- the CI-eligibility
+  # shape 05-20 measured, where a green depended on local state.
+  chmod_proof = EXECUTABLE_CI.all? { |rel| File.file?(File.join(ROOT, rel)) }
+  assert chmod_proof, "A9", "ci/",
+         "every member source 2 contributed resolves to a real tracked file"
 
   suite_rel = File.join("test", File.basename(__FILE__))
   assert !POPULATION.include?(suite_rel), "A9", suite_rel,
@@ -1297,11 +1605,12 @@ begin
   unclassified = POPULATION.reject { |rel| DISPOSITIONS.key?(rel) }
   unclassified.each do |rel|
     assert false, "A9", rel,
-           "this script is launched by the Makefile and has NO entry in the disposition table. " \
-           "Every make-invocable script must be classified front_door_required, already_correct " \
+           "this script is in the enumerated population and has NO entry in the disposition " \
+           "table. Every member must be classified front_door_required, already_correct " \
            "or measured_safe, with its reason asserted -- an unclassified member is an " \
            "unaudited one, and this is the assertion that makes a script added six months from " \
-           "now impossible to land silently"
+           "now impossible to land silently, whether it arrives with a make target, with an " \
+           "executable bit under ci/, or as the payload of a script that already has one"
   end
   assert unclassified.empty?, "A9", "-",
          "all #{POPULATION.length} enumerated member(s) carry a disposition " \
@@ -1310,9 +1619,11 @@ begin
   stale = DISPOSITIONS.keys.reject { |rel| POPULATION.include?(rel) }
   stale.each do |rel|
     assert false, "A9", rel,
-           "the disposition table classifies this script, but no Makefile recipe launches it " \
-           "any more. A stale exemption is how a check keeps passing about something that is " \
-           "gone -- remove the entry, or restore the target"
+           "the disposition table classifies this script, but none of the three enumeration " \
+           "sources reaches it any more -- no recipe launches it, it carries no executable bit " \
+           "under ci/, and no member launches it through an interpreter. A stale exemption is " \
+           "how a check keeps passing about something that is gone -- remove the entry, or " \
+           "restore the entry point"
   end
   assert stale.empty?, "A9", "-",
          "no disposition entry names a script the Makefile no longer launches (#{stale.length} stale)"
@@ -1515,6 +1826,16 @@ n_stale        = DISPOSITIONS.keys.count { |rel| !POPULATION.include?(rel) }
 puts "RESULT control=driver-argv-table-complete exit=#{exit_code} " \
      "population=#{POPULATION.length} classified=#{DISPOSITIONS.length} " \
      "missing=#{n_unclassified} stale=#{n_stale} #{by_disposition} restored=ok"
+# Each source's contribution, printed for the same reason the total is: a union
+# that has stopped drawing from one source looks identical to one that never
+# did. The last number is the half of source 2 that is deliberately NOT
+# enumerated -- tracked executables under bin/ that no recipe launches. It is
+# printed rather than asserted against a literal so a reader sees it move, and
+# closing it is UL-052.
+puts "RESULT control=driver-argv-enumeration exit=#{exit_code} " \
+     "make_invoked=#{MAKE_INVOKED.keys.length} ci_executable=#{EXECUTABLE_CI.length} " \
+     "interpreter_launched=#{INTERP_LAUNCHED.length} " \
+     "unenumerated_bin=#{UNENUMERATED_BIN.length} restored=ok"
 puts "RESULT control=driver-argv-front-door exit=#{exit_code} " \
      "drivers=#{DRIVERS.length} executed=#{EXECUTED.length} restored=ok"
 puts

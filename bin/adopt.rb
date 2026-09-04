@@ -48,10 +48,13 @@
 #   bundle exec ruby bin/adopt.rb --help       # print usage; -h is an alias
 #   FORCE=true make adopt                      # re-sync over uncommitted local edits
 #
-# test/adopt_argv_test.rb is the durable guard for the three refusals above, and
+# test/driver_argv_test.rb is the durable guard for the three refusals above, and
 # it observes this file by RUNNING a copy of it in a temp directory with a
 # capturing `bundle` shim first on PATH — reaching that shim is its failure
-# condition. It never runs this script in place, and neither should you.
+# condition. It never runs this script in place, and neither should you. (It was
+# test/adopt_argv_test.rb until 2026-09-04, when bin/submit.rb and bin/ship.rb
+# turned out to carry the same shape and the one-driver suite was generalised
+# over a table of five rather than copied.)
 
 require "pathname"
 

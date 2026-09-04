@@ -35,12 +35,107 @@
 # (SUBMIT_FOR_REVIEW=true). Staging is reversible; creating a "submitted"
 # Release for a version that may never get submitted would be misleading.
 #
-# Usage:  bundle exec ruby bin/submit.rb
+# Usage:
+#   bundle exec ruby bin/submit.rb             # stage or submit — contacts App Store Connect
+#   bundle exec ruby bin/submit.rb --dry-run   # report the resolved target and lane; contacts nothing
+#   bundle exec ruby bin/submit.rb --help      # print usage; -h is an alias
 #
-# Exit:
-#   0 success (all configured platforms staged or submitted)
-#   1 invocation / preflight error
-#   2 fastlane lane failed for at least one platform
+# Exit-code contract, in bin/preflight-identity.rb's shape. It is documented
+# because this driver's failure mode is a write to production state, and a caller
+# has to be able to tell "I do not understand you" apart from "this fork is not
+# ready to submit" and from "the lane itself failed":
+#
+#   Exit | Meaning                                        | Message must name
+#   -----+------------------------------------------------+---------------------------------
+#   0    | -h / --help printed usage; or --dry-run        | — (usage; or the resolved app
+#        | reported the target and stopped; or every      |     name, bundle id, platforms
+#        | configured platform staged or submitted        |     and lane)
+#   1    | an invocation or preflight refusal: identity   | the missing value; the invalid
+#        | unresolvable, PLATFORMS invalid or empty, or   | PLATFORMS entries; or the missing
+#        | metadata / screenshots missing                 | directory, by path
+#   2    | the fastlane lane failed for ≥1 platform       | every failed platform
+#   3    | unknown or malformed argv                      | the offending argument, verbatim
+#
+# WHY 3 AND NOT 2 for bad argv, which is what bin/adopt.rb uses. Exit 2 was
+# already spoken for here, by "the lane failed", long before this front door
+# existed. Redefining a live exit code to match a sibling would be a behaviour
+# change wearing a consistency costume, so the code differs and the table says so.
+#
+# WHY THIS FRONT DOOR EXISTS AT ALL. Until 2026-09-04 this file parsed no
+# arguments: `bin/submit.rb --help` was silently a write to App Store Connect.
+# Its only safety was that SUBMIT_FOR_REVIEW is unset in most forks, so the lane
+# resolved to the staging one — and the banner below tells the reader how to
+# remove exactly that, after which a usage probe submits the app for review. On
+# 2026-09-03 the same shape in bin/adopt.rb turned a typed `--help` into a live
+# lane that overwrote 13 tracked files. Safety nobody chose is safety that leaves
+# without notice, so an unrecognised argument is refused here rather than ignored.
+#
+# test/driver_argv_test.rb is the durable guard, and it observes this file by
+# RUNNING a copy of it in a temp directory with capturing `bundle`, `fastlane`
+# and `gh` shims first on PATH — reaching one of those shims from a
+# non-consenting argument is its failure condition. It never runs this script in
+# place, and neither should you.
+
+# ─── Front door: parsed BEFORE the config read and before anything that can ──
+# ─── open a connection. Flag-shaped or not, an unrecognised argument is    ──
+# ─── refused BY NAME. A parser that inspected only tokens beginning with a  ──
+# ─── dash would ignore a bare positional and fall straight through to the   ──
+# ─── lane, which is the same failure in a different costume.                ──
+SUBMIT_USAGE = <<~TEXT
+  bin/submit.rb — stage, or submit, the latest TestFlight build for App Store
+  review, across the platforms configured in PLATFORMS.
+
+  THIS COMMAND WRITES TO APP STORE CONNECT. A bare run resolves to one of two
+  fastlane lanes, and the SUBMIT_FOR_REVIEW variable — never an argument below —
+  is what decides which:
+
+    SUBMIT_FOR_REVIEW unset or false   ->  lane: stage_for_review
+        Uploads screenshots and metadata, attaches the build, fills in the
+        export-compliance answers, and STOPS. The version is left in App Store
+        Connect's "Prepare for Submission" state for you to submit by hand.
+        Reversible — but still a write to the live record. This is what a bare
+        run does in a fork that has not set the variable.
+
+    SUBMIT_FOR_REVIEW=true             ->  lane: submit_for_review
+        All of the above, and then submits. The version goes to "Waiting for
+        Review" and Apple begins reviewing it. In a fork with this set, a bare
+        `bin/submit.rb` submits the app for App Store review.
+
+  The variable is read from the environment first and from .bootstrap.env
+  second. No flag below can turn submission on or off; set the variable if you
+  mean to change the lane.
+
+  Usage:
+    bundle exec ruby bin/submit.rb             stage or submit — contacts App Store Connect
+    bundle exec ruby bin/submit.rb --dry-run   report the resolved target and lane, contact nothing
+    bundle exec ruby bin/submit.rb --help      print this usage (-h is an alias)
+
+  Environment:
+    PLATFORMS=ios|macos|ios,macos      restrict this run to a subset of the configured platforms
+    SUBMIT_FOR_REVIEW=true|false       choose the lane, as above
+    RELEASE_SKIP_GH_RELEASE=true       skip the GitHub Release the submit path would create
+
+  Exit codes: 0 usage, a dry run, or a completed stage/submit; 1 an invocation or
+  preflight refusal; 2 the fastlane lane failed; 3 an argument this script does
+  not understand.
+TEXT
+
+dry_run = false
+ARGV.each do |arg|
+  case arg
+  when "-h", "--help"
+    puts SUBMIT_USAGE
+    exit 0
+  when "--dry-run"
+    dry_run = true
+  else
+    warn "[submit] Unrecognised argument: #{arg}"
+    warn "[submit] App Store Connect was NOT contacted and nothing was staged or submitted."
+    warn ""
+    warn SUBMIT_USAGE
+    exit 3
+  end
+end
 
 require_relative "lib/bootstrap"
 
@@ -79,6 +174,37 @@ end
 
 raw_submit = ENV.key?("SUBMIT_FOR_REVIEW") ? ENV["SUBMIT_FOR_REVIEW"] : config["SUBMIT_FOR_REVIEW"]
 auto_submit = truthy?(raw_submit)
+
+# --dry-run stops HERE: after identity, platforms and the lane have resolved, so
+# the report names real values, and BEFORE the preflight gates below, so it
+# REPORTS on missing metadata or screenshots rather than refusing over them. A
+# dry run uploads nothing, so those gates have nothing to protect here; the same
+# reasoning, and the same placement, as bin/adopt.rb's dry run relative to its
+# clean-tree gate. The gates below are untouched and still fire for every real
+# invocation.
+if dry_run
+  lane_preview   = auto_submit ? "submit_for_review" : "stage_for_review"
+  submit_source  = ENV.key?("SUBMIT_FOR_REVIEW") ? "the environment" : ".bootstrap.env"
+  metadata_state = Dir.exist?("fastlane/metadata/en-US") ? "present" : "MISSING — a real run refuses here"
+  shots = {
+    "ios"   => "fastlane/screenshots/en-US",
+    "macos" => "fastlane/Mac_screenshots/en-US"
+  }
+  puts "[submit] DRY RUN — App Store Connect was NOT contacted; nothing was staged or submitted."
+  puts "[submit] Would act on:  #{app_name} (#{bundle_id})"
+  puts "[submit] Would run:     fastlane <platform> #{lane_preview}"
+  puts "[submit] Would target:  #{platforms.join(', ')}"
+  puts "[submit] Lane chosen by SUBMIT_FOR_REVIEW=#{raw_submit.to_s.strip.empty? ? '(unset)' : raw_submit} " \
+       "read from #{submit_source}; set it to true and a bare run submits for review."
+  puts "[submit] Would upload from:"
+  puts "  fastlane/metadata/en-US/     #{metadata_state}"
+  platforms.each do |p|
+    dir = shots.fetch(p, shots["ios"])
+    hits = Dir.glob(File.join(dir, "*.{png,jpg,jpeg,PNG,JPG,JPEG}")).length
+    puts "  #{dir}/  #{hits} image(s)#{hits.zero? ? ' — a real run refuses here' : ''}"
+  end
+  exit 0
+end
 
 # ─── Pre-flight: screenshots + metadata exist ────────────────────────────────
 unless Dir.exist?("fastlane/metadata/en-US")

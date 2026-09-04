@@ -267,35 +267,51 @@ jobs:
           #
           # Zero require-family lines in the gate process, so bundler-cache: false still holds.
           ruby test/encoding_test.rb
-          # UL-051's gate, and the direct consequence of the step above. `make adopt`
-          # contacts App Store Connect and overwrites this repository's local
-          # fastlane/metadata and fastlane/screenshots trees, and until 2026-09-04
-          # bin/adopt.rb parsed no arguments at all -- its last statement is an exec
-          # into the lane, so anything typed after the script name was ignored and the
-          # lane ran. A `--help` typed as a usage probe on 2026-09-03 did exactly that.
+          # UL-051's gate, and the direct consequence of the step above. Three of this
+          # repository's `bin/` drivers end by launching a subprocess that writes to
+          # production: `make adopt` overwrites the local fastlane/metadata and
+          # fastlane/screenshots trees from the live App Store Connect record,
+          # `make submit` stages or submits a version for App Store review, and
+          # `make ship` tags, builds and uploads. None of the three confirms
+          # interactively, and until 2026-09-04 none of them parsed arguments --
+          # bin/adopt.rb and bin/submit.rb parsed none at all, and bin/ship.rb SNIFFED
+          # two with ARGV.include?, which matches exactly or not at all, so --dryrun
+          # and --dry_run and --DRY-RUN all shipped for real. A `--help` typed as a
+          # usage probe on 2026-09-03 drove the real adoption lane and overwrote 13
+          # tracked files.
+          #
           # It was strictly WORSE after the encoding fix above: a cleared locale used
-          # to crash that script before the exec, so the obvious probe was safe only
+          # to crash bin/adopt.rb before its exec, so the obvious probe was safe only
           # because of a defect, and pinning the read removed the accident that was
-          # guarding it.
+          # guarding it. bin/submit.rb had the same shape in a different costume -- its
+          # only safety was that SUBMIT_FOR_REVIEW is unset by default, and the script
+          # itself tells the reader how to set it.
           #
           # HOW IT OBSERVES THAT, which is the only reason this suite is worth a
-          # required badge: it never runs bin/adopt.rb in place. It copies the script
-          # into a temp directory beside a synthetic fixture dotenv and puts a
-          # directory first on PATH holding a `bundle` that records its argv and exits
-          # 0. Reaching that shim is the failure condition, and the count is asserted
-          # NUMERICALLY rather than through an exit code -- because the exit code
-          # discriminates nothing here: --help exited 0 when it ran the lane and exits
-          # 0 now that it prints usage. A bare, fully-configured invocation must still
-          # reach the shim, so the suite cannot pass by being incapable of observing an
-          # exec at all.
+          # required badge: it never runs a driver in place. It copies each one into a
+          # temp directory beside synthetic fixtures and puts a directory first on PATH
+          # holding a `bundle`, a `fastlane` and a `gh` that record their argv and exit
+          # 0. Reaching one of those shims is the failure condition, and the count is
+          # asserted NUMERICALLY rather than through an exit code -- because the exit
+          # code discriminates nothing here: --help exited 0 when it ran the lane and
+          # exits 0 now that it prints usage. A bare, fully-configured invocation must
+          # still reach a shim, per driver, so the suite cannot pass by being incapable
+          # of observing a launch at all.
           #
-          # WHAT A GREEN BADGE HERE DOES NOT MEAN. It proves the FRONT DOOR refuses:
-          # --help, -h, --dry-run and an unrecognised argument reach nothing. It says
-          # nothing whatever about the adopt_existing_app lane, which this suite never
-          # reaches by construction, and nothing about whether an adoption somebody
-          # consents to does the right thing. No network, no gem, no .bootstrap.env and
-          # no generated project, so bundler-cache: false above still holds.
-          ruby test/adopt_argv_test.rb
+          # It replaced test/adopt_argv_test.rb, which covered one driver with the same
+          # harness -- two suites sharing a harness drift, so the harness was generalised
+          # over a table of five drivers rather than copied. Three of the five are
+          # executed; the other two are asserted safe WITH their reasons, because an
+          # unnamed safe driver is indistinguishable from an unaudited one.
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. It proves the FRONT DOORS refuse:
+          # --help, -h, an unrecognised argument and every near-miss dry-run spelling
+          # reach nothing. It says nothing whatever about the adoption, staging,
+          # submission or release lanes, which this suite never reaches by construction,
+          # and nothing about whether a run somebody consents to does the right thing.
+          # No network, no gem, no .bootstrap.env and no generated project, so
+          # bundler-cache: false above still holds.
+          ruby test/driver_argv_test.rb
           # .gitleaks.toml's own gate (IDENT-12, D-62). The secret scan below can
           # only report what its allowlist does not swallow, and one
           # [[allowlists]] entry with a match-everything regex was observed

@@ -407,7 +407,35 @@ jobs:
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: '3.3'
-          bundler-cache: true  # doctor runs under `bundle exec`; the gems must be here
+          bundler-cache: false  # see the next step: this job's gems must go where the MAKEFILE looks
+      # WHY THIS STEP EXISTS AND `bundler-cache: true` DOES NOT WORK HERE.
+      # Measured on this job's first-ever run (2026-09-04): it failed with "Ruby
+      # gems aren't installed yet", never reaching the metadata step this job is
+      # about. ruby/setup-ruby REMOVES /opt/homebrew/opt/ruby@3.3/bin from PATH
+      # and installs the gems under its own hostedtoolcache Ruby -- it says so in
+      # its log. But Makefile:48 selects the Ruby with `$(wildcard ...)`, a
+      # FILESYSTEM test rather than a PATH lookup, so `make` still finds
+      # homebrew's ruby@3.3 (present on macos-15), re-prepends it, and points
+      # _BUNDLE at a gem home where setup-ruby installed nothing.
+      #
+      # So the gems are installed with the SAME bundle the Makefile will resolve,
+      # mirroring Makefile:45-52 rather than guessing. `bundle check` is asserted
+      # here so a future gem problem fails as a gem problem, instead of arriving
+      # downstream disguised as a locale regression -- which is exactly how this
+      # job first presented.
+      - name: Install gems with the same bundle the Makefile resolves
+        run: |
+          set -euo pipefail
+          RUBY_MM=$(awk -F. '{ print $1 "." $2 }' .ruby-version 2>/dev/null || echo 3.3)
+          RUBY_BIN="/opt/homebrew/opt/ruby@${RUBY_MM}/bin"
+          if [ -x "${RUBY_BIN}/ruby" ]; then
+            BUNDLE="${RUBY_BIN}/bundle"
+          else
+            BUNDLE="bundle"
+          fi
+          echo "makefile_would_use=${BUNDLE}"
+          "${BUNDLE}" install --quiet
+          "${BUNDLE}" check
       - name: Materialize a fixture .bootstrap.env that carries non-ASCII bytes
         run: |
           set -euo pipefail

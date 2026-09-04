@@ -27,9 +27,16 @@ def fail!(msg)
   exit 1
 end
 
-# Read .bootstrap.env (per-fork). Same parser as Fastfile's _fork_config —
-# kept inline (not requiring a shared lib) so this driver doesn't need
-# arbitrary load-path setup; the Makefile invokes it via `bundle exec ruby`.
+# Read .bootstrap.env (per-fork). Kept inline (not requiring a shared lib) so
+# this driver doesn't need arbitrary load-path setup; the Makefile invokes it
+# via `bundle exec ruby`.
+#
+# This comment used to say "same parser as Fastfile's _fork_config". Measured
+# 2026-09-04: fastlane/Fastfile contains zero occurrences of that name -- 04-04
+# removed it. Citing a function that no longer exists is the "inferring a fact
+# from a doc" class, so the citation is deleted rather than softened. The parser
+# that IS authoritative is Bootstrap::Config.parse in bin/lib/bootstrap.rb; this
+# one is deliberately a second, simpler copy and the two are not kept in step.
 env_path = REPO_ROOT.join(".bootstrap.env")
 unless env_path.file?
   fail!(

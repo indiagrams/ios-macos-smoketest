@@ -34,6 +34,39 @@
 
 require "shellwords"
 
+# ONE rule about encoding, in ONE place. Every read of a TEXT file in this
+# Fastfile goes through read_text; every read of key material goes through
+# read_key_material. Neither is a style preference.
+#
+# Ruby takes the encoding of a file it reads from the environment. With LANG and
+# LC_ALL unset -- normal on a fresh machine, a cron job or a bare container --
+# Encoding.default_external is US-ASCII on 3.3.12 and 4.0.6 alike, so an
+# unpinned read hands back a String tagged US-ASCII whose bytes are not. The read
+# is silent; the strip, the scan or the match on the next line raises. This
+# repository has produced FOUR instances of exactly that, one of which killed
+# `make doctor` on a fresh clone. The subjects here are not hypothetical: the
+# changelog carries 296 lines with non-ASCII bytes and the copyright file carries
+# U+00A9 eleven bytes in. See UL-048.
+#
+# fastlane does NOT save you from this. It sets the default external encoding to
+# UTF-8 only inside its own `sh` helper and restores it afterwards, so reads in
+# this file run under whatever the operator's environment supplied.
+#
+# Key material is the exception, and it gets the binary form rather than a UTF-8
+# pin: transcoding a private key is never what anyone wants. Measured 2026-09-04
+# against a throwaway P-256 key, under both a set and a cleared locale:
+# Spaceship::ConnectAPI::Token.create accepts an ASCII-8BIT string and produces a
+# JWT, and JSON.dump round-trips those bytes identically. Deliberately NOT
+# require_relative'd from bin/lib: this file has exactly one require today, and
+# gaining a load-path dependency would change what `make ship` needs on disk.
+def read_text(path)
+  File.read(path, encoding: "UTF-8")
+end
+
+def read_key_material(path)
+  File.binread(path)
+end
+
 default_platform(:ios)
 
 # In CI mode: provision a temporary keychain for match (via setup_ci) and
@@ -276,7 +309,7 @@ end
 # every block is empty.
 def extract_changelog_section(path)
   return nil unless File.exist?(path)
-  text = File.read(path)
+  text = read_text(path)
   # Greedy across blocks; pick the first one with non-empty body.
   text.scan(/^## \[[^\]]+\][^\n]*\n(.*?)(?=^## \[|\z)/m).each do |(body)|
     body = body.to_s.strip
@@ -349,7 +382,7 @@ def annotate_testflight_whats_new(app_identifier:, marketing_version:, ship_star
   Spaceship::ConnectAPI.token ||= Spaceship::ConnectAPI::Token.create(
     key_id:    ENV.fetch("ASC_API_KEY_ID"),
     issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
-    key:       File.read(@asc_p8_path),
+    key:       read_key_material(@asc_p8_path),
   )
 
   app = Spaceship::ConnectAPI::App.find(app_identifier)
@@ -523,7 +556,7 @@ def read_review_field(env_name, file_path)
   raw = if !env_val.empty?
           env_val
         elsif File.exist?(file_path)
-          File.read(file_path).strip
+          read_text(file_path).strip
         end
   return nil if raw.nil? || raw.empty?
   return nil if raw.start_with?("TODO")
@@ -600,7 +633,7 @@ def build_asc_metadata_args(metadata_dir)
   primary_locale = ENV["ASC_PRIMARY_LOCALE"].to_s.strip
   primary_locale = "en-US" if primary_locale.empty?
   en_us_dir = File.join(metadata_dir, primary_locale)
-  en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
+  en_us  = ->(name) { read_text(File.join(en_us_dir, "#{name}.txt")).strip }
   locale = primary_locale
   asc_field = ->(env_name, default_block) {
     v = ENV[env_name].to_s.strip
@@ -610,7 +643,7 @@ def build_asc_metadata_args(metadata_dir)
     privacy_url:   { locale => asc_field.call("ASC_PRIVACY_URL",   -> { en_us.call("privacy_url") }) },
     support_url:   { locale => asc_field.call("ASC_SUPPORT_URL",   -> { en_us.call("support_url") }) },
     marketing_url: { locale => asc_field.call("ASC_MARKETING_URL", -> { en_us.call("marketing_url") }) },
-    copyright:     asc_field.call("ASC_COPYRIGHT", -> { File.read(File.join(metadata_dir, "copyright.txt")).strip }),
+    copyright:     asc_field.call("ASC_COPYRIGHT", -> { read_text(File.join(metadata_dir, "copyright.txt")).strip }),
   }
   args[:primary_category]   = ENV["ASC_PRIMARY_CATEGORY"].to_s.strip   unless ENV["ASC_PRIMARY_CATEGORY"].to_s.strip.empty?
   args[:secondary_category] = ENV["ASC_SECONDARY_CATEGORY"].to_s.strip unless ENV["ASC_SECONDARY_CATEGORY"].to_s.strip.empty?
@@ -657,7 +690,7 @@ def do_upload_metadata(platform:)
   # such submissions without them. For no-auth apps both stay blank.
   review_info = build_review_info(review_info_dir)
 
-  en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
+  en_us  = ->(name) { read_text(File.join(en_us_dir, "#{name}.txt")).strip }
   locale = primary_locale
 
   # Org-stable App Store metadata (privacy/support/marketing URLs, copyright,
@@ -705,13 +738,13 @@ end
 def project_marketing_version(repo_root)
   yml = File.join(repo_root, "app/project.yml")
   if File.exist?(yml)
-    if (m = File.read(yml).match(/^\s*MARKETING_VERSION\s*:\s*["']?([^"'\s#]+)/))
+    if (m = read_text(yml).match(/^\s*MARKETING_VERSION\s*:\s*["']?([^"'\s#]+)/))
       return m[1]
     end
   end
   swift = File.join(repo_root, "app/Project.swift")
   if File.exist?(swift)
-    if (m = File.read(swift).match(/"MARKETING_VERSION"\s*:\s*"([^"]+)"/))
+    if (m = read_text(swift).match(/"MARKETING_VERSION"\s*:\s*"([^"]+)"/))
       return m[1]
     end
   end
@@ -1524,7 +1557,7 @@ lane :adopt_existing_app do |options|
   File.write(api_key_json_path, JSON.dump(
     "key_id"    => ENV.fetch("ASC_API_KEY_ID"),
     "issuer_id" => ENV.fetch("ASC_API_KEY_ISSUER_ID"),
-    "key"       => File.read(@asc_p8_path),
+    "key"       => read_key_material(@asc_p8_path),
     "duration"  => 1200,
     "in_house"  => false,
   ))
@@ -1547,7 +1580,7 @@ lane :adopt_existing_app do |options|
   Spaceship::ConnectAPI.token ||= Spaceship::ConnectAPI::Token.create(
     key_id:    ENV.fetch("ASC_API_KEY_ID"),
     issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
-    key:       File.read(@asc_p8_path),
+    key:       read_key_material(@asc_p8_path),
   )
 
   app = Spaceship::ConnectAPI::App.find(app_identifier)

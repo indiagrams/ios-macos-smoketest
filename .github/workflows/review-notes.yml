@@ -157,6 +157,65 @@ jobs:
           # abort actually fires through fastlane is observed LOCALLY, both directions,
           # in .planning/…/evidence/04-04-T2-fastlane-integration-controls.txt.
           ruby test/fastlane_identity_test.rb
+          # A-01 and A-02's guard (Phase 5). WHAT IT PROVES HERE: the three
+          # retired identity keys — APP_NAME, BUNDLE_ID, DISPLAY_NAME — carry no
+          # assignment in the tracked .bootstrap.env.example, and nothing under
+          # bin/ ci/ fastlane/ reads one of them off the config object; and
+          # bin/lib/bootstrap.rb VERIFIES app/Identity.xcconfig rather than
+          # writing it, which is the direction A-01 reversed. Both halves read
+          # only TRACKED files, which is what makes this suite eligible here at
+          # all — its sibling half of the drift question (does a forker's own
+          # .bootstrap.env agree with the xcconfig?) structurally cannot run on a
+          # runner, because .gitignore excludes that file.
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. It says nothing about any
+          # individual fork's .bootstrap.env: the env-vs-xcconfig agreement check
+          # and `make doctor` reaching tier 3 both need a real one, and it is
+          # absent here. Those stay LOCAL checks with recorded transcripts under
+          # the phase's evidence/ directory. Nor does it say the doctor works —
+          # this asserts how the identity steps judge their inputs, with
+          # xcodebuild stubbed, not that a doctor run on a real tree is green.
+          #
+          # WHY IT NEEDS NO GEM, which is what keeps bundler-cache: false above
+          # honest: bin/lib/bootstrap.rb's top-level requires are base64, digest,
+          # fileutils, json, open3, pathname, securerandom, shellwords and tmpdir
+          # plus a require_relative of bin/lib/xcconfig.rb, all shipped with the
+          # interpreter; every `require "spaceship"` in that file is LAZY, inside
+          # a method none of these assertions calls. Verified rather than
+          # inherited: after loading this suite, $LOADED_FEATURES matches nothing
+          # for spaceship under 3.3.12 and 4.0.6, and with GEM_HOME, GEM_PATH and
+          # BUNDLE_GEMFILE all cleared it still exits 0 under 3.3, the version
+          # this job pins. (Under 4.0 that same probe fails on base64, which left
+          # the default gems in Ruby 3.4 — a bundled gem the interpreter ships,
+          # not something bundler installs, so it does not affect this job.)
+          #
+          # AND NO GENERATED PROJECT. app/App.xcodeproj is gitignored, so the
+          # tier-3 assertions substitute a fixture directory; without that they
+          # short-circuit to a tier-2 warn and seven of them fail here while
+          # passing on a developer machine. Measured in a clone before this line
+          # was added, not assumed.
+          ruby test/doctor_identity_test.rb
+          # IDENT-10's scope assertion (ROADMAP Phase 5 criterion 2). WHAT IT PROVES:
+          # bin/rename.sh spells none of the four literals its retired substitution
+          # steps used to write — the template bundle id, the display-name placeholder,
+          # the app-name sweep token and the Team ID placeholder, each asserted
+          # separately and case-insensitively — AND that it still spells the two
+          # literals of the steps criterion 2 KEEPS, and still declares both of those
+          # steps. That second half is not decoration: without it every assertion in
+          # the first half is satisfied by an EMPTY FILE, which is this repository's
+          # dominant defect class. Both halves were driven red against a deliberately
+          # broken script before this line was added
+          # (.planning/…/evidence/05-11-rename-scope-controls.txt).
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. This suite reads TEXT. It says the
+          # script no longer spells an identity literal; it does not run the script,
+          # and it says nothing about whether a personalization the script performs is
+          # correct. Nor can it see a NEW identity surface introduced under a name
+          # nobody has frozen into its list — that is tools/check-contamination.rb's
+          # job, two steps below, and the two are complementary rather than redundant.
+          #
+          # Zero require-family lines, so bundler-cache: false above still holds.
+          ruby test/rename_scope_test.rb
           # IDENT-11's gate (D-65, D-69). tools/check-contamination.rb asks whether the
           # TEMPLATE's identity — BOTH of them, this fork's original placeholder and the one
           # 04-01's sync brought in from upstream, spelled out in the gate's own header and its
@@ -181,6 +240,78 @@ jobs:
           # the UL-003 failure class). Zero require lines, so bundler-cache: false still holds.
           ruby tools/check-contamination.rb
           ruby test/contamination_test.rb
+          # UL-048's gate, and the merge-blocking half of a two-gate pair. Ruby takes the
+          # encoding of a file it reads from the environment; with LANG and LC_ALL unset it is
+          # US-ASCII, so an unpinned read of tracked text hands back a String whose bytes are
+          # not what its tag says, and the next strip, scan or match raises. This repository
+          # produced FOUR instances of that one defect, the third of which killed `make doctor`
+          # on a fresh clone. Three one-site fixes did not hold, so this gate demands a stated
+          # verdict -- pinned, binary, or an exemption carrying a written reason -- for EVERY
+          # read in the tracked tree, and fails on a site that has none.
+          #
+          # WHY IT LIVES HERE, stated rather than chosen silently. It needs the checkout and
+          # nothing else: no .bootstrap.env, no secrets, no Xcode, no network. It enumerates
+          # through `git ls-files` on whatever tree it is handed, so nothing about its result
+          # depends on local state -- which matters, because a suite once certified CI-eligible
+          # by unsetting environment variables passed only thanks to a gitignored generated
+          # project on disk, and failed 7 assertions in a clone. This one was verified in a
+          # clone with the gem paths cleared, under both pinned interpreters.
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. It reads source text plus ONE dynamic probe:
+          # a locale-cleared child that runs the real metadata-scanning step against the real
+          # tracked copyright file. It does NOT run `make doctor` end to end under a cleared
+          # locale. That execution regression lives in bootstrap-doctor-matrix.yml and is not
+          # required, because it needs a .bootstrap.env, which is gitignored and structurally
+          # absent from a pull-request checkout. The static half blocks merge precisely because
+          # the execution half cannot.
+          #
+          # Zero require-family lines in the gate process, so bundler-cache: false still holds.
+          ruby test/encoding_test.rb
+          # UL-051's gate, and the direct consequence of the step above. Three of this
+          # repository's `bin/` drivers end by launching a subprocess that writes to
+          # production: `make adopt` overwrites the local fastlane/metadata and
+          # fastlane/screenshots trees from the live App Store Connect record,
+          # `make submit` stages or submits a version for App Store review, and
+          # `make ship` tags, builds and uploads. None of the three confirms
+          # interactively, and until 2026-09-04 none of them parsed arguments --
+          # bin/adopt.rb and bin/submit.rb parsed none at all, and bin/ship.rb SNIFFED
+          # two with ARGV.include?, which matches exactly or not at all, so --dryrun
+          # and --dry_run and --DRY-RUN all shipped for real. A `--help` typed as a
+          # usage probe on 2026-09-03 drove the real adoption lane and overwrote 13
+          # tracked files.
+          #
+          # It was strictly WORSE after the encoding fix above: a cleared locale used
+          # to crash bin/adopt.rb before its exec, so the obvious probe was safe only
+          # because of a defect, and pinning the read removed the accident that was
+          # guarding it. bin/submit.rb had the same shape in a different costume -- its
+          # only safety was that SUBMIT_FOR_REVIEW is unset by default, and the script
+          # itself tells the reader how to set it.
+          #
+          # HOW IT OBSERVES THAT, which is the only reason this suite is worth a
+          # required badge: it never runs a driver in place. It copies each one into a
+          # temp directory beside synthetic fixtures and puts a directory first on PATH
+          # holding a `bundle`, a `fastlane` and a `gh` that record their argv and exit
+          # 0. Reaching one of those shims is the failure condition, and the count is
+          # asserted NUMERICALLY rather than through an exit code -- because the exit
+          # code discriminates nothing here: --help exited 0 when it ran the lane and
+          # exits 0 now that it prints usage. A bare, fully-configured invocation must
+          # still reach a shim, per driver, so the suite cannot pass by being incapable
+          # of observing a launch at all.
+          #
+          # It replaced test/adopt_argv_test.rb, which covered one driver with the same
+          # harness -- two suites sharing a harness drift, so the harness was generalised
+          # over a table of five drivers rather than copied. Three of the five are
+          # executed; the other two are asserted safe WITH their reasons, because an
+          # unnamed safe driver is indistinguishable from an unaudited one.
+          #
+          # WHAT A GREEN BADGE HERE DOES NOT MEAN. It proves the FRONT DOORS refuse:
+          # --help, -h, an unrecognised argument and every near-miss dry-run spelling
+          # reach nothing. It says nothing whatever about the adoption, staging,
+          # submission or release lanes, which this suite never reaches by construction,
+          # and nothing about whether a run somebody consents to does the right thing.
+          # No network, no gem, no .bootstrap.env and no generated project, so
+          # bundler-cache: false above still holds.
+          ruby test/driver_argv_test.rb
           # .gitleaks.toml's own gate (IDENT-12, D-62). The secret scan below can
           # only report what its allowlist does not swallow, and one
           # [[allowlists]] entry with a match-everything regex was observed

@@ -11,7 +11,7 @@
 #   2026-09-02 (04-CONTEXT C-20) that is false by 40-odd files, and the occurrences are
 #   five different kinds of thing: historical record (CHANGELOG.md), guards and fixtures
 #   whose literal IS the check (bin/adopt.rb:68 rejects `com.indiagram.smokeapp`;
-#   fastlane/Fastfile's adopt_existing_app guard; ci/test-rename*.sh), docs describing the
+#   fastlane/Fastfile's adopt_existing_app guard; test/identity_test.rb), docs describing the
 #   template, template files this fork has not synced, and — until 04-05 — strings shipped
 #   in the binary. A gate that simply deleted every occurrence would delete the guards.
 #
@@ -688,11 +688,32 @@ DOMAIN_RE            = /\A[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}\z/
 ORG_DOMAIN           = "indiagram.com"
 ORG_LOCAL            = "maintainers"
 
+# The lower bound exists so that "0 unallowed" cannot be produced by an enumeration
+# that saw nothing — a green from a predicate that cannot see is the shape this file
+# exists to refuse. It is a FLOOR, not a count: the exact figure belongs to the tree
+# and moves whenever a file carrying addresses is added or removed.
+#
+# History, so the number is a dated measurement rather than a remembered one:
+#   62  2026-09-02  original, when the bound was written as >= 40
+#   35  2026-09-03  plan 05-12 deleted the rename self-check and its three shell
+#                   harnesses; those files carried 31 of the tree's addresses —
+#                   22 on the acme.com fixture domain, 4 on example.com, 3 on the
+#                   github.com ssh-user row and 2 on the org domain. The acme.com
+#                   row was REMOVED in the same commit, because after the deletion
+#                   it matched nothing anywhere and a row matching nothing fails
+#                   by design.
+# Re-based to 30, which is below the measured 34 and far above the vacuous zero this
+# assertion is about. Never raise it to the current measurement to "tighten" it: that
+# turns a floor into a count nobody re-measures, and the counted assertions in this
+# project live in tools/identity-allowlist.txt where they carry a date and a reason.
+MIN_ADDRESSES_SEEN = 30
+
 seen = real_out[/pii: (\d+) addresses seen, (\d+) unallowed/, 1].to_i
-assert real_code.zero? && real_out.include?("addresses seen, 0 unallowed") && seen >= 40,
+assert real_code.zero? && real_out.include?("addresses seen, 0 unallowed") &&
+         seen >= MIN_ADDRESSES_SEEN,
        "CT", "-",
-       "the gate is green on HEAD with 0 unallowed addresses, having actually seen some (#{seen}) " \
-       "(exit=#{real_code}, out=#{real_out.inspect})"
+       "the gate is green on HEAD with 0 unallowed addresses, having actually seen some " \
+       "(#{seen}, floor #{MIN_ADDRESSES_SEEN}) (exit=#{real_code}, out=#{real_out.inspect})"
 
 assert real_out.include?("vars: #{VARS_ALLOW_N} reads, 0 unallowed"), "CT", "-",
        "HEAD carries exactly #{VARS_ALLOW_N} vars.* reads, all in the allowlisted workflow " \

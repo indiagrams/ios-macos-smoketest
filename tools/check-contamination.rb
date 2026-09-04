@@ -33,9 +33,10 @@
 #      docs/APPLE-ACCOUNT-STATE.md.
 #   2. Guards and fixtures where the literal IS the check — bin/adopt.rb:68 exists
 #      precisely to reject `com.indiagram.smokeapp`; fastlane/Fastfile's
-#      adopt_existing_app guard does the same; ci/test-rename*.sh must contain the name
-#      the rename is supposed to remove; test/identity_test.rb asserts its absence and so
-#      must spell it. A GATE THAT DELETED THESE WOULD DELETE THE GUARDS.
+#      adopt_existing_app guard does the same; test/identity_test.rb asserts its absence
+#      and so must spell it; test/rename_scope_test.rb spells every literal the trimmed
+#      rename script must no longer substitute. A GATE THAT DELETED THESE WOULD DELETE
+#      THE GUARDS.
 #   3. Docs describing the template — MIGRATING-TO-TUIST.md and friends.
 #   4. Template files this fork has not synced yet (Phase 5, D-59).
 #   5. Strings shipped in the binary. 04-05 removed all six of these from app/Shared/;

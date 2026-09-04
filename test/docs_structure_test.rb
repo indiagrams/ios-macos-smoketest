@@ -663,6 +663,397 @@ assert ragged.empty?,
          "#{capped.empty? ? '' : " — offending: #{capped.join('; ')}"}"
 end
 
+# ─── DOC-02: the two documents criterion 3 is judged on ──────────────────────
+#
+# Phase 5 retired the identity half of the fork personalization script. Both
+# documents below used to teach it: BOOTSTRAP.md described a rename as a pipeline
+# step and listed three identity keys in a config file that no longer carries
+# them, and GETTING-STARTED.md told a reader that APP_NAME "Becomes scheme +
+# product name" — false on both counts since #281, and about a key that has since
+# been removed from .bootstrap.env entirely.
+#
+# WHY THESE ARE NOT IN ALL_DOCS. That constant is the FORK-OWNED set, and its
+# membership is exactly what puts a document under the EMAIL sweep at the bottom
+# of this file. These are TEMPLATE-owned prose that legitimately shows a
+# maintainer address inside a .bootstrap.env example, so adding them there would
+# fail the sweep for the opposite of the right reason.
+#
+# WHY THERE IS A POSITIVE HALF. Every absence assertion in this group passes on a
+# document that does not exist — File.read of a missing path yields nothing to
+# match. The half that cannot pass that way is the one asserting the migration
+# runbook EXISTS and that both named documents link to it. It was observed failing
+# with that file moved aside before this group was trusted.
+
+BOOTSTRAP_DOC       = "docs/BOOTSTRAP.md"
+GETTING_STARTED_DOC = "docs/GETTING-STARTED.md"
+MIGRATION_RUNBOOK   = "docs/MIGRATING-FROM-RENAME.md"
+DOC02_NAMED         = [BOOTSTRAP_DOC, GETTING_STARTED_DOC].freeze
+
+# The retired script's stem, ASSEMBLED rather than spelled out. Criterion 2's
+# no-dangling-reference gate greps the whole tree for the deleted self-check and
+# its harnesses and must keep exiting 1; a file that spelled either of those two
+# tokens while asserting their absence elsewhere would turn that gate green by
+# existing. Two comments went red on the gate they were describing in plan 05-12;
+# this is the same trap approached from the writing side.
+RETIRED_STEM    = "rename"
+RETIRED_SCRIPT  = "#{RETIRED_STEM}.sh"
+DOC02_SWEEP_RE  = "#{RETIRED_STEM}\\.sh|verify-#{RETIRED_STEM}"
+
+# The three keys plan 05-07 removed from .bootstrap.env. They are still perfectly
+# legal as app/Identity.xcconfig keys (two of them ARE its keys), which is why the
+# assertions below are scoped to `env`-fenced blocks and to the .bootstrap.env
+# field table rather than run as a whole-file grep: a whole-file grep here would
+# fire on the xcconfig example three paragraphs above.
+RETIRED_ENV_KEYS = %w[APP_NAME BUNDLE_ID DISPLAY_NAME].freeze
+
+# The `info string` of a fenced block, and the block's body lines.
+def fenced_blocks(text, info)
+  out, inside = [], nil
+  text.lines.each do |line|
+    if inside
+      if line.start_with?("```")
+        out << inside
+        inside = nil
+      else
+        inside << line
+      end
+    elsif line.chomp.strip == "```#{info}"
+      inside = []
+    end
+  end
+  out
+end
+
+# The contiguous run of table rows beginning at the header row matching `header`.
+def table_at(text, header)
+  lines = text.lines
+  start = lines.index { |l| l =~ header }
+  return nil if start.nil?
+
+  stop = start
+  stop += 1 while stop < lines.length && lines[stop].lstrip.start_with?("|")
+  lines[start...stop]
+end
+
+puts
+puts "DOC-02 — criterion 3's two documents carry no rename-based instruction:"
+
+# The explicit missing-file branch. A document that is not there is a FAILURE and
+# is never a silent pass, and the content assertions below are skipped for it so
+# that none of them can report green against an empty string.
+doc02_present = {}
+(DOC02_NAMED + [MIGRATION_RUNBOOK]).each do |doc|
+  present = File.file?(File.join(ROOT, doc))
+  doc02_present[doc] = present
+  assert present, "#{doc} exists as a regular file"
+end
+
+# ── absence, asserted SEPARATELY per document so one reintroduction proves one
+#    branch rather than collapsing two documents into one verdict ──
+DOC02_NAMED.each do |doc|
+  next unless doc02_present[doc]
+
+  hits = read_doc(doc).lines.each_with_index.filter_map do |line, i|
+    i + 1 if line.downcase.include?(RETIRED_SCRIPT)
+  end
+  assert hits.empty?,
+         "#{doc}: no `#{RETIRED_SCRIPT}` in any letter case" \
+         "#{hits.empty? ? '' : " — found at line(s) #{hits.join(', ')}"}"
+end
+
+# ── the two spellings of the same false claim about what APP_NAME becomes ──
+if doc02_present[GETTING_STARTED_DOC]
+  gs = read_doc(GETTING_STARTED_DOC)
+  ["Used as scheme", "Becomes scheme"].each do |claim|
+    line_no = gs.lines.index { |l| l.include?(claim) }
+    assert line_no.nil?,
+           "#{GETTING_STARTED_DOC}: does not claim APP_NAME is `#{claim}` — the schemes are the " \
+           "constants App-iOS and App-macOS and the product name is APP_PRODUCT_NAME in " \
+           "app/Identity.xcconfig#{line_no.nil? ? '' : " — found at line #{line_no + 1}"}"
+  end
+
+  # `env`-fenced blocks only. The positive half first: with no such block the
+  # absence check below has no subject and would pass on a deleted walkthrough.
+  env_blocks = fenced_blocks(gs, "env")
+  assert !env_blocks.empty?,
+         "#{GETTING_STARTED_DOC}: still shows a ```env walkthrough of .bootstrap.env " \
+         "(#{env_blocks.length} block(s))"
+  offending = env_blocks.flatten.filter_map do |line|
+    key = line[/\A\s*([A-Z_]+)\s*=/, 1]
+    key if RETIRED_ENV_KEYS.include?(key)
+  end
+  assert offending.empty?,
+         "#{GETTING_STARTED_DOC}: no ```env block assigns a key plan 05-07 removed from " \
+         ".bootstrap.env#{offending.empty? ? '' : " — found #{offending.uniq.join(', ')}"}"
+end
+
+# ── the .bootstrap.env field table in BOOTSTRAP.md ──
+if doc02_present[BOOTSTRAP_DOC]
+  bs    = read_doc(BOOTSTRAP_DOC)
+  table = table_at(bs, /\A\|\s*Field\s*\|\s*What it is\s*\|\s*Where to get it\s*\|/)
+  assert !table.nil?,
+         "#{BOOTSTRAP_DOC}: still documents the .bootstrap.env fields in a `Field | What it is | " \
+         "Where to get it` table (#{table.nil? ? 0 : table.length} row(s))"
+  listed = (table || []).filter_map do |row|
+    key = cells(row).first.to_s[/\A`([A-Z_]+)`/, 1]
+    key if RETIRED_ENV_KEYS.include?(key)
+  end
+  assert listed.empty?,
+         "#{BOOTSTRAP_DOC}: the .bootstrap.env field table lists none of the three keys plan " \
+         "05-07 removed#{listed.empty? ? '' : " — found #{listed.join(', ')}"}"
+
+  # The fixture knob is load-bearing and is asserted PRESENT, not merely left
+  # alone: it is how the release check's red controls are driven without editing
+  # a tracked file, and it is the recorded reason A-06 refuses upstream's copy of
+  # ci/local-release-check.sh. A sweep that removed it would otherwise be silent.
+  assert bs.include?("IDENTITY_XCCONFIG"),
+         "#{BOOTSTRAP_DOC}: still documents the IDENTITY_XCCONFIG fixture knob (A-06)"
+end
+
+# ── the positive half: the runbook exists and both documents reach it ──
+DOC02_NAMED.each do |doc|
+  next unless doc02_present[doc]
+
+  assert read_doc(doc).include?(File.basename(MIGRATION_RUNBOOK)),
+         "#{doc}: links to #{MIGRATION_RUNBOOK} for a fork created before the identity work"
+end
+
+# ── the whole-docs/ sweep, reading git grep's EXACT exit code ──
+#
+# 0 = something matched (a failure, and the hits are named), 1 = nothing matched
+# (the pass), anything else = git could not answer. 128 is evidence for NEITHER
+# side and is reported as its own failure rather than folded into the pass —
+# test/identity_test.rb states the same rule for the same reason. `-I` keeps the
+# tracked screenshots under docs/ out of it.
+sweep_argv = ["git", "grep", "-n", "-I", "-E", DOC02_SWEEP_RE, "--",
+              "docs/", ":!#{MIGRATION_RUNBOOK}", ":!#{UPSTREAM_LEDGER}"]
+sweep_out    = IO.popen(sweep_argv, "r", err: [:child, :out], chdir: ROOT, &:read).to_s
+sweep_status = $?.exitstatus
+
+case sweep_status
+when 1
+  assert true, "no document under docs/ names the retired script (git grep exit 1), " \
+               "excepting #{MIGRATION_RUNBOOK} and #{UPSTREAM_LEDGER}"
+when 0
+  assert false, "no document under docs/ names the retired script — git grep exit 0, matched:\n" \
+                "      #{sweep_out.lines.map(&:chomp).join("\n      ")}"
+else
+  assert false, "the docs/ sweep could not be answered: git grep exit #{sweep_status} " \
+                "(not 0 and not 1, so it is evidence for neither side) — #{sweep_out.strip.inspect}"
+end
+
+# ─── DOC-03 + DOC-05: criterion 4's four documents ───────────────────────────
+#
+# DOC-03 is what survived amendment A-03: the material this project MEASURED to be
+# false, rather than the larger correction set the pre-amendment draft imagined.
+# DOC-05 is the breaking-change entry in CHANGELOG.md.
+#
+# WHY THESE FILES ARE NOT IN ALL_DOCS, for the same reason the DOC-02 group gives:
+# that constant is the FORK-OWNED set and membership is what applies the EMAIL sweep
+# at the bottom of this file. SCOPE.md, AGENTS.md, README.md and CHANGELOG.md are
+# template-owned prose that legitimately shows a maintainer address; adding them
+# there would fail the sweep for the opposite of the right reason.
+#
+# WHY THE TWO STALE APP DIRECTORIES ARE ASSEMBLED RATHER THAN SPELLED. Both are
+# formed from a prefix below instead of written out, so that this file's own text
+# never contains either template identity. tools/check-contamination.rb matches a
+# case-insensitive substring on the downcased line and fails any occurrence not
+# covered by a dated allowlist row; a test that spelled the names it forbids would
+# need a row of its own, and that row's count would then move every time this
+# comment was reworded. tools/identity-allowlist.txt's own header refuses to spell
+# them for exactly this reason. Same trap as RETIRED_STEM above, different gate.
+
+SCOPE_DOC     = "SCOPE.md"
+AGENTS_DOC    = "AGENTS.md"
+README_DOC    = "README.md"
+CHANGELOG_DOC = "CHANGELOG.md"
+BOOTSTRAP_LIB = "bin/lib/bootstrap.rb"
+
+# The directory the governing question means, asserted as a string AND as a
+# directory: a document naming a directory is only correct if the directory is there.
+SHARED_DIR      = "app/Shared"
+STALE_APP_DIRS  = %w[Smoke Hello].map { |prefix| "app/#{prefix}App" }.freeze
+
+UPSTREAM_SLUG   = "indiagrams/apple-shipkit"
+CONTAM_GATE     = "tools/check-contamination.rb"
+
+# Assembled, never spelled: the criterion-2 gate greps the whole tree for the
+# deleted self-check and must keep exiting 1, and a file spelling that token while
+# asserting its absence elsewhere would turn that gate green by existing.
+RETIRED_SELF_CHECK = "verify-#{RETIRED_STEM}"
+
+# The forward-looking claim A-03 made TRUE, asserted as PRESENT. See the comment at
+# its assertion below before touching it.
+A03_SENTINEL = "Phase 5 removes"
+
+MIGRATION_COMMAND = "ruby tools/migrate-identity.rb"
+
+# The wording A-05 forbids anywhere it could be read as this project asserting A1.
+SAFETY_CLAIM = /is safe|safe to change|apple (allows|permits|accepts)|low.risk|generally accepted/i
+
+DOC03_NAMED = [SCOPE_DOC, AGENTS_DOC, README_DOC, CHANGELOG_DOC, BOOTSTRAP_LIB,
+               CONTRIBUTING_UP].freeze
+
+puts
+puts "DOC-03 — the documents corrected where this project measured them false:"
+
+# The explicit missing-file branch, for the reason plan 05-13 recorded: an
+# absence-only assertion group is SILENT when its subject is deleted. Every content
+# assertion below is skipped for a file that is not there, so none of them can report
+# green against an empty string.
+doc03_present = {}
+DOC03_NAMED.each do |doc|
+  present = File.file?(File.join(ROOT, doc))
+  doc03_present[doc] = present
+  assert present, "#{doc} exists as a regular file"
+end
+
+# ── SCOPE.md: the governing question names a directory that exists ──
+if doc03_present[SCOPE_DOC]
+  scope = read_doc(SCOPE_DOC)
+  assert scope.include?("#{SHARED_DIR}/"),
+         "#{SCOPE_DOC}: the governing question names `#{SHARED_DIR}/`"
+  assert Dir.exist?(File.join(ROOT, SHARED_DIR)),
+         "#{SHARED_DIR}/ exists on disk — the other half, without which the string " \
+         "above is a document naming nothing"
+  stale = STALE_APP_DIRS.select { |d| scope.include?(d) }
+  assert stale.empty?,
+         "#{SCOPE_DOC}: names neither app directory that has ever existed at any ref " \
+         "(measured 2026-09-03 across e773cfc, 9589de1, 6a93204, HEAD, 212b489, " \
+         "c6c324f and upstream/main: zero paths under either)" \
+         "#{stale.empty? ? '' : " — found #{stale.join(', ')}"}"
+end
+
+# ── AGENTS.md: the upstream-issue pointer, and the two INVERTED assertions ──
+if doc03_present[AGENTS_DOC]
+  agents = read_doc(AGENTS_DOC)
+  pointer_row = agents.lines.find { |l| l.include?("upstream issue at") }
+  assert !pointer_row.nil? && pointer_row.include?(UPSTREAM_SLUG),
+         "#{AGENTS_DOC}: the upstream-issue row points at `#{UPSTREAM_SLUG}`, the " \
+         "TEMPLATE — not at this fork, which is what the slug sweep had made it say"
+end
+
+# ── INVERTED, per amendment A-03. READ THIS BEFORE "FIXING" THE TWO BELOW. ──
+#
+# An earlier draft of this phase (D-76) held that AGENTS.md's ".bootstrap.env carries
+# no identity consumer (Phase 5 removes the keys)" was a contradiction to be CORRECTED,
+# and the same for the failure message in bin/lib/bootstrap.rb. A-03 reversed it:
+# because A-01 flipped the source of truth to app/Identity.xcconfig and Phase 5 did
+# remove the three keys, BOTH claims are now TRUE AS WRITTEN. So these assert
+# PRESENCE, not absence. A future reader who "restores" them to absence assertions
+# would be undoing the work the phase actually did, and the plan that tried it would
+# pass its own test while making the documents wrong again.
+[AGENTS_DOC, BOOTSTRAP_LIB].each do |path|
+  next unless doc03_present[path]
+
+  assert read_doc(path).include?(A03_SENTINEL),
+         "#{path}: still says #{A03_SENTINEL.inspect} — KEPT, not corrected (A-03). " \
+         "This asserts PRESENCE deliberately; see the comment above it"
+end
+
+# ── README.md: the two claims Phase 4 falsified ──
+if doc03_present[README_DOC]
+  readme = read_doc(README_DOC)
+
+  # 04-06 (IDENT-06) deleted both GitHub Actions repository variables, so a README
+  # that still told a forker to set one was documenting a knob that no longer exists.
+  hits = readme.lines.each_with_index.filter_map { |l, i| i + 1 if l.include?("vars.APP_NAME") }
+  assert hits.empty?,
+         "#{README_DOC}: no `vars.APP_NAME` — 04-06 deleted both repository variables, " \
+         "and pr.yml resolves the constants App-iOS / App-macOS" \
+         "#{hits.empty? ? '' : " — found at line(s) #{hits.join(', ')}"}"
+
+  # The retired self-check is deleted; a repo-layout tree still annotating it was a
+  # dangling reference, which is criterion 2's clause as much as DOC-03's.
+  hits = readme.lines.each_with_index.filter_map do |l, i|
+    i + 1 if l.downcase.include?(RETIRED_SELF_CHECK)
+  end
+  assert hits.empty?,
+         "#{README_DOC}: no `#{RETIRED_SELF_CHECK}` reference in any letter case" \
+         "#{hits.empty? ? '' : " — found at line(s) #{hits.join(', ')}"}"
+
+  # The positive half. Absence alone would pass on a README that had lost the
+  # section entirely, which is the shape 05-13 recorded going silent on a deletion.
+  assert readme.include?("app/Identity.xcconfig") && readme.include?("bin/lib/xcconfig.rb"),
+         "#{README_DOC}: describes identity as resolving from app/Identity.xcconfig " \
+         "through bin/lib/xcconfig.rb"
+end
+
+# ── docs/CONTRIBUTING-UPSTREAM.md: the gate exists and is named ──
+if doc03_present[CONTRIBUTING_UP]
+  contrib_up = read_doc(CONTRIBUTING_UP)
+  assert contrib_up.include?(CONTAM_GATE),
+         "#{CONTRIBUTING_UP}: names #{CONTAM_GATE} as the automated gate"
+  assert !contrib_up.match?(/It does not exist\s+yet/),
+         "#{CONTRIBUTING_UP}: no longer says the automated gate does not exist — it " \
+         "does, it runs in the required `review notes` context, and IDENT-11's path " \
+         "was amended to tools/ under D-69"
+end
+
+puts
+puts "DOC-05 — CHANGELOG.md records the breaking change with its migration path:"
+
+# Scoped to the [Unreleased] block through section(), never to the whole file: this
+# changelog is 550+ lines of history and a match anywhere in it would satisfy a
+# whole-file grep while [Unreleased] said nothing.
+if doc03_present[CHANGELOG_DOC]
+  unreleased = section(read_doc(CHANGELOG_DOC), /\A## \[Unreleased\]/)
+  assert !unreleased.nil?,
+         "#{CHANGELOG_DOC}: has an `## [Unreleased]` block for section() to extract"
+
+  if unreleased
+    # The entry itself, extracted as the one top-level bullet naming the migration
+    # command. Asserting there is EXACTLY ONE is the positive half: delete the entry
+    # and this fails rather than going quiet, and add a second and the scoped guards
+    # below stop being unambiguous about what they cover.
+    doc05_entry = unreleased.lines.select { |l| l.start_with?("- ") && l.include?(MIGRATION_COMMAND) }
+    assert_eq doc05_entry.length, 1,
+              "#{CHANGELOG_DOC}: exactly one `[Unreleased]` entry gives the migration " \
+              "command `#{MIGRATION_COMMAND}`"
+
+    assert unreleased.include?("BREAKING"),
+           "#{CHANGELOG_DOC}: the `[Unreleased]` block carries an explicit BREAKING marker"
+    assert unreleased.include?(File.basename(MIGRATION_RUNBOOK)),
+           "#{CHANGELOG_DOC}: the `[Unreleased]` block links #{MIGRATION_RUNBOOK} — a " \
+           "breaking change recorded without its migration path is half an entry"
+    assert unreleased.include?("PRODUCT_NAME"),
+           "#{CHANGELOG_DOC}: the `[Unreleased]` block carries the PRODUCT_NAME / " \
+           "executable-name warning (A-05)"
+
+    # ── the A-05 guard, and why its scope is the ENTRY rather than the block ──
+    #
+    # Assumption A1 — how Apple treats a changed executable name on a live listing —
+    # is UNVERIFIED, and this is the second place in the phase where it must not be
+    # asserted; the first is docs/MIGRATING-FROM-RENAME.md.
+    #
+    # The plan asked for this grep over the whole [Unreleased] block. Run literally on
+    # 2026-09-03 it exits 1 on CHANGELOG.md:93 — a 2026-05 entry saying the
+    # --skip-cert-revoke step "is safe only when the smoketest owns its Apple team
+    # alone", which has nothing to do with A-05. Changelog entries are historical
+    # record and are added to, never rewritten, so the block-wide form is
+    # unsatisfiable without falsifying the record. The guard is therefore scoped to
+    # the DOC-05 entry, which is its actual subject and cannot be satisfied by an
+    # unrelated sentence elsewhere. The KNOWN COST, stated rather than hidden: a
+    # safety claim written into a DIFFERENT [Unreleased] entry does not trip this,
+    # and that boundary is recorded as a measured green in this plan's evidence file.
+    claiming = doc05_entry.filter_map { |l| l[SAFETY_CLAIM] }
+    assert claiming.empty?,
+           "#{CHANGELOG_DOC}: the DOC-05 entry makes no safety claim about the " \
+           "executable-name change — A1 is unverified (A-05)" \
+           "#{claiming.empty? ? '' : " — found #{claiming.uniq.map(&:inspect).join(', ')}"}"
+
+    # This half CAN be block-wide, because the block is clean of it, and a wider guard
+    # that holds is strictly stronger than a narrow one.
+    cited = unreleased.lines.each_with_index.filter_map do |l, i|
+      i + 1 if l.downcase.include?("developer.apple.com")
+    end
+    assert cited.empty?,
+           "#{CHANGELOG_DOC}: the `[Unreleased]` block cites no Apple documentation — " \
+           "inferring a fact from a doc is this project's blocking anti-pattern" \
+           "#{cited.empty? ? '' : " — found at line(s) #{cited.join(', ')}"}"
+  end
+end
+
 # ─── across all five documents ───────────────────────────────────────────────
 
 puts

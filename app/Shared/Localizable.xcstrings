@@ -12,13 +12,13 @@
         }
       }
     },
-    "Rename me. Run `bin/rename.sh --help`." : {
+    "Set this app's identity in `app/Identity.xcconfig`." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rename me. Run `bin/rename.sh --help`."
+            "value" : "Set this app's identity in `app/Identity.xcconfig`."
           }
         }
       }

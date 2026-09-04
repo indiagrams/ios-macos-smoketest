@@ -21,21 +21,125 @@
 #           fastlane release lane is itself idempotent (refuses to re-tag
 #           an existing tag).
 #
-# Usage:  bundle exec ruby bin/ship.rb [--dry-run] [--force]
+# Usage:
+#   bundle exec ruby bin/ship.rb               # ship — builds and uploads to App Store Connect
+#   bundle exec ruby bin/ship.rb --dry-run     # ship through the same path with uploads skipped
+#   bundle exec ruby bin/ship.rb --force       # ignore the in-progress / already-tagged checks
+#   bundle exec ruby bin/ship.rb --help        # print usage; -h is an alias
 #
-# Exit:
-#   0 release succeeded (or was already shipped, or in-progress run completed)
-#   1 invocation / I/O error
-#   2 the workflow run / fastlane lane completed with conclusion != success
+# Exit-code contract, in bin/preflight-identity.rb's shape:
+#
+#   Exit | Meaning                                        | Message must name
+#   -----+------------------------------------------------+---------------------------------
+#   0    | -h / --help printed usage; or the release      | — (usage; or the tag and the run
+#        | succeeded, was already shipped, or an          |     url)
+#        | in-progress run completed successfully         |
+#   1    | an invocation or I/O refusal: identity         | the missing value, the failing
+#        | unresolvable, gh failed, tag not computable    | command, or the reason
+#   2    | the workflow run / fastlane lane completed     | the conclusion and the run url
+#        | with conclusion != success                     |
+#   3    | unknown or malformed argv                      | the offending argument, verbatim
+#
+# WHY 3 AND NOT 2 for bad argv, which is what bin/adopt.rb uses: exit 2 already
+# meant "the run concluded badly" here long before this front door existed, and
+# redefining a live exit code to match a sibling would be a behaviour change
+# wearing a consistency costume.
+#
+# WHY ARGUMENTS ARE PARSED AND NOT SNIFFED. Until 2026-09-04 this file did
+# `ARGV.include?("--dry-run")` and `ARGV.include?("--force")` and nothing else.
+# That is not parsing: it matches exactly or not at all, so `--help`, `--dryrun`,
+# `--dry_run`, `--DRY-RUN` and every other near miss fell through as dry_run =
+# "false" and shipped for real — from an operator who had just typed the flag
+# whose entire purpose is to make the run harmless. The script had a dry-run mode
+# and no way to discover it, which is worse than having none: the reader who
+# types --help to find the flag triggers the thing the flag exists to prevent.
+# Guessing which flag was meant is how a typo becomes a release, so an
+# unrecognised argument is refused by name instead.
+#
+# --dry-run and --force keep their exact spellings and their exact meanings. The
+# defect was never that these two were wrong; it was that everything else was
+# ignored.
+#
+# test/driver_argv_test.rb is the durable guard, and it observes this file by
+# RUNNING a copy of it in a temp directory with capturing `bundle`, `fastlane`
+# and `gh` shims first on PATH. It never runs this script in place, and neither
+# should you.
 
 require "json"
 require_relative "lib/bootstrap"
 
+# ─── Front door: parsed BEFORE the config read and before any `gh` call. ─────
+# Flag-shaped or not, an unrecognised argument is refused BY NAME: a parser that
+# inspected only tokens beginning with a dash would ignore a bare positional and
+# fall straight through to the dispatch.
+SHIP_USAGE = <<~TEXT
+  bin/ship.rb — ship a release.
+
+  THIS COMMAND SHIPS. Depending on .bootstrap.env's RELEASE_MODE it either
+  dispatches .github/workflows/release.yml on the configured app repository and
+  tails it, or runs `fastlane release` on this machine. Either way it tags, it
+  builds, and it uploads binaries to App Store Connect.
+
+  Usage:
+    bundle exec ruby bin/ship.rb              ship for real
+    bundle exec ruby bin/ship.rb --dry-run    ship through the same path with the
+                                              upload skipped (ci: dry_run=true is
+                                              passed to release.yml; local:
+                                              skip_upload:true is passed to the lane).
+                                              It is a REAL run of the pipeline, not a
+                                              report — it just does not upload.
+    bundle exec ruby bin/ship.rb --force      ignore the "a release run is already in
+                                              progress" and "HEAD is already tagged"
+                                              checks and ship anyway
+    bundle exec ruby bin/ship.rb --help       print this usage (-h is an alias)
+
+  Flags may be combined. Anything else is refused: near misses of --dry-run
+  (--dryrun, --dry_run, --DRY-RUN) used to be ignored, which turned a typo into
+  a real ship.
+
+  Exit codes: 0 usage or a successful release; 1 an invocation or I/O refusal;
+  2 the run or lane concluded unsuccessfully; 3 an argument this script does not
+  understand.
+TEXT
+
+dry_run_requested = false
+force = false
+ARGV.each do |arg|
+  case arg
+  when "-h", "--help"
+    puts SHIP_USAGE
+    exit 0
+  when "--dry-run"
+    dry_run_requested = true
+  when "--force"
+    force = true
+  else
+    warn "[ship] Unrecognised argument: #{arg}"
+    warn "[ship] Nothing was tagged, built, dispatched or uploaded."
+    warn ""
+    warn SHIP_USAGE
+    exit 3
+  end
+end
+
 config  = Bootstrap::Config.load!
 config.validate!
 
-dry_run = ARGV.include?("--dry-run") ? "true" : "false"
-force   = ARGV.include?("--force")
+# Identity comes from app/Identity.xcconfig, the source of truth (A-01), and
+# no longer from .bootstrap.env, which does not carry it. Resolved ONCE, here,
+# so the preflight banner and the release tag cannot disagree about what is
+# being shipped, and refused BY NAME rather than defaulted — there is no
+# placeholder tier on the release path.
+begin
+  app_name  = Bootstrap.identity!("APP_PRODUCT_NAME")
+  bundle_id = Bootstrap.identity!("BUNDLE_ID")
+rescue StandardError => e
+  Bootstrap::UI.fail!(e.message)
+end
+
+# The string form the rest of this file and release.yml's `dry_run` input expect.
+# `force` was resolved by the parser above and is used unchanged below.
+dry_run = dry_run_requested ? "true" : "false"
 
 # Pre-flight summary so the human can sanity-check what's about to ship
 # (right ref, right app, right mode) before any side effects. Surfaces
@@ -49,9 +153,11 @@ def fetch_main_head(repo)
   [parts[0], parts[1] || "(no message)"]
 end
 
-def print_preflight(config, dry_run, repo: nil, tag: nil)
+# `app_name` / `bundle_id` are passed in rather than read here: they are
+# resolved once at the top of this script, from app/Identity.xcconfig.
+def print_preflight(config, dry_run, app_name:, bundle_id:, repo: nil, tag: nil)
   puts
-  puts Bootstrap::UI.bold("About to ship #{config['APP_NAME']} (#{config['BUNDLE_ID']}):")
+  puts Bootstrap::UI.bold("About to ship #{app_name} (#{bundle_id}):")
   if config.ci_mode?
     sha, subject = fetch_main_head(repo)
     puts "  ref:       #{repo} main @ #{sha[0, 7]} — #{subject}"
@@ -81,11 +187,11 @@ if config.local_mode?
   require "spaceship"
   Bootstrap.ensure_asc_token!(config)
   begin
-    tag = Bootstrap::Version.compute_release_tag(config["BUNDLE_ID"])
+    tag = Bootstrap::Version.compute_release_tag(bundle_id)
   rescue StandardError => e
     Bootstrap::UI.fail!("Could not compute release tag: #{e.message}")
   end
-  print_preflight(config, dry_run, tag: tag)
+  print_preflight(config, dry_run, app_name: app_name, bundle_id: bundle_id, tag: tag)
   puts Bootstrap::UI.bold("Running fastlane release locally — tag #{tag}")
   env = Bootstrap.asc_env(config).merge("PLATFORMS" => config.platforms.join(","))
   args = ["bundle", "exec", "fastlane", "release", "tag:#{tag}"]
@@ -178,7 +284,7 @@ unless force
   end
 end
 
-print_preflight(config, dry_run, repo: repo)
+print_preflight(config, dry_run, app_name: app_name, bundle_id: bundle_id, repo: repo)
 
 run_id ||= trigger_new_run(repo, dry_run, config.platforms.join(","), config["GENERATOR"])
 run_url = "https://github.com/#{repo}/actions/runs/#{run_id}"

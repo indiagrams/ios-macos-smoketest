@@ -157,7 +157,8 @@ cat <<'EOF'
          gh repo create my-app --template indiagrams/ios-macos-smoketest --public --clone && cd my-app
          make bootstrap            # one-time dev-env setup (brew + ruby gems + xcodegen + git hooks)
          make init                 # scaffolds .bootstrap.env (auto-fills GH_ORG/GH_APP_REPO from origin)
-         $EDITOR .bootstrap.env    # fill APP_NAME, BUNDLE_ID, Apple credentials, RELEASE_MODE
+         $EDITOR .bootstrap.env    # fill APP_EMAIL, Apple credentials, RELEASE_MODE
+         $EDITOR app/Identity.xcconfig  # bundle id, product name, display name, copyright
          make all                  # doctor → bootstrap-fork → ship → verify
 
 EOF

@@ -17,9 +17,9 @@ The fork ↔ upstream sync property is the most important architectural invarian
 |---|---|---|
 | Do **not** edit `fastlane/Fastfile` | Template-owned; upstream changes will conflict on every `git pull upstream main` | Add to `fastlane/Fastfile.local` (see "Custom fastlane logic" below) |
 | Do **not** hardcode `APP_NAME` / `BUNDLE_ID` / ASC URLs in workflows or scripts | They resolve from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` — the one reader (D-57) | Edit `app/Identity.xcconfig` |
-| Do **not** edit files under `bin/`, `ci/`, `.github/workflows/`, `Makefile` | Template-owned | Override via env, or open an upstream issue at `indiagrams/ios-macos-smoketest` |
+| Do **not** edit files under `bin/`, `ci/`, `.github/workflows/`, `Makefile` | Template-owned | Override via env, or open an upstream issue at `indiagrams/apple-shipkit` — the TEMPLATE, not this fork. Until 2026-09-03 this cell named the fork's own slug: the personalization script swept the template slug tree-wide and rewrote the one pointer that tells you where to send fixes, and no gate saw it. Plan 05-11 replaced that sweep with an allowlist |
 | Do **not** commit secrets | `.bootstrap.env` and `.p8` files are gitignored | Commit `.bootstrap.env.example` only; real values live in GitHub Secrets / `~/.config/secrets/` |
-| Do **not** sed-substitute `SmokeApp` literals | The template resolves identity everywhere it matters | Run `bin/rename.sh MyApp com.example.myapp "My App" --email=you@example.com` once at fork creation; afterward, the app's identity is edited in `app/Identity.xcconfig` — fastlane and the release workflows read it through `bin/lib/xcconfig.rb`, and `.bootstrap.env` carries no identity consumer (Phase 5 removes the keys) |
+| Do **not** sed-substitute `SmokeApp` literals | The template resolves identity everywhere it matters | Edit the four keys of `app/Identity.xcconfig` — fastlane and the release workflows read it through `bin/lib/xcconfig.rb`, and `.bootstrap.env` carries no identity consumer (Phase 5 removes the keys) |
 
 ## Where your code goes
 
@@ -118,12 +118,14 @@ Drop any `fastlane/actions/<name>.rb` file. Fastlane auto-loads it at startup; t
 
 ## Configuration via `.bootstrap.env`
 
-The single source of truth for fork-specific identity + config:
+The per-fork configuration file: App Store Connect credentials, the Apple team,
+release mode, platforms and the metadata escape hatches. **It is not the source of
+truth for identity** — `app/Identity.xcconfig` is (A-01), and Phase 5 removed
+`APP_NAME`, `BUNDLE_ID` and `DISPLAY_NAME` from this file entirely.
 
 | Field | Used by |
 |---|---|
-| `APP_NAME` | **No release-path consumer since Phase 4 (D-58).** Still required by `bin/lib/bootstrap.rb`'s `Config` until Phase 5, and `make doctor` compares it against `APP_PRODUCT_NAME` in `app/Identity.xcconfig` and reports disagreement. Edit the xcconfig, not this. |
-| `BUNDLE_ID` | **No release-path consumer since Phase 4 (D-58).** Same as above: `Config` still requires it, doctor compares it against `BUNDLE_ID` in `app/Identity.xcconfig`. Edit the xcconfig, not this. |
+| ~~`APP_NAME`~~ ~~`BUNDLE_ID`~~ ~~`DISPLAY_NAME`~~ | **Removed from this file in Phase 5 (A-01).** `Config` no longer requires them and nothing reads them; `app/Identity.xcconfig` holds `BUNDLE_ID`, `APP_PRODUCT_NAME`, `DISPLAY_NAME` and `COPYRIGHT`, and `make doctor` reads the xcconfig rather than comparing two files. Past tense, and with one correction: the claim that stood here — "no release-path consumer since Phase 4 (D-58)" — was accurate for `APP_NAME`, whose only consumers were display ones (`bin/ship.rb:54`, `bin/submit.rb:122`), and **false for `BUNDLE_ID`**. Measured 2026-09-03: `bin/compute-release-tag.rb:42` read `BUNDLE_ID` off this file and fed it to `Bootstrap::Version.compute_release_tag`, which produces the tag `release.yml` pushes. Closed by moving that read onto the xcconfig in `71774cf`, not by softening the sentence. Edit the xcconfig. |
 | `FASTLANE_TEAM_ID` | Fastlane (Apple Developer team) |
 | `ASC_API_KEY_*` | Fastlane (App Store Connect auth) |
 | `RELEASE_MODE` | `local` (sign on your Mac) or `ci` (mint-fresh in GitHub Actions) |

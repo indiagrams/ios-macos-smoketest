@@ -47,7 +47,11 @@
 #   --generator=xcodegen|tuist      Project generator (default: xcodegen)
 #   --release-mode=ci|local         Bootstrap mode written to .bootstrap.env (default: ci)
 #   --bundle-id=ID                  App bundle id (default: com.indiagram.smoke-app)
-#   --asc-app-name=NAME             ASC app record name (default: Indiagram Smoke App)
+#   --asc-app-name=NAME             App Store Connect record name. REQUIRED (no default;
+#                                   ASC_APP_NAME in the environment also satisfies it)
+#   --display-name=NAME             CFBundleDisplayName for the reforked app. REQUIRED
+#                                   (no default; DISPLAY_NAME in the environment also
+#                                   satisfies it)
 #   --skip-cert-revoke              Skip revoking "Created via API" certs — REQUIRED
 #                                   when the Apple team is shared with other apps
 #                                   (a team-wide revoke kills co-tenant certs)
@@ -75,6 +79,7 @@ while [ $# -gt 0 ]; do
     --release-mode=*)         RELEASE_MODE="${1#*=}" ;;
     --bundle-id=*)            BUNDLE_ID="${1#*=}" ;;
     --asc-app-name=*)         ASC_APP_NAME="${1#*=}" ;;
+    --display-name=*)         DISPLAY_NAME="${1#*=}" ;;
     --skip-cert-revoke)       SKIP_CERT_REVOKE=true ;;
     -h|--help)                usage 0 ;;
     *)                        echo "unknown flag: $1" >&2; usage 64 ;;
@@ -100,10 +105,39 @@ APP_REPO="$ORG/ios-macos-smoketest"
 CERTS_REPO="$ORG/ios-macos-smoketest-certs"
 APP_NAME=SmokeApp
 BUNDLE_ID="${BUNDLE_ID:-com.indiagram.smoke-app}"
-DISPLAY_NAME='Indiagram Smoke App'
 APP_EMAIL=maintainers@indiagram.com
 ASC_APP_SKU=indiagram-smoke-001
-ASC_APP_NAME="${ASC_APP_NAME:-Indiagram Smoke App}"
+
+# DISPLAY_NAME and ASC_APP_NAME carry NO default, deliberately (A-08 / D-75).
+#
+# Both used to default to one specific product's prose name. ASC_APP_NAME is
+# written into the generated .bootstrap.env below and becomes the App Store
+# Connect record name bin/lib/bootstrap.rb creates or renames, and it is also
+# what fastlane/metadata/en-US/name.txt — the App Store listing name deliver
+# uploads — is generated from. A silent default there names a NEW store record
+# after a DIFFERENT shipping product, which is App Store Review guideline 2.2's
+# exact prohibition, inside an Apple team shared with other apps.
+#
+# Neither value is derivable here: this script runs from the apple-shipkit repo
+# root, and the fork it creates does not exist yet, so there is no
+# app/Identity.xcconfig to read them from. The only two options are "ask" and
+# "guess", and this project refuses the second everywhere else. So: refuse BY
+# NAME, and do it here — above the preflight, far above step 3, which DELETES
+# the app repo.
+#
+# Indirect expansion is bash's ${!name}, matching the secrets loop below in this
+# same file. The flag spelling is written out rather than derived from the
+# variable name: bash 3.2 (macOS /bin/bash) has no ${var,,}, and a derivation
+# that silently produced the wrong flag would send the operator hunting a typo.
+for identity_pair in DISPLAY_NAME:--display-name ASC_APP_NAME:--asc-app-name; do
+  identity_key="${identity_pair%%:*}"
+  identity_flag="${identity_pair#*:}"
+  [ -n "${!identity_key:-}" ] || {
+    echo "$identity_key is required and has no default." >&2
+    echo "  pass $identity_flag=NAME, or set $identity_key in the environment." >&2
+    exit 64
+  }
+done
 
 CLONE_PARENT="$(cd .. && pwd)"
 CLONE_DIR="$CLONE_PARENT/ios-macos-smoketest"
@@ -213,13 +247,35 @@ echo "=== 5/8: re-fork smoketest from $TEMPLATE_REPO ==="
 [ -d "$CLONE_DIR" ] || { echo "expected clone at $CLONE_DIR but it's missing" >&2; exit 1; }
 echo "  fresh fork at $CLONE_DIR"
 
-# ─── 6. Rename + verify (with chosen generator) ───────────────────────────────
+# ─── 6. Identity config (replaces the retired rename step) ───────────────────
 
-echo "=== 6/8: rename app stub (generator=$GENERATOR) ==="
+# WHAT REPLACED THE RENAME STEP.
+#
+# This step used to run `bin/rename.sh <app> <bundle-id> <display-name>` followed
+# by the rename self-check script. Phase 5 retired both: app/Identity.xcconfig is
+# now the single tracked source of truth for identity (A-01 / D-45), bin/rename.sh
+# no longer substitutes any identity value, and the self-check was deleted with the
+# substitution it checked. The forker path is "edit four values in one tracked
+# file" — see docs/MIGRATING-FROM-RENAME.md.
+#
+# Nothing is automated in its place, and that is deliberate rather than an
+# oversight. A fresh clone of the template legitimately ships placeholder
+# identity, so any check written here would pass on both a correct and an
+# incorrect tree — a pass condition satisfied regardless of what it claims to
+# detect is the one shape this project refuses by name. The gap is NAMED instead,
+# by gates that already exist and already run in the operator's documented next
+# step: `make doctor` reports IdentityAdopted blocked at tier 2 while the four
+# values are still the template's, and `make bootstrap-fork` refuses to go past
+# it. Both are printed at the end of this run.
+#
+# bin/rename.sh survives as prose personalization only (contact address and
+# GitHub slug across README.md and CONTRIBUTING.md). It is NOT run here: it is
+# cosmetic for a throwaway smoketest fork.
+echo "=== 6/8: identity config (generator=$GENERATOR) ==="
 pushd "$CLONE_DIR" >/dev/null
-bin/rename.sh "$APP_NAME" "$BUNDLE_ID" "$DISPLAY_NAME" \
-  --email="$APP_EMAIL" --generator="$GENERATOR" 2>&1 | tail -3
-bin/verify-rename.sh
+echo "  app/Identity.xcconfig still carries the template's placeholder identity."
+echo "  Edit its four values before 'make bootstrap-fork'."
+echo "  See docs/MIGRATING-FROM-RENAME.md."
 
 # ─── 7. Toolchain + initial push + branch protection ──────────────────────────
 

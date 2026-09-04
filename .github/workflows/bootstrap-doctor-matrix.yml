@@ -19,6 +19,14 @@
 #                               shape (every value followed by inline `# comment`).
 #                               Catches regression of #108's BLOCKER 2.
 #
+#   locale-doctor-regression  — runs `make doctor` with LANG, LC_ALL and LC_CTYPE all
+#                               cleared, against a fixture .bootstrap.env that carries
+#                               non-ASCII bytes. Asserts a VERDICT with no encoding
+#                               error and no backtrace, and that the run reached the
+#                               metadata-scanning step. Catches regression of GAP-05-01
+#                               (UL-048), the fourth instance of that class here.
+#                               NOT a required context — see the job header for why.
+#
 #   bundle-guard-regression   — runs `make doctor` on a fresh checkout WITHOUT
 #                               `bundle install`. Asserts friendly-error path
 #                               (`Ruby gems aren't installed yet`) instead of
@@ -57,6 +65,10 @@ on:
       - '.bootstrap.env.example'
       - 'bin/mint-local-certs.rb'
       - 'fastlane/Fastfile'
+      - 'bin/adopt.rb'
+      - 'bin/submit.rb'
+      - 'bin/lib/version_resolver.rb'
+      - 'test/encoding_test.rb'
 
 permissions:
   contents: read
@@ -188,10 +200,35 @@ jobs:
           ASC_API_KEY_ID:        ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
         run: |
+          # DISPLAY_NAME and ASC_APP_NAME are deliberately SYNTHETIC, in the same
+          # register as APP_EMAIL's RFC 2606 doctor-matrix@local.invalid two lines
+          # below. Both used to carry a real shipping product's prose name, which is
+          # the IDENT-15 / UL-045 blindness class on `main`: it carries NEITHER of the
+          # two template identity literals tools/check-contamination.rb is frozen on, so
+          # that gate exits 0 on it. (The two literals are deliberately not spelled in
+          # this comment: doing so cost the counted allowlist row for this file two extra
+          # occurrences, and prose explaining a gate should not have to be exempted from
+          # it.) A-08 fixes the named sites; the class stays Phase 6 criterion 7.
+          #
+          # ASC_APP_NAME is the one that mattered. It is the App Store Connect record
+          # name bootstrap creates or renames, and the value the store-listing name
+          # is generated from — a fixture must never carry a name a real listing
+          # could be renamed to.
+          #
+          # APP_NAME and BUNDLE_ID are NOT changed here. They are still READ:
+          # IdentityAdopted::ENV_AGREEMENT compares them against APP_PRODUCT_NAME and
+          # BUNDLE_ID in the smoketest checkout's app/Identity.xcconfig, so they are
+          # this cell's subject rather than decoration, and both are template
+          # literals covered by a counted row in tools/identity-allowlist.txt.
+          # DISPLAY_NAME is not in ENV_AGREEMENT and is not in Config::REQUIRED_ALWAYS
+          # — it is inert here, and removing the line rather than re-valuing it is
+          # 05-08's deferred item, which needs a real matrix run to validate. This
+          # workflow is upstream-only (`github.repository == 'indiagrams/apple-shipkit'`
+          # at :102), so no run of it can be produced from this fork.
           cat > smoketest/.bootstrap.env <<EOF
           APP_NAME=SmokeApp
           BUNDLE_ID=com.indiagram.smoke-app
-          DISPLAY_NAME='Indiagram Smoke App'
+          DISPLAY_NAME='Doctor Matrix Fixture'
           APP_EMAIL=doctor-matrix@local.invalid
           GENERATOR=$GENERATOR
           RELEASE_MODE=$RELEASE_MODE
@@ -207,7 +244,7 @@ jobs:
           KEYCHAIN_PASSWORD_FILE=$SECRETS_DIR/keychain-password
           ICON_1024_PATH=
           ASC_APP_SKU=indiagram-smoke-001
-          ASC_APP_NAME=Indiagram Smoke App
+          ASC_APP_NAME=Doctor Matrix Fixture
           EOF
           # Print without secrets for log clarity
           grep -vE "^(ASC_API_KEY_ID|ASC_API_KEY_ISSUER_ID|FASTLANE_TEAM_ID)=" smoketest/.bootstrap.env || true
@@ -326,3 +363,143 @@ jobs:
             exit 1
           fi
           echo "OK — friendly guard message + non-zero exit + no stack trace"
+
+  # Regression test for GAP-05-01 (UL-048): `make doctor` died with
+  # `invalid byte sequence in US-ASCII (ArgumentError)` at the metadata-scanning
+  # step on a FRESH CLONE whenever LANG and LC_ALL were unset. Ruby takes the
+  # encoding of a file it reads from the environment, so an unpinned read of the
+  # tracked copyright file -- which carries U+00A9 eleven bytes in -- handed back a
+  # String tagged US-ASCII whose bytes were not, and the regex on the next line
+  # raised. Every suite in this repository ran green throughout, because every
+  # runner sets a locale.
+  #
+  # THIS JOB IS DELIBERATELY NOT A REQUIRED CONTEXT, and that is a stated
+  # limitation rather than one discovered later. It needs a .bootstrap.env with
+  # real-shaped required fields, and .bootstrap.env is gitignored -- structurally
+  # absent from a pull-request checkout. The same reason the drift guard could not
+  # be a CI gate. The merge-blocking half of this pair is `ruby test/encoding_test.rb`
+  # in the `review notes` job, which needs only the checkout and therefore CAN block.
+  # A static gate that blocks plus an execution gate that runs is the trade this
+  # phase settled on; neither alone is sufficient and saying so here is the point.
+  #
+  # Hermetic: no secrets. The fixture credentials are shaped, not real, and the
+  # private key is generated on the runner. The Apple-facing steps therefore report
+  # blocked or advisory, which is exactly what doctor is supposed to do with bad
+  # credentials, and is not what this job asserts on.
+  #
+  # Driven RED before it was trusted: with bin/lib/bootstrap.rb restored to its
+  # pre-fix state and this exact fixture, the run produced 15 status lines, 1
+  # encoding-error line, no verdict and no metadata step. Fixed: 22 status lines,
+  # 0 encoding-error lines, a verdict, and the metadata step present. All three
+  # assertions below discriminate; none of them is the exit code, which is 2 in
+  # both cases because a fixture-credentialed doctor legitimately blocks steps.
+  locale-doctor-regression:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      # Assembled at runtime, never spelled as an address in this file:
+      # tools/check-contamination.rb sweeps every tracked file for contact
+      # addresses and counts them per path, and a literal here would move a
+      # count that another gate asserts.
+      FIXTURE_DOMAIN: fixture.invalid
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # see the next step: this job's gems must go where the MAKEFILE looks
+      # WHY THIS STEP EXISTS AND `bundler-cache: true` DOES NOT WORK HERE.
+      # Measured on this job's first-ever run (2026-09-04): it failed with "Ruby
+      # gems aren't installed yet", never reaching the metadata step this job is
+      # about. ruby/setup-ruby REMOVES /opt/homebrew/opt/ruby@3.3/bin from PATH
+      # and installs the gems under its own hostedtoolcache Ruby -- it says so in
+      # its log. But Makefile:48 selects the Ruby with `$(wildcard ...)`, a
+      # FILESYSTEM test rather than a PATH lookup, so `make` still finds
+      # homebrew's ruby@3.3 (present on macos-15), re-prepends it, and points
+      # _BUNDLE at a gem home where setup-ruby installed nothing.
+      #
+      # So the gems are installed with the SAME bundle the Makefile will resolve,
+      # mirroring Makefile:45-52 rather than guessing. `bundle check` is asserted
+      # here so a future gem problem fails as a gem problem, instead of arriving
+      # downstream disguised as a locale regression -- which is exactly how this
+      # job first presented.
+      - name: Install gems with the same bundle the Makefile resolves
+        run: |
+          set -euo pipefail
+          RUBY_MM=$(awk -F. '{ print $1 "." $2 }' .ruby-version 2>/dev/null || echo 3.3)
+          RUBY_BIN="/opt/homebrew/opt/ruby@${RUBY_MM}/bin"
+          if [ -x "${RUBY_BIN}/ruby" ]; then
+            BUNDLE="${RUBY_BIN}/bundle"
+          else
+            BUNDLE="bundle"
+          fi
+          echo "makefile_would_use=${BUNDLE}"
+          "${BUNDLE}" install --quiet
+          "${BUNDLE}" check
+      - name: Materialize a fixture .bootstrap.env that carries non-ASCII bytes
+        run: |
+          set -euo pipefail
+          openssl ecparam -name prime256v1 -genkey -noout \
+            | openssl pkcs8 -topk8 -nocrypt -out "$RUNNER_TEMP/fixture.p8"
+          chmod 600 "$RUNNER_TEMP/fixture.p8"
+          # The non-ASCII line is the WHOLE POINT: without those bytes the run is
+          # green with or without the fix, and the control would discriminate
+          # nothing. The crash needs the bytes AND the missing locale; either
+          # alone is green, which is why both are supplied here.
+          {
+            printf '# fixture \342\224\200\342\224\200\342\224\200\342\224\200 section rule, and an em dash \342\200\224 both non-ASCII on purpose\n'
+            printf 'APP_EMAIL=ci-fixture@%s\n' "$FIXTURE_DOMAIN"
+            printf 'GENERATOR=xcodegen\n'
+            printf 'RELEASE_MODE=local\n'
+            printf 'FASTLANE_TEAM_ID=XXXXXXXXXX\n'
+            printf 'ASC_API_KEY_ID=FIXTUREKEY\n'
+            printf 'ASC_API_KEY_ISSUER_ID=00000000-0000-0000-0000-000000000000\n'
+            printf 'ASC_API_KEY_P8_PATH=%s\n' "$RUNNER_TEMP/fixture.p8"
+            printf 'GH_ORG=fixture-org\n'
+            printf 'GH_APP_REPO=fixture-repo\n'
+          } > .bootstrap.env
+          chmod 600 .bootstrap.env
+          n=$(LC_ALL=C grep -c '[^ -~	]' .bootstrap.env || true)
+          echo "non_ascii_lines=$n"
+          if [ "$n" -lt 1 ]; then
+            echo "::error::Fixture carries no non-ASCII bytes; this job would pass with or without the fix"
+            exit 1
+          fi
+      - name: make doctor reaches a verdict with the locale cleared
+        run: |
+          set +e
+          out=$(env -u LANG -u LC_ALL -u LC_CTYPE make doctor 2>&1)
+          rc=$?
+          set -e
+          echo "exit_code=$rc   # recorded, NOT asserted: a fixture-credentialed doctor blocks steps legitimately"
+          echo "--- output ---"
+          echo "$out"
+          echo "--- end ---"
+          # 1. No inherited-encoding failure, in either of its two spellings.
+          if echo "$out" | grep -qE 'invalid byte sequence|Encoding::CompatibilityError'; then
+            echo "::error::Inherited-encoding failure under a cleared locale — regression of GAP-05-01 / UL-048"
+            exit 1
+          fi
+          # 2. No Ruby backtrace. A crash with no FAIL text is read as success by a
+          #    naive grep, and the subject of this job IS a crash.
+          if echo "$out" | grep -qE '\.rb:[0-9]+:in '; then
+            echo "::error::Ruby backtrace leaked from make doctor under a cleared locale"
+            exit 1
+          fi
+          # 3. A verdict was actually printed. Without this, a run that died early
+          #    for a NEW reason would satisfy 1 and 2 and pass as a fix.
+          echo "$out" | grep -qE 'Action required|All steps' || {
+            echo "::error::doctor printed no verdict — it stopped before finishing, which is not a fix"
+            exit 1
+          }
+          # 4. The run reached at least the metadata-scanning step, which is the one
+          #    that used to crash. Asserted by NAME, not by step number: the number
+          #    shifts whenever the pipeline gains or loses a step.
+          echo "$out" | grep -qE '^ *[0-9]+\. .*metadata text files' || {
+            echo "::error::doctor never reached the metadata-scanning step — it stopped earlier than the fix requires"
+            exit 1
+          }
+          echo "OK — verdict reached, metadata step present, no encoding error, no backtrace"
+      - name: Remove the fixture
+        if: always()
+        run: rm -f .bootstrap.env "$RUNNER_TEMP/fixture.p8"

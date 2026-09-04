@@ -45,8 +45,8 @@ If you're just exploring the template, an Apple ID + free developer signing is e
 
 Once you've enrolled in the Apple Developer Program:
 
-- [ ] Note your **Team ID** — visible at <https://developer.apple.com/account/> under Membership Details. 10-character alphanumeric string like `ABCDE12345`. Substitute it for `TEAM_ID_PLACEHOLDER` in `app/project.yml`.
-- [ ] Create the app record on App Store Connect — <https://appstoreconnect.apple.com> → My Apps → "+". Use the bundle ID you set via `bin/rename.sh`.
+- [ ] Note your **Team ID** — visible at <https://developer.apple.com/account/> under Membership Details. 10-character alphanumeric string like `ABCDE12345`. Put it in `app/Local.xcconfig` as `DEVELOPMENT_TEAM = <your Team ID>` — that file is gitignored, so your team id never gets committed.
+- [ ] Create the app record on App Store Connect — <https://appstoreconnect.apple.com> → My Apps → "+". Use the `BUNDLE_ID` you set in `app/Identity.xcconfig`.
 - [ ] Generate an **App Store Connect API key** (recommended for fastlane non-interactive uploads):
   - <https://appstoreconnect.apple.com/access/integrations/api> → Team Keys → "+"
   - Role: App Manager (or higher)

@@ -1,21 +1,21 @@
 # Switching an already-renamed fork from XcodeGen to Tuist
 
-> **If you're forking the template fresh, prefer
-> `bin/rename.sh ... --generator=tuist` — it produces a Tuist-only
-> fork in one shot.** This doc covers the in-place switch path:
-> you already ran `bin/rename.sh` (or the default
-> `--generator=xcodegen`) and now want to flip your existing fork
-> from `app/project.yml` to `app/Project.swift`.
+> **This doc covers the in-place switch path**: your fork ships both
+> manifests and currently drives `app/project.yml` with XcodeGen, and
+> you want to flip it to `app/Project.swift` with Tuist. There is no
+> generator flag on the personalization script any more — `GENERATOR`
+> in `.bootstrap.env` records which manifest your fork drives, and the
+> switch itself is the command below.
 
 The fast path is one command:
 
 ```bash
-bin/switch-to-tuist.sh   # idempotent + atomic-rollback (parity with bin/rename.sh)
+bin/switch-to-tuist.sh   # idempotent + atomic-rollback, the same all-or-nothing shape
+                         # the personalization script uses
 ```
 
-That script is what `bin/rename.sh --generator=tuist` invokes for you
-at fork time. Running it standalone on an already-renamed fork is the
-equivalent in-place operation.
+Run it standalone on an existing fork; it is the in-place operation and
+there is no fork-time shortcut that does it for you.
 
 The rest of this document explains **what** the script does (so you can
 audit, adapt, or step through it manually if you prefer) and the
@@ -309,32 +309,33 @@ Tuist generates a `Derived/` cache directory inside `app/` and an
 (Keep the existing `app/SmokeApp.xcodeproj` rule — Tuist still emits
 the `.xcodeproj` for `xcodebuild` to consume.)
 
-### `bin/rename.sh`
+### Identity, under either generator
 
-The rename script substitutes `SmokeApp`, `com.indiagram.smokeapp`, and
-the maintainer email across tracked files. After migration, those
-strings now live in `app/Project.swift` (replacing `app/project.yml`).
-The script's `git ls-files`-based grep already handles
-this — no edit required *if* you ran the migration on a fresh fork
-before any rename. **But:** if you migrate first, then rename, verify
-with:
+Nothing here substitutes your app's identity into a manifest, and the
+switch does not have to. Both manifests reference the same tracked
+`app/Identity.xcconfig` — XcodeGen through `configFiles:`, Tuist through
+`.settings(configurations:)` — so `BUNDLE_ID`, `APP_PRODUCT_NAME`,
+`DISPLAY_NAME` and `COPYRIGHT` resolve identically whichever one you
+drive, and there is no per-generator copy to keep in step.
+
+That is what the parity tool checks, and it is worth running once after
+the switch rather than trusting the claim:
 
 ```bash
-git grep "com.indiagram.smokeapp" app/Project.swift   # should show 4 hits before rename
-bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com
-git grep "com.indiagram.smokeapp" app/Project.swift   # should be empty after rename
+ruby bin/preflight-identity.rb   # the four keys resolve, or a named refusal
+ruby tools/identity-parity.rb    # both generators build, and both built
+                                 # Info.plists agree with the xcconfig
 ```
 
-If `bin/rename.sh` misses any literal in `Project.swift` that it caught
-in `project.yml` (sed pattern delimiter or escape edge case), file an
-issue against your fork — the literal patterns in `bin/rename.sh:291`
-are the source of truth and may need an update.
+### The retired rename self-check
 
-### `bin/verify-rename.sh`
-
-Same logic — it greps tracked files for the four pre-rename literals.
-Tuist puts those literals in `Project.swift`, which is tracked, which
-the script already covers. No edit required.
+Phase 5 deleted the rename self-check script along with the rename script's
+identity substitution. Identity now lives in `app/Identity.xcconfig`, which
+Tuist reads through
+`.settings(configurations:)` exactly as XcodeGen reads it through
+`configFiles:` — so there is nothing generator-specific left to check here.
+`ruby bin/preflight-identity.rb` is the replacement, and it reads the same
+one file under either generator.
 
 ## Step 4 — Validate end-to-end
 
@@ -403,8 +404,11 @@ After migrating on a fresh fork:
       mutates the workflow — plus 3 Tuist parity) green on the PR.
 - [ ] The macOS app bundle's `.icns` matches `app/macOS/Resources/AppIcon.icns`
       by SHA-256 (post-build script ran correctly).
-- [ ] `bin/rename.sh` followed by `bin/verify-rename.sh` exits 0 on a
-      fresh test rename.
+- [ ] `ruby bin/preflight-identity.rb` exits 0 against
+      `app/Identity.xcconfig` after the migration.
+- [ ] `ruby tools/identity-parity.rb` exits 0 — the two generators
+      resolve the same identity, read from the built Info.plists
+      rather than from the manifests.
 - [ ] Signed release flow: `fastlane release tag:v0.0.0 skip_upload:true skip_tag:true`
       produces signed `.ipa` + `.pkg` artifacts in `build/`. (Optional
       but recommended if you ship via fastlane.)

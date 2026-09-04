@@ -186,6 +186,33 @@ First, run the one-time dev-env setup. This installs the Ruby gems (fastlane et 
 make bootstrap
 ```
 
+Now give the app your identity. All four values live in one tracked file,
+`app/Identity.xcconfig` — XcodeGen, Tuist and `xcodebuild` read it natively, so
+what you write there is what the build resolves:
+
+```bash
+$EDITOR app/Identity.xcconfig
+```
+
+```
+BUNDLE_ID        = com.yourname.mycoolapp    // reverse-domain, globally unique
+APP_PRODUCT_NAME = MyCoolApp                 // no spaces; the built .app's name
+DISPLAY_NAME     = My Cool App               // what iPhone users see under the icon
+COPYRIGHT        = Copyright © 2026 Your Name. All rights reserved.
+```
+
+Values are unquoted and comments are `//` — this is an Xcode config file, not a
+shell one. Nothing else has to change: **the Xcode schemes are the constants
+`App-iOS` and `App-macOS`, and the project is `app/App.xcodeproj`, on every
+fork.** Structure is not derived from your app's name, which is what stops a
+rebrand from breaking every path in the release pipeline.
+
+> **Already forked before this file existed?** If your fork's project and
+> schemes are named after your app, move it onto the config-based model with
+> `ruby tools/migrate-identity.rb` — the runbook is
+> [MIGRATING-FROM-RENAME.md](MIGRATING-FROM-RENAME.md). Read its "if your app is
+> live on the App Store" section first.
+
 Then scaffold a config file for the fork-bootstrap pipeline:
 
 ```bash
@@ -201,10 +228,8 @@ $EDITOR .bootstrap.env
 You'll see something like this. The fields marked `# fill in` are yours to set; the rest are sensible defaults or auto-filled by `make init` from your git remote:
 
 ```env
-# What to call your app
-APP_NAME=MyCoolApp                          # PascalCase, no spaces. Used as scheme + product name.
-BUNDLE_ID=com.yourname.mycoolapp            # Reverse-domain. Must be globally unique.
-DISPLAY_NAME='My Cool App'                  # The name iPhone users see under the icon.
+# Who to contact. What the app is CALLED is not here — that is the four keys
+# of app/Identity.xcconfig you just edited, and nothing reads it from here.
 APP_EMAIL=you@example.com                   # Your contact email. Required by App Store review.
 
 # Pick your project generator (xcodegen is simpler; tuist is more flexible)
@@ -232,7 +257,7 @@ GH_APP_REPO=my-cool-app                     # auto-filled by make init
 # you've created the App Store Connect App record — see Step 7 below).
 ICON_1024_PATH=                             # leave blank to use the placeholder hammer icon
 ASC_APP_SKU=mycoolapp-001                   # any unique-to-you string
-ASC_APP_NAME='My Cool App'                  # what shows on the App Store
+ASC_APP_NAME='My Cool App'                  # what shows on the App Store; generates fastlane/metadata/en-US/name.txt
 
 # CI-mode only — leave blank for RELEASE_MODE=local. `make bootstrap-fork`
 # generates a random 32-char password and writes it to this file if it
@@ -242,7 +267,7 @@ ASC_APP_NAME='My Cool App'                  # what shows on the App Store
 KEYCHAIN_PASSWORD_FILE=                     # ~/.config/secrets/keychain-password (CI mode only)
 ```
 
-> **Pick BUNDLE_ID carefully.** It's the unique fingerprint of your app, and you can't change it later without losing your TestFlight history. If you own a domain, use it (`com.yourdomain.appname`). If you don't, `com.yourgithubusername.appname` is fine.
+> **Pick `BUNDLE_ID` carefully** — in `app/Identity.xcconfig`, above. It's the unique fingerprint of your app, and you can't change it later without losing your TestFlight history. If you own a domain, use it (`com.yourdomain.appname`). If you don't, `com.yourgithubusername.appname` is fine.
 
 > **Why two modes?** `RELEASE_MODE=local` signs from your laptop using certs in your Keychain — easy first-run, no server config needed. `RELEASE_MODE=ci` runs the full pipeline on GitHub Actions when you run `make ship` (which dispatches `release.yml` via `gh workflow run`) — more setup, but it means anyone with repo write access can ship from any machine. Each CI release run mints its own short-lived signing certs into a controlled keychain and revokes them when the run ends, so there's no shared certs repo or PAT to manage. Start with `local`. You can switch later.
 
@@ -270,7 +295,7 @@ KEYCHAIN_PASSWORD_FILE=                     # ~/.config/secrets/keychain-passwor
 
 > **Before you run this:** Apple requires you to create the App Store Connect "App record" by hand once, before any tooling can upload a build. This is the one mandatory step the template can't automate (Apple's API forbids `POST /apps`).
 >
-> Go to [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps), click **+ → New App**, fill in your **bundle ID** (matches `BUNDLE_ID` from Step 6) and **display name** (matches `DISPLAY_NAME`). Takes ~30 seconds. If you skip this, `make doctor` will fail at the `Verify ASC App record exists` step with a clear pointer back here.
+> Go to [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps), click **+ → New App**, fill in your **bundle ID** and **display name** — both exactly as you set them in `app/Identity.xcconfig` in Step 6. Takes ~30 seconds. If you skip this, `make doctor` will fail at the `Verify ASC App record exists` step with a clear pointer back here.
 
 ```bash
 make doctor
@@ -325,7 +350,7 @@ This runs the whole pipeline:
 You'll see ~5–10 minutes of build output. The release tool does roughly:
 
 ```
-✓ Renaming SmokeApp → MyCoolApp
+✓ Verifying app identity from app/Identity.xcconfig
 ✓ Generating Xcode project
 ✓ Provisioning iOS Distribution cert
 ✓ Provisioning Mac Installer Distribution cert

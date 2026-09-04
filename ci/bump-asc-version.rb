@@ -18,17 +18,97 @@
 #   commented-out value would silently ask App Store Connect about someone else's app
 #   record — and then bump ITS version — instead of failing. A named failure is the
 #   only safe outcome.
+#
+# Exit-code contract, in bin/preflight-identity.rb's shape. It is documented
+# because this script WRITES to App Store Connect and a caller has to be able to
+# tell "I do not understand you" apart from "Apple said no":
+#
+#   Exit | Meaning                                        | Message must name
+#   -----+------------------------------------------------+---------------------------------
+#   0    | -h / --help printed usage; or the bump ran     | — (usage; or the transcript)
+#   1    | the app or its identity could not be resolved  | the bundle id or the config path
+#   2    | an argument this script does not understand    | the argument, verbatim
+#
+# WHY THE VERSION IS SHAPE-CHECKED AND NOT MERELY PRESENT. Until 2026-09-04 the
+# only argument check here was `ARGV.empty?`, and ARGV[0] went to
+# patch_app_store_version as the versionString for BOTH platforms with nothing
+# looking at it. Measured offline against a stub Spaceship on 2026-09-04:
+# `ci/bump-asc-version.rb --help` produced two ASC writes, {versionString:
+# "--help"} on IOS and on MAC_OS, at exit 0. That is the bin/adopt.rb incident of
+# 2026-09-03 in a second costume, one level out — the receiver is the App Store
+# record rather than 13 tracked files.
+#
+# Guarding only the ci/bump-asc-version.sh wrapper would not have closed it: the
+# header above documents `bundle exec ruby ci/bump-asc-version.rb v0.0.11` as a
+# supported entry point, so this file needs its own front door.
+
+# The release tag shape, anchored at BOTH ends. Partial-match anchoring is how a
+# flag with a version buried in it would pass. This is deliberately the same
+# shape ci/local-release-check.sh:205 enforces on the release path, so the two
+# ends of one release cannot disagree about what a version is; the leading `v` is
+# optional here because the wrapper and this file's own header both document the
+# bare form as well.
+VERSION_SHAPE = /\Av?[0-9]+\.[0-9]+\.[0-9]+(?:[-+].+)?\z/.freeze
+
+USAGE = <<~TEXT
+  ci/bump-asc-version.rb — bump the App Store version for both platform records
+  on App Store Connect and attach the matching TestFlight build.
+
+  This WRITES to App Store Connect. It PATCHes the edit-state App Store version
+  for iOS and for macOS, and selects a build against each.
+
+  Usage:
+    bundle exec ruby ci/bump-asc-version.rb v0.0.11
+    bundle exec ruby ci/bump-asc-version.rb --help    print this usage (-h is an alias)
+
+  Normally reached through ci/bump-asc-version.sh, which sources .bootstrap.env
+  and pins Ruby first.
+
+  There is no --dry-run. Nothing here previews a write, and a flag that implied
+  one would be lying — read the ASC record in the web UI instead.
+
+  Exit codes: 0 usage, or the bump ran; 1 the app or its identity could not be
+  resolved; 2 an argument this script does not understand.
+TEXT
+
+# Parsed BEFORE the App Store Connect library is required, so a refusal never
+# depends on a gem being installed or on a credential being readable — and so a
+# probe cannot reach a network call by way of a slow require succeeding.
+target = nil
+ARGV.each do |arg|
+  case arg
+  when "-h", "--help"
+    puts USAGE
+    exit 0
+  when VERSION_SHAPE
+    if target
+      warn "[bump-asc-version] Two versions given: #{target.inspect} and #{arg.inspect}"
+      warn "[bump-asc-version] Nothing was contacted and nothing was written."
+      warn ""
+      warn USAGE
+      exit 2
+    end
+    target = arg.sub(/\Av/, '')
+  else
+    warn "[bump-asc-version] Unrecognised argument: #{arg}"
+    warn "[bump-asc-version] Expected a version such as v0.0.11. Nothing was contacted " \
+         "and nothing was written."
+    warn ""
+    warn USAGE
+    exit 2
+  end
+end
+
+if target.nil?
+  warn "[bump-asc-version] No version given."
+  warn ""
+  warn USAGE
+  exit 2
+end
 
 require 'spaceship'
 require 'base64'
 require_relative '../bin/lib/xcconfig'
-
-if ARGV.empty?
-  warn "Usage: ruby ci/bump-asc-version.rb <vX.Y.Z>"
-  exit 2
-end
-
-target = ARGV[0].sub(/^v/, '')
 
 token = Spaceship::ConnectAPI::Token.create(
   key_id:    ENV.fetch("ASC_API_KEY_ID"),

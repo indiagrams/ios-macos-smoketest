@@ -39,7 +39,7 @@
 #
 #     FAIL <group> <path>: <message>
 #
-# where <group> is G1..G6 and <path> is the file the assertion is about, or a
+# where <group> is G1..G8 and <path> is the file the assertion is about, or a
 # single `-` when the assertion is not file-scoped (the G4 cache-flag sweep and
 # the G3 path-scoped git-grep sweep).
 #
@@ -114,14 +114,69 @@ IDENTITY_XCCONFIG = "app/Identity.xcconfig"
 LOCAL_XCCONFIG    = "app/Local.xcconfig"
 REQUIRED_VARS     = %w[BUNDLE_ID APP_PRODUCT_NAME DISPLAY_NAME COPYRIGHT].freeze
 
-# ─── G6 vocabulary — the one identity value held in TWO tracked files ────────
-# COPYRIGHT reaches the built plists from Identity.xcconfig; the App Store
-# listing's copyright is what `deliver` reads from this file (Fastfile
-# `copyright:`; overridable by ASC_COPYRIGHT). Nothing generates one from the
-# other, so the two are asserted equal here (D-51: the organisation name must
-# match Apple's enrollment record character for character — in the binary AND
-# on the listing).
+# ─── G6 / G7 vocabulary — the two store-metadata files generated from the ────
+# ─── identity config ─────────────────────────────────────────────────────────
+#
+# Both files are GENERATED from app/Identity.xcconfig by
+# Bootstrap::StoreMetadataGenerated (D-74, A-07): copyright.txt from COPYRIGHT,
+# name.txt from ASC_APP_NAME when it is set and from DISPLAY_NAME otherwise.
+# Until that step existed, bin/rename.sh was the only writer of either file and
+# Phase 5 retires it. (This paragraph replaced "Nothing generates one from the
+# other", which was true when G6 was written and stopped being true with A-07.)
+#
+# A generator upstream of a tracked file is NOT what makes the tracked file
+# correct, which is why these two groups did not go away when the generator
+# arrived: nothing re-runs the generator on a hand edit, `deliver` uploads what
+# is on disk, and a tracked generated file drifts the moment anyone touches it.
+# These groups are the CI-side guard that neither copy has been edited away from
+# its source.
+#
+# What each one costs if it drifts:
+#   copyright.txt — D-51: the organisation name must match Apple's enrollment
+#     record character for character, in the binary AND on the listing. COPYRIGHT
+#     reaches the built plists from Identity.xcconfig; the listing's copyright is
+#     what `deliver` reads from this file (Fastfile `copyright:`, overridable by
+#     ASC_COPYRIGHT).
+#   name.txt — UL-044: a stale display name shipped here through three phases of
+#     green gates because nothing ever compared the two. It has NO override at
+#     all — fastlane/Fastfile:678 reads it with a bare File.read, there is no
+#     Deliverfile, and build_asc_metadata_args does not carry `name` — so
+#     whatever this file holds simply IS the App Store listing name.
 COPYRIGHT_TXT     = "fastlane/metadata/copyright.txt"
+NAME_TXT          = "fastlane/metadata/en-US/name.txt"
+
+# ─── G8 vocabulary — the app's own user-visible copy ─────────────────────────
+#
+# Two files, and BOTH of them, because they carry the SAME sentence: the Swift
+# source as a literal, and the string catalog as the KEY and its `en` value. An
+# assertion over ContentView.swift alone goes green while the retired instruction
+# is still shipping in the catalog — measured, not imagined: A-08's original
+# wording named only the Swift file, and the catalog was found by grepping for
+# the string rather than by reading the plan.
+#
+# SCOPE, stated so it is not widened by the next reader. This group asserts the
+# absence of ONE retired command and the presence of the sentence that replaced
+# it. It is deliberately NOT a check on app-facing prose in general: the app's
+# title and its "iOS + macOS template" subtitle are still the template's and are
+# still here, Phase 6 replaces that screen wholesale under D-66/PRIV-06, and the
+# IDENT-15 / UL-045 gate-blindness CLASS is Phase 6 criterion 7. A group that
+# quietly grew into the prose class would fail this repository today for a reason
+# nobody in Phase 5 signed up to fix.
+APP_COPY_FILES  = %w[app/Shared/ContentView.swift app/Shared/Localizable.xcstrings].freeze
+# The retired script, spelled without its `bin/` prefix so the assertion also
+# catches a bare `rename.sh --help` written from inside bin/.
+RETIRED_SCRIPT  = "rename.sh"
+# The POSITIVE half. Without it, deleting the Text call outright — or emptying the
+# catalog — satisfies the negative half completely, which is the shape 05-11
+# recorded as "a scope assertion needs a positive half or an empty file satisfies
+# it". Spelled here as a frozen constant rather than read out of either file.
+APP_COPY_STRING = "Set this app's identity in `app/Identity.xcconfig`."
+# In the catalog the same sentence is BOTH the key and its `en` value, so it must
+# appear exactly twice. The pairing is asserted as a COUNT rather than by parsing
+# JSON on purpose: this file carries exactly ONE require-family line
+# (require_relative "../bin/lib/xcconfig"), which is what the `review notes` job's
+# bundler-cache: false rests on, and `require "json"` would be a second.
+APP_COPY_CATALOG_OCCURRENCES = 2
 
 # ─── G3 vocabulary — the Team ID and where it must never appear ──────────────
 # TEAM_ID is the literal VALUE. The assertions below use the value, never the
@@ -350,10 +405,12 @@ assert identity_ignored == 1, "G5", IDENTITY_XCCONFIG,
 puts
 puts "G6 — #{COPYRIGHT_TXT} carries the same string as COPYRIGHT in #{IDENTITY_XCCONFIG}:"
 
-# Two tracked copies of one value and no generator between them (03-REVIEW
-# WR-07): an edit to either one would silently make the App Store listing and
-# the binary's About box disagree, and D-51's character-for-character match
-# with the enrollment name is only as good as the copy nobody re-checked.
+# Two tracked copies of one value, and since A-07 a generator between them
+# (03-REVIEW WR-07 asked for this comparison when there was none): the generator
+# closes the gap only for a tree somebody ran it on, and an edit to either copy
+# afterwards would still silently make the App Store listing and the binary's
+# About box disagree. D-51's character-for-character match with the enrollment
+# name is only as good as the copy nobody re-checked, which is this one.
 copyright_txt_exists = File.exist?(File.join(ROOT, COPYRIGHT_TXT))
 assert copyright_txt_exists, "G6", COPYRIGHT_TXT, "exists"
 
@@ -363,6 +420,83 @@ assert !xcconfig_copyright.nil? && xcconfig_copyright == listing_copyright,
        "G6", COPYRIGHT_TXT,
        "equals COPYRIGHT in #{IDENTITY_XCCONFIG} after its // comment is cut off " \
        "(xcconfig=#{xcconfig_copyright.inspect}, file=#{listing_copyright.inspect})"
+
+# ─── G7: the App Store listing name equals the on-device one (UL-044) ────────
+
+puts
+puts "G7 — #{NAME_TXT} carries the same string as DISPLAY_NAME in #{IDENTITY_XCCONFIG}:"
+
+# THIS IS THE ONE POINT WHERE CI CAN SEE THE UL-044 CLASS, because both sides are
+# TRACKED. Every other place that class hides — a stale name in prose, in a
+# workflow default, in a gitignored config — is invisible to a PR job by
+# construction, and is deliberately left to Phase 6 (IDENT-15 / UL-045) rather
+# than half-attempted here.
+#
+# WHAT THIS GROUP DOES NOT CHECK, stated rather than implied. The generator
+# writes ASC_APP_NAME when it is set and DISPLAY_NAME otherwise; ASC_APP_NAME
+# lives in gitignored .bootstrap.env, so a clone structurally cannot know which
+# branch a given fork takes. This group asserts the ASC_APP_NAME-UNSET case: the
+# default, the shipped configuration, and the only one derivable from a
+# checkout. The name.txt-to-ASC_APP_NAME comparison is doctor-tier — it belongs
+# to Bootstrap::StoreMetadataGenerated#check, on a machine that has the config —
+# and no attempt is made to reproduce it here. Reading .bootstrap.env from this
+# file would make the group pass or fail on ambient machine state, which is the
+# defect 05-08 found one plan ago, not a stronger check.
+#
+# A fork that deliberately sets ASC_APP_NAME to something OTHER than DISPLAY_NAME
+# will therefore see this group go red. That is a true statement about that fork
+# — its tracked listing name matches nothing a reader of the repository can
+# derive — but it is reported here at the wrong severity, so the failure message
+# below names that cause explicitly instead of leaving a forker to guess that
+# their file is corrupt.
+name_txt_exists = File.exist?(File.join(ROOT, NAME_TXT))
+assert name_txt_exists, "G7", NAME_TXT, "exists"
+
+xcconfig_display_name = identity_exists ? Xcconfig.value(identity_path, "DISPLAY_NAME") : nil
+listing_name          = name_txt_exists ? read_utf8(NAME_TXT).strip : nil
+assert !xcconfig_display_name.nil? && xcconfig_display_name == listing_name,
+       "G7", NAME_TXT,
+       "equals DISPLAY_NAME in #{IDENTITY_XCCONFIG} after its // comment is cut off " \
+       "(xcconfig=#{xcconfig_display_name.inspect}, file=#{listing_name.inspect}); " \
+       "a mismatch here means either this file was hand-edited away from the " \
+       "identity config, or ASC_APP_NAME in .bootstrap.env deliberately differs " \
+       "from DISPLAY_NAME, which a clone cannot see"
+
+# ─── G8: the app does not tell its user to run a retired script (A-08) ───────
+
+puts
+puts "G8 — no app-facing string names `#{RETIRED_SCRIPT}`, and the string that replaced it is present:"
+
+APP_COPY_FILES.each do |rel|
+  exists = File.exist?(File.join(ROOT, rel))
+  assert exists, "G8", rel, "exists"
+  next unless exists
+
+  text = read_utf8(rel)
+  hits = line_numbers(text) { |line| line.downcase.include?(RETIRED_SCRIPT.downcase) }
+  assert hits.empty?, "G8", rel,
+         "names no `#{RETIRED_SCRIPT}` — Phase 5 retired that script's identity " \
+         "substitution, so an instruction to run it is false in the shipped app " \
+         "(offending line(s): #{hits.join(', ')})"
+end
+
+# The positive half, one assertion per file so the message names which one moved.
+swift_rel = APP_COPY_FILES[0]
+if File.exist?(File.join(ROOT, swift_rel))
+  swift_hits = read_utf8(swift_rel).scan(APP_COPY_STRING).length
+  assert swift_hits == 1, "G8", swift_rel,
+         "carries the replacement string exactly once (found #{swift_hits}); without " \
+         "this half, deleting the Text call satisfies the absence check completely"
+end
+
+catalog_rel = APP_COPY_FILES[1]
+if File.exist?(File.join(ROOT, catalog_rel))
+  catalog_hits = read_utf8(catalog_rel).scan(APP_COPY_STRING).length
+  assert catalog_hits == APP_COPY_CATALOG_OCCURRENCES, "G8", catalog_rel,
+         "carries the replacement string exactly #{APP_COPY_CATALOG_OCCURRENCES} times, " \
+         "once as the catalog KEY and once as its `en` value (found #{catalog_hits}); a " \
+         "key that stops matching its source string stops resolving, silently"
+end
 
 # ─── verdict ─────────────────────────────────────────────────────────────────
 

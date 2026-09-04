@@ -3,8 +3,9 @@
 Time-to-TestFlight: ~15 minutes once your `.bootstrap.env` is filled in.
 
 This template ships a config-driven fork bootstrap. You fill out one file with
-your identity + credentials, then `make bootstrap-fork` drives every
-programmatic step (rename, push, branch protection, GH Secrets, ASC App
+your credentials, set your app's identity in `app/Identity.xcconfig`, then
+`make bootstrap-fork` drives every programmatic step (identity verification,
+store-metadata generation, push, branch protection, GH Secrets, ASC App
 registration, icon swap, …) idempotently. The only manual steps are the ones
 Apple and GitHub deliberately don't expose to APIs.
 
@@ -23,8 +24,15 @@ make bootstrap
 #    from `git remote get-url origin`
 make init
 
-# 4. Edit .bootstrap.env — fill APP_NAME, BUNDLE_ID, Apple credentials,
-#    RELEASE_MODE (ci or local). See "Config reference" below.
+# 4a. Set your app's identity — the four keys of app/Identity.xcconfig
+#     (BUNDLE_ID, APP_PRODUCT_NAME, DISPLAY_NAME, COPYRIGHT). This tracked
+#     file is the source of truth; both generators and xcodebuild read it
+#     natively. A fork created before it existed migrates with
+#     `ruby tools/migrate-identity.rb` — see MIGRATING-FROM-RENAME.md.
+$EDITOR app/Identity.xcconfig
+
+# 4b. Edit .bootstrap.env — fill APP_EMAIL, Apple credentials, RELEASE_MODE
+#     (ci or local). It carries no identity keys. See "Config reference" below.
 $EDITOR .bootstrap.env
 
 # 5. Validate config + probe Apple/GH
@@ -101,11 +109,29 @@ Default: if `PLATFORMS` is unset or empty in `.bootstrap.env`, the bootstrap pip
 (team IDs, repo slugs, etc.) plus *paths* to mode-0600 files containing the
 actual secret bytes. The dotenv itself is low-blast-radius.
 
+**The app's identity is not here.** It lives in the tracked
+[`app/Identity.xcconfig`](../app/Identity.xcconfig), which XcodeGen, Tuist and
+`xcodebuild` all read natively, so those four values are what the build
+actually resolves:
+
+| Key in `app/Identity.xcconfig` | What it feeds |
+|---|---|
+| `BUNDLE_ID` | `PRODUCT_BUNDLE_IDENTIFIER` on both app targets |
+| `APP_PRODUCT_NAME` | `PRODUCT_NAME` on the two app targets (per-target, D-49) |
+| `DISPLAY_NAME` | `CFBundleDisplayName` — the name under the icon |
+| `COPYRIGHT` | `NSHumanReadableCopyright` |
+
+`.bootstrap.env` no longer carries `APP_NAME`, `BUNDLE_ID` or `DISPLAY_NAME`:
+reading identity from a gitignored file gave it a second home that no diff
+showed and no build resolved. Bootstrap READS the xcconfig and verifies it; it
+never writes it. Structure is not derived from any of the four — the project is
+`app/App.xcodeproj` and the schemes are the constants `App-iOS` and
+`App-macOS` on every fork. If your fork predates that file, move your values
+over with `ruby tools/migrate-identity.rb`; the runbook is
+[MIGRATING-FROM-RENAME.md](MIGRATING-FROM-RENAME.md).
+
 | Field | What it is | Where to get it |
 |---|---|---|
-| `APP_NAME` | CamelCase scheme + product name. Becomes the Xcode target. | You decide |
-| `BUNDLE_ID` | Reverse-DNS bundle id, used for both iOS + macOS apps | You decide |
-| `DISPLAY_NAME` | `CFBundleDisplayName`, visible on home screen | You decide |
 | `APP_EMAIL` | Maintainer email for Appfile, CHANGELOG, fastlane metadata | You decide |
 | `GENERATOR` | `xcodegen` (default) or `tuist` | Pick whichever project format you want to drive your fork |
 | `FASTLANE_TEAM_ID` | 10-char Apple Developer Team ID | <https://developer.apple.com/account/#/membership> |
@@ -118,7 +144,7 @@ actual secret bytes. The dotenv itself is low-blast-radius.
 | `KEYCHAIN_PASSWORD_FILE` *(ci-only)* | Path to a file containing the CI keychain password. Auto-generated as 32 random chars on first `make bootstrap-fork` if absent | Created on first `make bootstrap-fork` |
 | `ICON_1024_PATH` (optional) | Path to your 1024×1024 PNG. If set, replaces the template hammer icon and runs `make icons` | Designer artifact |
 | `ASC_APP_SKU` (optional) | Documentation hint for the manual ASC App creation step | Any unique string |
-| `ASC_APP_NAME` (optional) | Documentation hint — defaults to `DISPLAY_NAME` | The human-readable name you want shown in the App Store |
+| `ASC_APP_NAME` (optional) | Generates `fastlane/metadata/en-US/name.txt`; falls back to `DISPLAY_NAME` from `app/Identity.xcconfig` when unset | The human-readable name you want shown in the App Store |
 | `PLATFORMS` (optional) | Subset of `ios,macos` that controls which targets ship. Defaults to both if unset. See [Platforms](#platforms) above | You decide |
 
 CI mode no longer requires a separate fine-grained PAT or a private certs
@@ -129,10 +155,10 @@ needs.
 
 ## What `make bootstrap-fork` does
 
-The pipeline has 21 step classes (single source of truth: `PIPELINE` in
-`bin/lib/bootstrap.rb`). CI mode (`RELEASE_MODE=ci`) runs 20 with default
+The pipeline has 23 step classes (single source of truth: `PIPELINE` in
+`bin/lib/bootstrap.rb`). CI mode (`RELEASE_MODE=ci`) runs 22 with default
 `PLATFORMS=ios,macos` (excludes `LocalKeychainCerts`, which is local-only);
-local mode runs 20 (excludes `GHSecrets`, which is ci-only). Each step has
+local mode runs 22 (excludes `GHSecrets`, which is ci-only). Each step has
 a `check` (no side effects) and a `do_it`. A step is skipped if its desired
 state is already reached, so re-running after a partial failure picks up
 where you left off. `make doctor` runs every `check` and changes nothing.
@@ -144,24 +170,26 @@ Mode key: ⚪ both, 🅒 ci-only, 🅛 local-only, 🍎 macOS-only.
 | 1 | `CheckAppleCreds` | ⚪ | Validates `.p8` + key id + issuer id by probing ASC API |
 | 2 | `CheckGHCreds` | ⚪ | CI mode: probes `gh auth status`. Local mode: no-op (gh CLI not used at ship time). |
 | 3 | `RemoteMatches` | ⚪ | Verifies `git remote get-url origin` matches `GH_ORG/GH_APP_REPO` |
-| 4 | `RenameStub` | ⚪ | Runs `bin/rename.sh` (SmokeApp → APP_NAME) + `bin/verify-rename.sh` |
+| 4 | `IdentityPresent` | ⚪ | **Verifies, changes nothing.** Reads the four keys of `app/Identity.xcconfig` through `bin/lib/xcconfig.rb`, the one parser: `:pending` when the file is absent, blocked naming every key that resolves to nothing (`nil` and `""` alike, so a `//`-commented value is caught), `:done` otherwise. Read-only — bootstrap no longer writes identity, so its `do_it` refuses and points a pre-migration fork at `ruby tools/migrate-identity.rb` ([MIGRATING-FROM-RENAME.md](MIGRATING-FROM-RENAME.md)) |
 | 5 | `IdentityAdopted` | ⚪ | **Verifies, changes nothing.** Climbs the three tiers below against `app/Identity.xcconfig` and names the tier it reached, or the tier that failed and the offending value. Read-only: its `do_it` refuses, because there is no automatic answer to "your app still carries the template's identity" |
-| 6 | `BrewBootstrap` | ⚪ | `make bootstrap` (brew bundle + lefthook + xcodegen/tuist + bundler) |
-| 7 | `Icon1024` | ⚪ | If `ICON_1024_PATH` set, copies it to the iOS asset catalog (tree mutation lands before `InitialPush`), then runs `ci/check-app-icon.sh` on the result — copying a placeholder into place is not adoption |
-| 8 | `MakeIcons` | 🍎 | `make icons` — regenerates the macOS `.icns` from the 1024 PNG. Runs only when `PLATFORMS` includes `macos`. |
-| 9 | `InitialPush` | ⚪ | First commit (rename + icons) pushed to `origin/main` |
-| 10 | `BranchProtection` | ⚪ | `bin/setup-github.sh` (required checks: swiftlint + swiftformat + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
-| 11 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) on the app repo. It sets **no** repository variables (04-06). It used to also set `APP_NAME` and `BUNDLE_ID` as variables for `release.yml` / `pr.yml` to read via `${{ vars.* }}`; that gave identity a second source (measured 2026-09-02, the live `BUNDLE_ID` variable carried the template's `com.indiagram.smokeapp`, not this app's) and re-set it on every `make bootstrap-fork`, silently reverting any hand correction (UL-026). Every workflow now resolves identity from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` (D-56/D-57), so there is nothing for a variable to carry. |
-| 12 | `RegisterAppId` | ⚪ | `fastlane register_app_id` — registers the App ID for the bundle id in `.bootstrap.env`. Idempotent: it looks the identifier up with `BundleId.all(filter:)` before creating anything. Defaults to iOS; pass `platform:macos` (or set `BUNDLE_ID_PLATFORM`) for a macOS App ID. Two platforms with separate bundle ids means two invocations either way, since a bundle id maps to one App ID. Apple may report the created App ID's platform as `UNIVERSAL` whatever was requested — the lane prints both values rather than echoing the request, and treats `UNIVERSAL` as covering the requested platform rather than as a mismatch. |
-| 13 | `VerifyAscApp` | ⚪ | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |
-| 14 | `LocalKeychainCerts` | 🅛 | Auto-mints any missing local-mode cert types (Apple Distribution, Apple Development, and — when shipping macOS — 3rd Party Mac Developer Installer) via `fastlane cert` into `login.keychain-db`. New in v1.4 — replaces the v1.3 hard-blocker requiring manual remediation. |
-| 15 | `ScanMetadata` | ⚪ | Informational — counts present-vs-placeholder strings under `fastlane/metadata/` |
-| 16 | `ScanScreenshots` | ⚪ | Informational — counts present screenshots under `fastlane/screenshots/` |
-| 17 | `AppPrivacyForm` | ⚪ | Informational — queries ASC for the App Privacy publish state |
-| 18 | `AppStoreSubmissionPrereqs` | ⚪ | Informational — category, age rating, price schedule |
-| 19 | `XcodeQuarantine` | ⚪ | Advisory — `com.apple.quarantine` xattr on `Xcode.app` |
-| 20 | `FastlaneTmpKeychain` | ⚪ | Advisory — `setup_ci` temp keychains leaked into the user keychain search list |
-| 21 | `DefaultKeychain` | ⚪ | Advisory — a user-domain default keychain is set (`security cms -D`, and therefore `make ship`'s sigh step, needs one) |
+| 6 | `StoreMetadataGenerated` | ⚪ | Writes `fastlane/metadata/en-US/name.txt` and `fastlane/metadata/copyright.txt` from `app/Identity.xcconfig` (tree mutation lands before `InitialPush`). `name.txt` comes from `ASC_APP_NAME` when it is set and from `DISPLAY_NAME` otherwise — the same `.to_s.empty?` rule as the App Store Connect record instruction in `VerifyAscApp`, deliberately written once in one form; `copyright.txt` comes from `COPYRIGHT`. Tier 2: `:done` means the tracked file's CONTENT matches the identity source, not merely that it exists. Refuses rather than writing an empty file — an empty `name.txt` IS the App Store listing name (D-74, A-07). Until this step existed the retired personalization script was the only writer of either file |
+| 7 | `LocalSigningTeam` | ⚪ | Writes the Apple Team ID into gitignored `app/Local.xcconfig` from `.bootstrap.env`'s `FASTLANE_TEAM_ID`, which `app/Identity.xcconfig` picks up through its `#include?`. Until this step existed NOTHING wrote that file — enumerated with a positive control, not assumed — so every fresh fork met the gap at its first signed build, named by `bin/preflight-identity.rb --require-team` (D-50). Refuses BY NAME when `FASTLANE_TEAM_ID` is absent or is not ten upper-case alphanumerics, rather than writing a blank: an absent file leaves `DEVELOPMENT_TEAM` UNDEFINED and iOS signing fails loudly, while an EMPTY value lets a macOS build succeed with an ad-hoc signature and say nothing. Also refuses to OVERWRITE a different value already there, so it is a drift check between the build's team and fastlane's as well as a writer. Tier 2: `:done` means the value RESOLVES through `bin/lib/xcconfig.rb`, not merely that a file exists |
+| 8 | `BrewBootstrap` | ⚪ | `make bootstrap` (brew bundle + lefthook + xcodegen/tuist + bundler) |
+| 9 | `Icon1024` | ⚪ | If `ICON_1024_PATH` set, copies it to the iOS asset catalog (tree mutation lands before `InitialPush`), then runs `ci/check-app-icon.sh` on the result — copying a placeholder into place is not adoption |
+| 10 | `MakeIcons` | 🍎 | `make icons` — regenerates the macOS `.icns` from the 1024 PNG. Runs only when `PLATFORMS` includes `macos`. |
+| 11 | `InitialPush` | ⚪ | First commit (generated store metadata + icons) pushed to `origin/main` |
+| 12 | `BranchProtection` | ⚪ | `bin/setup-github.sh` (required checks: swiftlint + swiftformat + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
+| 13 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) on the app repo. It sets **no** repository variables (04-06). It used to also set `APP_NAME` and `BUNDLE_ID` as variables for `release.yml` / `pr.yml` to read via `${{ vars.* }}`; that gave identity a second source (measured 2026-09-02, the live `BUNDLE_ID` variable carried the template's `com.indiagram.smokeapp`, not this app's) and re-set it on every `make bootstrap-fork`, silently reverting any hand correction (UL-026). Every workflow now resolves identity from `app/Identity.xcconfig` through `bin/lib/xcconfig.rb` (D-56/D-57), so there is nothing for a variable to carry. |
+| 14 | `RegisterAppId` | ⚪ | `fastlane register_app_id` — registers the App ID for the bundle id in `.bootstrap.env`. Idempotent: it looks the identifier up with `BundleId.all(filter:)` before creating anything. Defaults to iOS; pass `platform:macos` (or set `BUNDLE_ID_PLATFORM`) for a macOS App ID. Two platforms with separate bundle ids means two invocations either way, since a bundle id maps to one App ID. Apple may report the created App ID's platform as `UNIVERSAL` whatever was requested — the lane prints both values rather than echoing the request, and treats `UNIVERSAL` as covering the requested platform rather than as a mismatch. |
+| 15 | `VerifyAscApp` | ⚪ | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |
+| 16 | `LocalKeychainCerts` | 🅛 | Auto-mints any missing local-mode cert types (Apple Distribution, Apple Development, and — when shipping macOS — 3rd Party Mac Developer Installer) via `fastlane cert` into `login.keychain-db`. New in v1.4 — replaces the v1.3 hard-blocker requiring manual remediation. |
+| 17 | `ScanMetadata` | ⚪ | Informational — counts present-vs-placeholder strings under `fastlane/metadata/` |
+| 18 | `ScanScreenshots` | ⚪ | Informational — counts present screenshots under `fastlane/screenshots/` |
+| 19 | `AppPrivacyForm` | ⚪ | Informational — queries ASC for the App Privacy publish state |
+| 20 | `AppStoreSubmissionPrereqs` | ⚪ | Informational — category, age rating, price schedule |
+| 21 | `XcodeQuarantine` | ⚪ | Advisory — `com.apple.quarantine` xattr on `Xcode.app` |
+| 22 | `FastlaneTmpKeychain` | ⚪ | Advisory — `setup_ci` temp keychains leaked into the user keychain search list |
+| 23 | `DefaultKeychain` | ⚪ | Advisory — a user-domain default keychain is set (`security cms -D`, and therefore `make ship`'s sigh step, needs one) |
 
 ### Verification tiers
 
@@ -300,7 +328,7 @@ worth keeping out of source control.
 
 The orchestrator. Pure Ruby, depends only on the gems already in this
 template's `Gemfile` (fastlane + spaceship). Every step lives as a
-separate class (`RenameStub`, `BrewBootstrap`, `LocalKeychainCerts`, …) so
+separate class (`IdentityPresent`, `BrewBootstrap`, `LocalKeychainCerts`, …) so
 adding new steps or skipping ones is a one-class change. `bin/doctor.rb`
 and `bin/bootstrap-fork.rb` are thin wrappers on `Bootstrap::Runner`. The
 canonical step order lives in the `PIPELINE` constant near the bottom of

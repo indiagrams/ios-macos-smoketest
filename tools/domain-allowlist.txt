@@ -57,10 +57,19 @@
 # Measured 2026-09-02 with the gate's own predicate: 62 address occurrences across the
 # tracked tree, 0 unallowed, plus 12 icon filenames excluded as non-addresses.
 #
+# Re-measured 2026-09-03 with the same predicate after plan 05-12 deleted the rename
+# script's self-check and its three shell harnesses and finished its own edits:
+# 35 address occurrences, 0 unallowed.
+# The `acme.com` row was REMOVED in that same commit rather than re-dated. Every one of
+# its 22 occurrences lived in a single deleted fixture, so after the deletion the domain
+# matched nothing anywhere in the tree — and a row matching nothing FAILS by design
+# ("entry matches nothing (no address on this domain in the tree)"), which is what the
+# gate reported before the row was taken out. That failure was the fifth of five the
+# deletion drove; the other four were identity rows in tools/identity-allowlist.txt.
+#
 # domain<TAB>local-part<TAB>date<TAB>reason
 indiagram.com	maintainers	2026-09-02	published contact: the address SECURITY.md and CODE_OF_CONDUCT.md give for vulnerability and conduct reports, and the one bin/rename.sh substitutes away at fork creation; the ONLY local part permitted on the org domain (D-67)
 example.com	*	2026-09-02	deliberately fake: RFC 2606 reserved second-level domain, used throughout the docs, the rename usage lines and the bootstrap examples
-acme.com	*	2026-09-02	deliberately fake: the fixture domain ci/test-rename*.sh and the bootstrap tests drive; every occurrence is test input
 yourorg.com	*	2026-09-02	deliberately fake: a placeholder the TestFlight walkthrough tells a forker to replace with their own
 local.invalid	*	2026-09-02	deliberately fake: RFC 2606 reserved .invalid TLD, which can never resolve; synthetic bootstrap contacts, canary fixtures and throwaway git author identities
 github.com	git	2026-09-02	not a person: the ssh user in remote URLs, which the address regex cannot tell from a mailbox; pinned to that one local part so a real address on the same domain still fails

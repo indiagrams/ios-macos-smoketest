@@ -36,12 +36,23 @@ require_relative "lib/bootstrap"
 config = Bootstrap::Config.load!
 config.validate!
 
+# The bundle id comes from app/Identity.xcconfig, the source of truth (A-01),
+# not from .bootstrap.env, which no longer carries it. Resolved ONCE so every
+# line below reports the same app, and refused BY NAME rather than defaulted:
+# querying App Store Connect for a plausible-looking wrong bundle id would
+# report "no builds found" for an app nobody was asking about.
+begin
+  bundle_id = Bootstrap.identity!("BUNDLE_ID")
+rescue StandardError => e
+  Bootstrap::UI.fail!(e.message)
+end
+
 require "spaceship"
 Bootstrap.ensure_asc_token!(config)
 
-app = Spaceship::ConnectAPI::App.find(config["BUNDLE_ID"])
+app = Spaceship::ConnectAPI::App.find(bundle_id)
 unless app
-  puts Bootstrap::UI.miss("ASC App record not found for #{config['BUNDLE_ID']}")
+  puts Bootstrap::UI.miss("ASC App record not found for #{bundle_id}")
   puts "  Did you create it? See `make doctor` output."
   exit 2
 end
@@ -128,7 +139,7 @@ if expected_version
       app_id: app.id, sort: "-uploadedDate", limit: 5
     ).first(5) # Spaceship's `limit:` is per-page, not total — slice to enforce.
     unless recent.empty?
-      puts Bootstrap::UI.dim("  Recent builds for #{config['BUNDLE_ID']} (for context — none match tag #{latest_tag}):")
+      puts Bootstrap::UI.dim("  Recent builds for #{bundle_id} (for context — none match tag #{latest_tag}):")
       recent.each do |b|
         puts Bootstrap::UI.dim("    #{b.version} (#{b.app_version})  state=#{b.processing_state}  uploaded=#{b.uploaded_date}  platform=#{b.platform}")
       end
@@ -179,12 +190,12 @@ puts
 
 builds = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 5).first(5) # Spaceship's `limit:` is per-page, not total — slice to enforce.
 if builds.empty?
-  puts Bootstrap::UI.miss("No TestFlight builds found for #{config['BUNDLE_ID']} (id=#{app.id})")
+  puts Bootstrap::UI.miss("No TestFlight builds found for #{bundle_id} (id=#{app.id})")
   puts "  Try `make ship` first; ASC ingestion takes 5-15 min after upload."
   exit 2
 end
 
-puts Bootstrap::UI.bold("Latest #{builds.length} builds for #{config['BUNDLE_ID']}:")
+puts Bootstrap::UI.bold("Latest #{builds.length} builds for #{bundle_id}:")
 builds.each do |b|
   v = "#{b.version} (#{b.app_version})"
   state = b.processing_state

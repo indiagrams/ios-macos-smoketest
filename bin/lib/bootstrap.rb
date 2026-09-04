@@ -2,8 +2,8 @@
 
 # Shared library for `bin/doctor.rb` (read-only) and `bin/bootstrap-fork.rb`
 # (idempotent driver). Reads `.bootstrap.env`, validates config, exposes a
-# pipeline of 21 step classes. CI mode runs 20 steps with default
-# PLATFORMS=ios,macos; local mode runs 20. Each step has a `check`
+# pipeline of 22 step classes. CI mode runs 21 steps with default
+# PLATFORMS=ios,macos; local mode runs 21. Each step has a `check`
 # (returns bool, no side effects)
 # and a `do_it` (idempotent: safe to re-run on partial state).
 #
@@ -34,6 +34,86 @@ require_relative "xcconfig"
 module Bootstrap
   REPO_ROOT = Pathname.new(__dir__).join("..", "..").expand_path
   ENV_FILE  = REPO_ROOT.join(".bootstrap.env")
+
+  # ─── The one identity resolver (A-01) ───────────────────────────────────────
+  #
+  # app/Identity.xcconfig is the SOURCE OF TRUTH for app identity, and
+  # `.bootstrap.env` no longer carries APP_NAME / BUNDLE_ID / DISPLAY_NAME at
+  # all. Bootstrap READS and VERIFIES; it never writes identity. (Phase 5, A-01
+  # — which REVERSED the draft decision that would have had bootstrap generate
+  # the xcconfig from the env file, because the tier-2 check further down was
+  # already a live BLOCKING check saying the opposite.)
+  #
+  # Everything in this file that displays or uses an identity value goes through
+  # `identity!`, so there is one reader and one failure message. The alternative —
+  # a `Config#[]` read of a key that is no longer required — returns "" and renders
+  # as a BLANK, which is the silent degradation this project refuses. The three
+  # acceptance greps that keep this true forbid those literal shapes anywhere in
+  # this file, comments included, so nothing below spells them.
+
+  # Raised when app/Identity.xcconfig cannot answer for a key. Named rather than
+  # generic so a caller that legitimately treats absence as "cannot tell" (an
+  # advisory step) can rescue exactly this and nothing else.
+  class IdentityUnavailable < StandardError; end
+
+  # The ONE path resolver. `IDENTITY_XCCONFIG` is a FIXTURE KNOB, for driving
+  # identity checks red against a file this repository does not carry. It
+  # announces itself on stderr every time it is honoured (T-04-42) — the shape
+  # `bin/preflight-identity.rb --config PATH` established. A run against a
+  # fixture that could be mistaken for a real one would be worse than no fixture
+  # at all. Deliberately module-level and deliberately SINGULAR: `IdentityPresent`
+  # and `IdentityAdopted` must be redirectable by the same knob, and a second
+  # resolver is how one of them quietly stops being.
+  def self.identity_xcconfig_path
+    override = ENV["IDENTITY_XCCONFIG"].to_s.strip
+    return REPO_ROOT.join("app", "Identity.xcconfig") if override.empty?
+    $stderr.puts "!! IDENTITY_XCCONFIG override in effect: reading #{override}"
+    $stderr.puts "!! This run is reading a FIXTURE. It says nothing about app/Identity.xcconfig."
+    Pathname.new(override).expand_path
+  end
+
+  # The resolved value of `key`, or a refusal that NAMES the key and the file.
+  #
+  # There is no placeholder tier and no `|| default` fallback. A default would
+  # let a fork with a missing value proceed under a plausible FAKE identity —
+  # the shape test/fastlane_identity_test.rb already forbids in the Fastfile,
+  # where 04-04 deleted four template fallbacks rather than updating them
+  # (D-58, IDENT-05).
+  #
+  # nil and "" are the SAME failure here: never-assigned, `KEY =`, and
+  # `KEY = // disabled` all resolve to nothing in Xcode, and a caller that told
+  # them apart would be drawing a distinction the build does not. WHICH of the
+  # two it was is reported in the message, because a forker needs to know
+  # whether they deleted the line or commented it out.
+  def self.identity!(key)
+    path = identity_xcconfig_path
+    unless path.file?
+      raise IdentityUnavailable,
+            "#{key} is unavailable: #{path} does not exist. app/Identity.xcconfig is the " \
+            "source of truth for app identity. A fork created before the identity work " \
+            "migrates with `ruby tools/migrate-identity.rb`; a fresh fork writes the four " \
+            "keys by hand. See docs/MIGRATING-FROM-RENAME.md."
+    end
+    raw = Xcconfig.value(path.to_s, key)
+    if raw.nil? || raw.strip.empty?
+      state = raw.nil? ? "never assigned" : "assigned, but resolves to nothing (empty, `//`-commented, or an undefined $(VAR))"
+      raise IdentityUnavailable,
+            "#{key} is #{state} in #{path}. Set it and re-run — there is no default, " \
+            "because a default is how a fork ships under someone else's identity."
+    end
+    raw.strip
+  end
+
+  # The same read, for a DIAGNOSTIC line that must still print when identity is
+  # broken: doctor's Configuration header and bootstrap-fork's closing summary.
+  # It substitutes the REASON, never a value — `<unresolved …>` cannot be
+  # mistaken for an app name, where a blank or a plausible default can. NEVER
+  # use this where the value is consumed; use `identity!`.
+  def self.identity_for_display(key)
+    identity!(key)
+  rescue IdentityUnavailable, Xcconfig::MissingInclude => e
+    "<unresolved #{key}: #{e.message.lines.first.to_s.strip}>"
+  end
 
   # The 5 GH Secrets the release pipeline needs. Order: stable for doctor.
   REQUIRED_SECRETS = %w[
@@ -82,8 +162,12 @@ module Bootstrap
   # ─── Config loader ──────────────────────────────────────────────────────────
 
   class Config
+    # APP_NAME, BUNDLE_ID and DISPLAY_NAME are NOT here: A-01 retired them from
+    # `.bootstrap.env` entirely and made app/Identity.xcconfig the source of
+    # truth. APP_EMAIL STAYS — it is the git author and fastlane Appfile
+    # address, not identity.
     REQUIRED_ALWAYS = %w[
-      APP_NAME BUNDLE_ID DISPLAY_NAME APP_EMAIL GENERATOR RELEASE_MODE
+      APP_EMAIL GENERATOR RELEASE_MODE
       FASTLANE_TEAM_ID ASC_API_KEY_ID ASC_API_KEY_ISSUER_ID ASC_API_KEY_P8_PATH
       GH_ORG GH_APP_REPO
     ].freeze
@@ -129,7 +213,26 @@ module Bootstrap
 
     def self.parse(path)
       values = {}
-      path.each_line.with_index do |line, idx|
+      # UTF-8 pinned, never inherited — the same rule bin/lib/xcconfig.rb:101 and
+      # test/identity_test.rb's read_utf8 already state, applied to the one read
+      # that was still missing it.
+      #
+      # `.bootstrap.env.example` carries 52 lines with non-ASCII bytes (the `───`
+      # section rules and the `—` in the prose), and bin/init-bootstrap-env.sh:36
+      # `cp`s that file to `.bootstrap.env`, so EVERY forker's config has them.
+      # Read through `Pathname#each_line` the bytes arrive tagged with
+      # `Encoding.default_external`; with LANG and LC_ALL unset that is US-ASCII,
+      # and the `line.strip` below then raises
+      # `Encoding::CompatibilityError: invalid byte sequence in US-ASCII` — before
+      # the comment-skip on the next line ever gets to discard the line. Every
+      # step, `make doctor` and `make bootstrap-fork` die on it with a backtrace
+      # rather than a named refusal. Measured 2026-09-03; both discriminators run
+      # in the 05-09 evidence file, since the crash needs the non-ASCII bytes AND
+      # the missing locale and either one alone is green.
+      #
+      # UL-012 / commit 3b1efb9 is this repository's own earlier instance of the
+      # inherited-encoding defect.
+      File.read(path, encoding: "UTF-8").each_line.with_index do |line, idx|
         line = line.strip
         next if line.empty? || line.start_with?("#")
         key, _, val = line.partition("=")
@@ -168,7 +271,51 @@ module Bootstrap
       @values = values
     end
 
+    # ─── the retired-key tripwire ────────────────────────────────────────────
+    #
+    # These three are gone from REQUIRED_ALWAYS, so `validate!` no longer
+    # notices their absence — and `Config#[]` returns "" for an absent key,
+    # which renders as a BLANK in every consumer rather than as a failure. That
+    # silent degradation is the exact class this project refuses.
+    #
+    # This is a TRIPWIRE, not a compatibility shim. It fires only when a retired
+    # key is READ **and** ABSENT. A fork that still carries the key in its own
+    # `.bootstrap.env` keeps working unchanged — policing THAT case is what
+    # `IdentityAdopted::ENV_AGREEMENT` is for — while a fork scaffolded from the
+    # post-A-01 `.bootstrap.env.example` gets a named refusal pointing at the
+    # source of truth instead of a blank.
+    #
+    # This file's own fifteen reads moved to `Bootstrap.identity!` in the same
+    # change that removed the keys. The nine remaining reads in
+    # bin/compute-release-tag.rb, bin/ship.rb, bin/submit.rb and
+    # bin/verify-testflight.rb are a later plan's; until they move, this is what
+    # stands between them and a blank on a freshly-scaffolded fork.
+    RETIRED_IDENTITY_KEYS = {
+      "APP_NAME"     => "APP_PRODUCT_NAME",
+      "BUNDLE_ID"    => "BUNDLE_ID",
+      "DISPLAY_NAME" => "DISPLAY_NAME"
+    }.freeze
+
     def [](key)
+      xc_key = RETIRED_IDENTITY_KEYS[key]
+      if xc_key && !set?(key)
+        UI.fail!(<<~MSG)
+          #{key} was read from .bootstrap.env, and .bootstrap.env does not carry it.
+
+          app/Identity.xcconfig is the source of truth for app identity, and
+          #{RETIRED_IDENTITY_KEYS.keys.join(', ')} were removed from
+          .bootstrap.env.example. Returning the empty string here would have
+          rendered as a blank somewhere downstream instead of failing.
+
+          Read `#{xc_key}` from app/Identity.xcconfig instead:
+
+            Bootstrap.identity!("#{xc_key}")
+            ruby bin/lib/xcconfig.rb app/Identity.xcconfig #{xc_key}
+
+          If this fork has not migrated yet, run `ruby tools/migrate-identity.rb`
+          (see docs/MIGRATING-FROM-RENAME.md).
+        MSG
+      end
       @values[key].to_s
     end
 
@@ -531,30 +678,89 @@ module Bootstrap
     end
   end
 
-  class RenameStub < Step
-    def name; "Rename HelloApp → #{config['APP_NAME']}"; end
+  # Is app/Identity.xcconfig present, and does every key it owns resolve to
+  # something? (A-01, IDENT-10.)
+  #
+  # This replaced the rename step, whose `do_it` shelled out to the two rename
+  # scripts this phase retires, and whose `check` compared the file's text
+  # against the env key with an anchored regex that does not cut at `//`.
+  #
+  # MEASURED 2026-09-03, because the comment this one replaces claimed something
+  # else and nobody had run it. That regex did NOT accept
+  # `APP_PRODUCT_NAME = // disabled` — it returned `:pending`. Its real defect is
+  # the INVERSE: a correctly-set value carrying a trailing `// note` also read as
+  # `:pending`, and `:pending` here means `make bootstrap-fork` re-runs the
+  # rename over an already-correct fork. The predicate that genuinely accepts
+  # `= // disabled` is the anchored non-space presence match (UL-031), which
+  # lived in the preflight and the release check and was closed upstream by #282
+  # — not this one.
+  #
+  # Reading through the ONE parser (D-57) fixes both directions at once.
+  # `Xcconfig.value` cuts at `//`, so `= // disabled` resolves to "" and is
+  # blocked BY NAME, while `= Value // note` resolves to `Value` and passes. ""
+  # and nil are the same failure to this step because they are the same failure
+  # to Xcode.
+  #
+  # MIN_TIER = 1 ON PURPOSE, and it is not a rounding-down. This step answers "the
+  # file exists, and its keys resolve" — tier 1, plus the resolution that is what
+  # makes a presence check mean anything at all. The tier-2 question, "is the
+  # content still the template's?", belongs to `IdentityAdopted`, which runs
+  # immediately after this and declares MIN_TIER = 2. Two steps, two depths, one
+  # claim each — and the guard that enforces the claim lives in
+  # `Runner#render_result`, not here (D-64: a step's own discipline is precisely
+  # what failed in the icon story).
+  class IdentityPresent < Step
+    MIN_TIER = 1
+
+    def name; "Identity config present (app/Identity.xcconfig)"; end
+
+    # The four keys app/Identity.xcconfig owns. Deliberately REFERENCED rather
+    # than re-spelled: a fifth key added to one list and forgotten in the other is
+    # how the two identity steps would start disagreeing about what identity is.
+    def keys; IdentityAdopted::KEYS; end
 
     def check
-      # Done iff app/Identity.xcconfig already carries this fork's product name.
-      # The project structure (app/App.xcodeproj, app/Shared/App.swift, …) is a
-      # constant that the rename never touches; identity is what it writes.
-      identity = REPO_ROOT.join("app", "Identity.xcconfig")
-      return :pending unless identity.file?
-      text = identity.read(encoding: "UTF-8")
-      text.match?(/^\s*APP_PRODUCT_NAME\s*=\s*#{Regexp.escape(config['APP_NAME'])}\s*$/) ? :done : :pending
+      path  = Bootstrap.identity_xcconfig_path
+      @path = path
+
+      # tier 1: the thing exists. `:pending` rather than blocked — doctor should
+      # report the rest of the pipeline rather than stopping at the first gap, and
+      # `do_it` below explains what to do about it.
+      return :pending unless path.file?
+      @tier_reached = 1
+
+      values = {}
+      begin
+        keys.each { |key| values[key] = Xcconfig.value(path.to_s, key) }
+      rescue Xcconfig::MissingInclude => e
+        # A gate that cannot read its subject has NO VERDICT, and no verdict is
+        # not a pass — the same refusal shape as IdentityAdopted's tier 3.
+        return [:blocked, "#{path} could not be read: #{e.message}"]
+      end
+
+      unresolved = keys.reject { |k| !values[k].nil? && !values[k].strip.empty? }
+      return :done if unresolved.empty?
+
+      named = unresolved.map do |k|
+        reason = values[k].nil? ? "never assigned" : "assigned, but resolves to nothing — empty, `//`-commented, or an undefined $(VAR)"
+        "#{k} (#{reason})"
+      end
+      [:blocked, "#{path} is present but #{unresolved.length} of #{keys.length} keys resolve " \
+                 "to nothing:\n  - #{named.join("\n  - ")}\n" \
+                 "Every one of them must carry a value; there is no default."]
     end
 
+    def detail
+      return nil if tier_reached.nil?
+      "verified to tier #{tier_reached}: #{keys.length} keys present and resolving in #{@path}"
+    end
+
+    # Bootstrap does not write identity under A-01 — it reads and verifies. Same
+    # refusing shape as IdentityAdopted#do_it and CheckGHCreds#do_it.
     def do_it
-      args = [
-        "bin/rename.sh",
-        config["APP_NAME"], config["BUNDLE_ID"], config["DISPLAY_NAME"],
-        "--email=#{config['APP_EMAIL']}",
-        "--generator=#{config['GENERATOR']}",
-        "--platforms=#{config.platforms.join(',')}",
-        "--team-id=#{config['FASTLANE_TEAM_ID']}"
-      ]
-      Sh.run!(*args)
-      Sh.run!("bin/verify-rename.sh")
+      raise "nothing to do automatically — a fork created before the identity work migrates " \
+            "with `ruby tools/migrate-identity.rb`; a fresh fork edits app/Identity.xcconfig. " \
+            "See docs/MIGRATING-FROM-RENAME.md."
     end
   end
 
@@ -562,12 +768,12 @@ module Bootstrap
   # (D-64, IDENT-13.) See `Step`'s tier comment for what tier 1/2/3 mean and why
   # the concept exists at all.
   #
-  # It sits immediately after `RenameStub` because that is the step whose `do_it`
-  # writes identity, and because `RenameStub#check` is itself only tier-2-ish:
-  # upstream's post-#281 body matches `APP_PRODUCT_NAME = <APP_NAME>` with a
-  # regex that does NOT cut at `//`, so `APP_PRODUCT_NAME = // disabled` would
-  # satisfy it (the UL-031 hole, in a second file). This step asks the harder
-  # question through the one parser.
+  # It sits immediately after `IdentityPresent`, which resolves the same four keys
+  # through the same parser but asks only whether they resolve at all. This step
+  # asks the harder question: are the values that resolved still the template's?
+  # See `IdentityPresent` for what its predecessor's regex actually did with a
+  # `//` comment — measured on 2026-09-03 rather than repeated from the comment
+  # that stood here before.
   class IdentityAdopted < Step
     MIN_TIER = 2
 
@@ -596,17 +802,13 @@ module Bootstrap
 
     def name; "App identity adopted (tiers 1-3)"; end
 
-    # `IDENTITY_XCCONFIG` is a FIXTURE KNOB, for driving the tiers red against a
-    # file this repository does not carry. It announces itself on stderr every
-    # time it is honoured (T-04-42) — the shape bin/preflight-identity.rb's
-    # `--config PATH` banner established. A doctor run against a fixture that
-    # could be mistaken for a real one would be worse than no fixture at all.
+    # Delegates to `Bootstrap.identity_xcconfig_path`, the ONE resolver, so the
+    # announcing `IDENTITY_XCCONFIG` fixture knob covers this step and
+    # `IdentityPresent` identically — one knob, one banner, both steps. Kept as an
+    # instance method because test/doctor_identity_test.rb drives this step through
+    # it.
     def xcconfig_path
-      override = ENV["IDENTITY_XCCONFIG"].to_s.strip
-      return REPO_ROOT.join("app", "Identity.xcconfig") if override.empty?
-      $stderr.puts "!! IDENTITY_XCCONFIG override in effect: reading #{override}"
-      $stderr.puts "!! This run is reading a FIXTURE. It says nothing about app/Identity.xcconfig."
-      Pathname.new(override).expand_path
+      Bootstrap.identity_xcconfig_path
     end
 
     def xcodeproj_path
@@ -729,6 +931,371 @@ module Bootstrap
     end
   end
 
+  # The two store-metadata files whose only writer is being retired (D-74, A-07).
+  #
+  # `bin/rename.sh:582` is the ONLY writer of fastlane/metadata/en-US/name.txt,
+  # and that script's Step A is the ONLY writer of fastlane/metadata/copyright.txt.
+  # Phase 5 retires both, so each file is handed a writer here rather than left
+  # with none — and "left with none" is not the neutral option it sounds like.
+  # fastlane/Fastfile:678 reads name.txt with a bare `File.read`, which RAISES if
+  # the file is absent, so deleting it would crash `make ship` rather than degrade
+  # it. There is no Deliverfile and no ASC_* override for `name` (the Fastfile's
+  # own comment lists it among the "disk-only fields ... left to deliver's own
+  # filesystem loader"), so name.txt simply IS the App Store listing name. That is
+  # how UL-044 shipped a stale display name past three phases of green gates.
+  #
+  # ONE step for both files, not two: they are the same problem — a store-metadata
+  # file whose only writer is retiring — and one step keeps one rule in one place.
+  # The two differ in exactly one respect, recorded here rather than left implied:
+  # ASC_COPYRIGHT DOES override copyright.txt at submit time (Fastfile:613), while
+  # nothing anywhere overrides `name`.
+  #
+  # MIN_TIER = 2, and that is not a rounding-up. This step's `:done` claims the
+  # tracked file's CONTENT equals what it would write from app/Identity.xcconfig,
+  # which is the tier-2 question. A presence-only `:done` here would be the icon
+  # defect exactly: the file was in place and nothing ever looked inside it. The
+  # guard lives in `Runner#render_result`, not here (D-64).
+  #
+  # Placed immediately after `IdentityAdopted` in `PIPELINE`: identity is verified
+  # before anything is generated from it, and every tree mutation still lands
+  # before `InitialPush`, the way `Icon1024` does.
+  class StoreMetadataGenerated < Step
+    MIN_TIER = 2
+
+    def name; "Store metadata files generated from app/Identity.xcconfig"; end
+
+    # Delegates to `Bootstrap.identity_xcconfig_path`, the ONE resolver, so the
+    # announcing IDENTITY_XCCONFIG fixture knob covers this step exactly as it
+    # covers `IdentityPresent` and `IdentityAdopted`. A second path resolver here
+    # is precisely how one of the three would quietly stop being covered.
+    def xcconfig_path
+      Bootstrap.identity_xcconfig_path
+    end
+
+    def name_txt;      REPO_ROOT.join("fastlane", "metadata", "en-US", "name.txt"); end
+    def copyright_txt; REPO_ROOT.join("fastlane", "metadata", "copyright.txt");     end
+
+    # D-74's fallback rule. `.to_s.empty?` — not `.nil?`, not `&&` — mirroring the
+    # ASC-record instruction in `VerifyAscApp#do_it` character for character on the
+    # ternary, with the same `Bootstrap.identity!('DISPLAY_NAME')` right-hand side.
+    # THERE IS EXACTLY ONE SUCH RULE IN THIS TREE AND THESE ARE ITS TWO SITES: if
+    # they ever disagree, the listing name a forker is told to type into App Store
+    # Connect and the one `deliver` actually uploads disagree too. ASC_APP_NAME is
+    # in `Config::OPTIONAL` and .bootstrap.env.example documents it as "the
+    # human-readable App Store name ... can equal DISPLAY_NAME"; it was not
+    # invented for this.
+    #
+    # `identity!` is what makes the refusal NAMED rather than blank: `nil` and `""`
+    # both raise IdentityUnavailable naming the key and app/Identity.xcconfig, so
+    # neither value can ever resolve to nothing and be written. An empty name.txt
+    # IS the App Store listing name, and a fallback silently re-reading a key that
+    # A-01 deleted is how it would become one.
+    #
+    # Lazily evaluated on purpose, exactly as the ternary at the other site is:
+    # with ASC_APP_NAME set, DISPLAY_NAME is never read, so the two sites agree
+    # about which key must resolve as well as about which value wins.
+    def desired
+      {
+        name_txt      => (config['ASC_APP_NAME'].to_s.empty? ? Bootstrap.identity!('DISPLAY_NAME') : config['ASC_APP_NAME']),
+        copyright_txt => Bootstrap.identity!('COPYRIGHT')
+      }
+    end
+
+    def check
+      values = begin
+                 desired
+               rescue IdentityUnavailable, Xcconfig::MissingInclude => e
+                 # A gate that cannot read its subject has NO VERDICT, and no
+                 # verdict is not a pass — `IdentityPresent`'s shape. Blocked
+                 # rather than pending, because `do_it` would raise the same way.
+                 return [:blocked, "cannot generate store metadata from #{xcconfig_path}: #{e.message}"]
+               end
+
+      absent = values.keys.reject(&:file?)
+      unless absent.empty?
+        return [:pending, "#{absent.map { |p| rel(p) }.join(', ')} " \
+                          "#{absent.length == 1 ? 'is' : 'are'} missing; " \
+                          "`make bootstrap-fork` regenerates from #{rel(xcconfig_path)}."]
+      end
+      @tier_reached = 1
+
+      drifted = values.reject { |path, value| read(path) == value }
+      unless drifted.empty?
+        named = drifted.map { |path, value| "#{rel(path)} (file=#{read(path).inspect}, identity=#{value.inspect})" }
+        return [:pending, "#{drifted.length} store-metadata file(s) disagree with " \
+                          "#{rel(xcconfig_path)}:\n  - #{named.join("\n  - ")}\n" \
+                          "`make bootstrap-fork` rewrites them from the identity config."]
+      end
+      @tier_reached = 2
+      :done
+    end
+
+    def detail
+      return nil if tier_reached.nil?
+      "verified to tier #{tier_reached}: #{rel(name_txt)} and #{rel(copyright_txt)} " \
+        "match #{rel(xcconfig_path)}"
+    end
+
+    def do_it
+      desired.each do |path, value|
+        FileUtils.mkdir_p(path.dirname)
+        # UTF-8 on the write. COPYRIGHT carries the copyright sign U+00A9 (UTF-8
+        # bytes c2 a9), and the keyword is kept for symmetry with the read below and
+        # with every other file this module writes.
+        #
+        # THE REASON THAT USED TO BE WRITTEN HERE WAS FALSE, and is corrected in place
+        # rather than quietly deleted. It said an unpinned write of that string raises
+        # Encoding::UndefinedConversionError under a cleared locale. Measured
+        # 2026-09-03 under 3.3.12 and 4.0.6 with LANG, LC_ALL and LC_CTYPE all unset:
+        # it does not. Ruby writes a String's own bytes and does not transcode to
+        # Encoding.default_external. UL-012 / commit 3b1efb9 and 05-09's Config.parse
+        # are both READ-side instances — an unpinned File.read followed by a strip, a
+        # concatenation or a regex. That is where the pin earns its place; see
+        # LocalSigningTeam#do_it, which drives exactly that control red.
+        #
+        # Exactly one trailing newline, which is the shape both files carry today
+        # (verified with `od -c`: name.txt is 14 bytes ending 0a, copyright.txt 54
+        # bytes ending 0a). A shape change here would show up as a spurious diff on
+        # every forker's tree.
+        File.write(path, "#{value}\n", encoding: "UTF-8")
+      end
+    end
+
+    private
+
+    # Read side pinned to UTF-8 for the same reason the write side is.
+    def read(path)
+      File.read(path, encoding: "UTF-8").strip
+    end
+
+    def rel(path)
+      Pathname.new(path).relative_path_from(REPO_ROOT).to_s
+    rescue ArgumentError
+      # An IDENTITY_XCCONFIG fixture lives outside the repository; print it whole
+      # rather than raising inside a message about something else.
+      path.to_s
+    end
+  end
+
+  # The Apple Team ID, from `.bootstrap.env` into the gitignored file the build
+  # actually reads (UP-04).
+  #
+  # WHY THIS STEP EXISTS. `app/Identity.xcconfig` ends with
+  # `#include? "Local.xcconfig"` and `.bootstrap.env.example` ships
+  # `FASTLANE_TEAM_ID`, but between 05-07 (which removed the rename step from the
+  # pipeline) and 05-11 (which retired the flag that used to write the file) NOTHING
+  # in this repository wrote the file in between. Enumerated rather than assumed, with
+  # a positive control so a zero is a measured zero: on 2026-09-03 this file named
+  # `Local.xcconfig` ZERO times (`grep_raw=1`, the only exit that means absence) while
+  # the same predicate found 14 in `tools/migrate-identity.rb`, 13 in
+  # `bin/preflight-identity.rb` and 4 in `bin/rename.sh`. A fresh fork's first signed
+  # iOS build was the discovery mechanism. `bin/preflight-identity.rb --require-team`
+  # already names the gap at exit 4 and prints the exact line to write (D-50), so this
+  # was never a silent corruption — but "fails loudly" is not the same as "is done for
+  # you", and every forker met it.
+  #
+  # AN EMPTY WRITE WOULD BE WORSE THAN NO WRITE, which is why every path below refuses
+  # by name instead. An UNDEFINED `DEVELOPMENT_TEAM` and an EMPTY one are different
+  # things: measured on this tree 2026-09-03 with `xcodebuild -showBuildSettings
+  # -target`, an absent file produces NO `DEVELOPMENT_TEAM` line at all (macOS shows
+  # only `_DEVELOPMENT_TEAM_IS_EMPTY = YES`), while an empty value lets a macOS build
+  # SUCCEED with "Sign to Run Locally" and say nothing — a loud failure turned into a
+  # silent wrong one.
+  #
+  # AND IT REFUSES TO OVERWRITE. `tools/migrate-identity.rb`'s `move_team_id` already
+  # declines to "overwrite a Team ID a forker put there by hand", and
+  # `docs/APPLE-ACCOUNT-STATE.md:99` records that the two consumers — this key in
+  # `.bootstrap.env` and `DEVELOPMENT_TEAM` in `app/Local.xcconfig` — are meant to hold
+  # the SAME value. A divergence is therefore a finding, not an inconvenience: this
+  # step surfaces it and declines to choose, which makes it a drift check as well as a
+  # writer.
+  #
+  # THE TRACKED IDENTITY CONFIG IS WHAT INCLUDES WHAT THIS STEP WRITES — and that fact
+  # is stated here, without either half being spelled within two lines of the write
+  # itself. test/doctor_identity_test.rb's A-01 predicate matches a write FORM and an
+  # identity-config reference inside one window, and it does not care whether either is
+  # code or a comment: the first draft of this very paragraph named both and turned the
+  # gate red by existing. Sixth costume of the hazard 05-12..05-15 met five times — any
+  # region a content gate sweeps is a region that cannot spell what the gate looks for,
+  # including the comment explaining why.
+  class LocalSigningTeam < Step
+    MIN_TIER = 2
+
+    # The key inside the gitignored file, and the key in `.bootstrap.env` it comes
+    # from. Two different names for one value, which is exactly why the drift check
+    # below is worth having.
+    TEAM_KEY   = "DEVELOPMENT_TEAM"
+    SOURCE_KEY = "FASTLANE_TEAM_ID"
+
+    # Ten upper-case alphanumerics. Apple's own format, and the shape
+    # `docs/APPLE-PREREQS.md:48` already tells a forker to expect. Anchored on both
+    # ends: an unanchored match would accept `Team ID: ABCDE12345` and write the whole
+    # string, and a value carrying a stray space is the shape a pasted line or an
+    # unstripped inline comment leaves behind.
+    TEAM_ID_SHAPE = /\A[A-Z0-9]{10}\z/
+
+    # Written above the assignment so a forker who opens the file knows what put it
+    # there and that it must stay out of git. The em dash is this repository's house
+    # style, and it is NOT what makes the encoding pins below matter — saying so here
+    # is a correction rather than a flourish. See the read in `do_it`.
+    HEADER = "// This clone's Apple signing team — written by `make bootstrap-fork` from\n" \
+             "// #{SOURCE_KEY} in .bootstrap.env. Gitignored under IDENT-08 and never\n" \
+             "// tracked. Delete it and the build resolves no team at all; empty it and a\n" \
+             "// macOS build silently succeeds with an ad-hoc signature instead.\n"
+
+    def name; "Signing team present (app/Local.xcconfig)"; end
+
+    # THE ONE PATH RESOLVER for this step. `check` and `do_it` both go through it, so a
+    # test that substitutes a fixture covers both; a second resolver is precisely how
+    # one of the two would quietly stop being covered (the shape `StoreMetadataGenerated`
+    # records for `xcconfig_path`).
+    def local_xcconfig_path
+      REPO_ROOT.join("app", "Local.xcconfig")
+    end
+
+    def team_id
+      config[SOURCE_KEY].to_s.strip
+    end
+
+    # nil when the configured value is usable; a NAMED refusal otherwise. One method,
+    # so `check`'s blocked message and `do_it`'s exception can never drift apart.
+    def refusal
+      id = team_id
+      if id.empty?
+        return "#{SOURCE_KEY} is absent or empty in .bootstrap.env, so there is no Apple " \
+               "Team ID to write into #{rel(local_xcconfig_path)}. Writing an empty " \
+               "#{TEAM_KEY} would be worse than writing nothing: an absent file leaves the " \
+               "setting UNDEFINED and iOS signing fails by name, while an EMPTY value lets a " \
+               "macOS build succeed with an ad-hoc signature and say nothing. Fill " \
+               "#{SOURCE_KEY} (ten upper-case alphanumerics, from " \
+               "https://developer.apple.com/account under Membership Details) and re-run."
+      end
+      unless TEAM_ID_SHAPE.match?(id)
+        return "#{SOURCE_KEY} = #{id.inspect} in .bootstrap.env is not an Apple Team ID: they " \
+               "are exactly ten upper-case letters and digits (/#{TEAM_ID_SHAPE.source}/). " \
+               "Nothing was written to #{rel(local_xcconfig_path)} — a malformed value in " \
+               "there resolves into the build as itself and fails at signing time with " \
+               "Apple's message rather than this one."
+      end
+      nil
+    end
+
+    def check
+      reason = refusal
+      return [:blocked, reason] unless reason.nil?
+
+      path = local_xcconfig_path
+      unless path.file?
+        return [:pending, "#{rel(path)} is missing; `make bootstrap-fork` writes it from " \
+                          "#{SOURCE_KEY}. It is gitignored and never committed."]
+      end
+      @tier_reached = 1
+
+      # Read back through `Xcconfig` — the ONE parser (D-57), the same one Xcode's
+      # `#include?` and `bin/preflight-identity.rb --require-team` resolve through.
+      # `own` rather than `value` because this file has no includes of its own and
+      # following them would answer a different question. A text compare here would
+      # pass on a file whose value the parser cannot actually see, which is UL-031's
+      # shape: `KEY = // disabled` satisfies a presence regex and resolves to nothing.
+      current = Xcconfig.own(path.to_s)[TEAM_KEY].to_s.strip
+      if current.empty?
+        return [:pending, "#{rel(path)} exists but assigns no #{TEAM_KEY} that resolves to a " \
+                          "value; `make bootstrap-fork` appends it from #{SOURCE_KEY}."]
+      end
+
+      unless current == team_id
+        return [:blocked, "#{rel(path)} assigns #{TEAM_KEY} = #{current.inspect} while " \
+                          ".bootstrap.env's #{SOURCE_KEY} says #{team_id.inspect}. These are " \
+                          "the two halves of one identity — the build reads the first, " \
+                          "fastlane reads the second — and this step will not choose between " \
+                          "them. Reconcile the two and re-run; nothing was written."]
+      end
+
+      @tier_reached = 2
+      :done
+    end
+
+    def detail
+      return nil if tier_reached.nil?
+      return "verified to tier #{tier_reached}: #{rel(local_xcconfig_path)} exists" if tier_reached < 2
+      "verified to tier #{tier_reached}: #{rel(local_xcconfig_path)} resolves the same " \
+        "#{TEAM_KEY} that #{SOURCE_KEY} carries"
+    end
+
+    def do_it
+      reason = refusal
+      raise reason unless reason.nil?
+
+      path = local_xcconfig_path
+      # UTF-8 PINNED, AND THIS ONE IS LOAD-BEARING — measured, not inherited. A forker's
+      # own app/Local.xcconfig may legitimately carry a non-ASCII byte in a comment (an
+      # accented org name, a smart quote, this project's own house-style dash). Read
+      # without the pin under a cleared locale those bytes arrive tagged US-ASCII, and
+      # the append path below raises `Encoding::CompatibilityError: incompatible
+      # character encodings: US-ASCII and UTF-8` out of the very first `+=`. Driven both
+      # ways on 2026-09-03 with the two discriminators this class needs — the crash
+      # requires the non-ASCII bytes AND the missing locale, and either alone is green —
+      # under 3.3.12 and 4.0.6:
+      #   RESULT control=team-id-read-locale exit_pinned=0 exit_unpinned=7
+      #          exit_unpinned_with_locale=0 restored=ok
+      #
+      # And the honest limit of that control: the path that raises is the APPEND path.
+      # A re-run against a file this step itself wrote returns early on the equality
+      # check above before `existing` is ever concatenated, so it does not reach the
+      # crash — measured too, rather than claimed as extra coverage.
+      existing = path.file? ? File.read(path.to_s, encoding: "UTF-8") : nil
+      current  = existing.nil? ? "" : Xcconfig.own(path.to_s)[TEAM_KEY].to_s.strip
+
+      if !current.empty? && current != team_id
+        raise "#{rel(path)} already assigns #{TEAM_KEY} = #{current.inspect} while " \
+              "#{SOURCE_KEY} says #{team_id.inspect}. This step will not overwrite a Team ID " \
+              "somebody else put there — reconcile the two and re-run."
+      end
+      return if current == team_id
+
+      # APPEND, never truncate. This file is the forker's own per-clone config and may
+      # carry settings that are none of this step's business; `move_team_id` in
+      # tools/migrate-identity.rb takes the same care for the same reason.
+      body  = existing.to_s
+      body += "\n" unless body.empty? || body.end_with?("\n")
+      body += "\n" unless body.empty?
+      body += HEADER
+      body += "#{TEAM_KEY} = #{team_id}\n"
+
+      FileUtils.mkdir_p(path.dirname)
+      # UTF-8 on the write, for symmetry with the read above and with every other file
+      # this module writes — but MEASURED, and the measurement corrects what this
+      # repository had been saying about it. With LANG, LC_ALL and LC_CTYPE all cleared
+      # (`Encoding.default_external == US-ASCII`) under BOTH pinned interpreters, every
+      # write form — this one, and an explicit-mode File.open used with #write or #puts —
+      # emits a UTF-8 String's own bytes and raises NOTHING. Ruby does not transcode a
+      # String to the external encoding on the way out. The locale-inheritance defect
+      # (UL-012 / commit 3b1efb9, and 05-09's second instance) is a READ-side defect:
+      # it is an unpinned `File.read` followed by a `strip`, a concatenation or a regex
+      # that raises. So this keyword is hygiene; the one on the read is the guard.
+      #
+      # DO NOT NAME THE TRACKED IDENTITY CONFIG IN THE FIVE LINES AROUND THIS WRITE.
+      # test/doctor_identity_test.rb's A-01 offender predicate reads a two-line window
+      # either side of every write form and reports a match as "bootstrap writes the
+      # identity config" — which this is not; this file is gitignored per-clone signing
+      # configuration, not identity. The explanation belongs in the class header above,
+      # which is outside that window. The token is deliberately not spelled here, for
+      # the same reason a gate's own configuration file cannot spell what it forbids.
+      File.write(path.to_s, body, encoding: "UTF-8")
+    end
+
+    private
+
+    def rel(pathname)
+      Pathname.new(pathname).relative_path_from(REPO_ROOT).to_s
+    rescue ArgumentError
+      # A fixture path substituted for local_xcconfig_path lives outside the
+      # repository; print it whole rather than raising inside a message about
+      # something else.
+      pathname.to_s
+    end
+  end
+
   class BrewBootstrap < Step
     def name; "Toolchain (brew + bundler + xcodegen/tuist + lefthook)"; end
 
@@ -749,16 +1316,26 @@ module Bootstrap
     def check
       out, ok = Sh.run("git", "ls-remote", "--heads", "origin", "main")
       return :pending unless ok && !out.strip.empty?
-      # main exists on origin. Has rename landed?
+      # main exists on origin. Has this fork's first commit landed? (Nothing
+      # renames any more — this only asks whether app/Shared has been pushed.)
       out2, _ = Sh.run("git", "diff", "--stat", "origin/main", "--", "app/Shared")
       out2.strip.empty? ? :done : :pending
     end
 
     def do_it
+      # `dirty` is `git diff --quiet`'s exit status, so it is TRUE when the tree is
+      # CLEAN. Both statements below were already `unless dirty`; they are nested
+      # now only so identity is resolved when it is actually needed.
       _out, dirty = Sh.run("git", "diff", "--quiet")
-      Sh.run!("git", "add", "-A") unless dirty
-      Sh.run!("git", "-c", "user.email=#{config['APP_EMAIL']}", "-c", "user.name=#{config['APP_NAME']} bootstrap",
-              "commit", "-m", "Bootstrap fork: rename HelloApp -> #{config['APP_NAME']}") unless dirty
+      unless dirty
+        # No rename in the author or the message: this phase retires the rename
+        # script, and identity is already in app/Identity.xcconfig by the time this
+        # step runs. The commit carries generated and copied files, not a rebranding.
+        product = Bootstrap.identity!("APP_PRODUCT_NAME")
+        Sh.run!("git", "add", "-A")
+        Sh.run!("git", "-c", "user.email=#{config['APP_EMAIL']}", "-c", "user.name=#{product} bootstrap",
+                "commit", "-m", "Bootstrap fork: initial commit for #{product}")
+      end
       Sh.run!("git", "push", "-u", "origin", "main")
     end
   end
@@ -913,7 +1490,7 @@ module Bootstrap
     def check
       require "spaceship"
       Bootstrap.ensure_asc_token!(config)
-      Spaceship::ConnectAPI::BundleId.find(config["BUNDLE_ID"]) ? :done : :pending
+      Spaceship::ConnectAPI::BundleId.find(Bootstrap.identity!("BUNDLE_ID")) ? :done : :pending
     rescue StandardError => e
       [:blocked, "ASC probe failed: #{e.message}"]
     end
@@ -931,7 +1508,7 @@ module Bootstrap
     def check
       require "spaceship"
       Bootstrap.ensure_asc_token!(config)
-      Spaceship::ConnectAPI::App.find(config["BUNDLE_ID"]) ? :done : [:blocked, asc_creation_msg]
+      Spaceship::ConnectAPI::App.find(Bootstrap.identity!("BUNDLE_ID")) ? :done : [:blocked, asc_creation_msg]
     rescue StandardError => e
       [:blocked, "ASC probe failed: #{e.message}"]
     end
@@ -943,7 +1520,8 @@ module Bootstrap
     private
 
     # Human-readable label of the active platforms — for display in the
-    # ASC creation hint. Mirrors bin/rename.sh's PLATFORMS_LABEL.
+    # ASC creation hint. Mirrors the PLATFORMS_LABEL the retired rename script
+    # built, which is where this wording came from.
     def platforms_label
       ios   = config.ios?
       macos = config.macos?
@@ -954,16 +1532,16 @@ module Bootstrap
     end
     def asc_creation_msg
       <<~MSG
-        ASC App record for #{config['BUNDLE_ID']} not found.
+        ASC App record for #{Bootstrap.identity!('BUNDLE_ID')} not found.
 
         The App Store Connect API does not allow POST /apps. Create the App
         record once via the web UI:
 
           1. Open https://appstoreconnect.apple.com/apps  →  + (New App)
           2. Platforms:        #{platforms_label}
-             Name:             #{config['ASC_APP_NAME'].to_s.empty? ? config['DISPLAY_NAME'] : config['ASC_APP_NAME']}
+             Name:             #{config['ASC_APP_NAME'].to_s.empty? ? Bootstrap.identity!('DISPLAY_NAME') : config['ASC_APP_NAME']}
              Primary Language: English (U.S.)
-             Bundle ID:        #{config['BUNDLE_ID']}
+             Bundle ID:        #{Bootstrap.identity!('BUNDLE_ID')}
              SKU:              #{config['ASC_APP_SKU'].to_s.empty? ? '(any unique string)' : config['ASC_APP_SKU']}
              User Access:      Full Access
           3. Re-run `make bootstrap` — this step will pass.
@@ -1117,7 +1695,7 @@ module Bootstrap
                      when metadata_dir then EN_US_FIELD_ENV[basename]
                      end
           next if env_name && !ENV[env_name].to_s.strip.empty?
-          content = File.read(f)
+          content = File.read(f, encoding: "UTF-8")
           if content.match?(PLACEHOLDER_PATTERN)
             todos << Pathname.new(f).relative_path_from(REPO_ROOT).to_s
           elsif content.strip.empty?
@@ -1130,7 +1708,7 @@ module Bootstrap
       # for ASC_COPYRIGHT works the same as the en-US URL fields.
       copyright = root_dir.join("copyright.txt")
       if copyright.file? && ENV[COPYRIGHT_FIELD_ENV].to_s.strip.empty?
-        content = File.read(copyright)
+        content = File.read(copyright, encoding: "UTF-8")
         if content.match?(PLACEHOLDER_PATTERN)
           todos << Pathname.new(copyright).relative_path_from(REPO_ROOT).to_s
         elsif content.strip.empty?
@@ -1143,8 +1721,19 @@ module Bootstrap
       # configured, the user is plausibly adopting an existing live app. Surface
       # `make adopt` so they don't overwrite their live App Store listing.
       # Greenfield forks (BUNDLE_ID is the placeholder) just edit the files.
-      bundle_id = config["BUNDLE_ID"].to_s
-      if !bundle_id.empty? && bundle_id != "com.example.helloapp" && ENV["ASC_API_KEY_ID"]
+      #
+      # ADVISORY ONLY, so an unreadable identity SKIPS the hint and SAYS SO rather
+      # than guessing — a hint that guessed would be worse than one that admits it
+      # could not tell. The GATE for a missing identity is `IdentityPresent`,
+      # several steps earlier, not this line.
+      bundle_id = begin
+        Bootstrap.identity!("BUNDLE_ID")
+      rescue IdentityUnavailable, Xcconfig::MissingInclude => e
+        msg << "\n\n  (Could not read BUNDLE_ID from app/Identity.xcconfig, so the live-app " \
+               "adoption warning was skipped: #{e.message.lines.first.to_s.strip})"
+        nil
+      end
+      if bundle_id && bundle_id != "com.example.helloapp" && ENV["ASC_API_KEY_ID"]
         msg << "\n\n  If your fork is adopting a LIVE App Store app, do NOT just edit these files —"
         msg << "\n  running `make submit` would overwrite your real App Store listing with"
         msg << "\n  the local placeholders. Instead, run `make adopt` first to pull your"
@@ -1189,7 +1778,7 @@ module Bootstrap
       return :done if ENV["ASC_APP_PRIVACY_ACK"].to_s.strip.downcase == "true"
       require "spaceship"
       Bootstrap.ensure_asc_token!(config)
-      app = Spaceship::ConnectAPI::App.find(config["BUNDLE_ID"])
+      app = Spaceship::ConnectAPI::App.find(Bootstrap.identity!("BUNDLE_ID"))
       return [:warn, "ASC App record not found (covered by VerifyAscApp); App Privacy check skipped."] unless app
       state = Spaceship::ConnectAPI::AppDataUsagesPublishState.get(app_id: app.id)
       if state.nil?
@@ -1259,7 +1848,7 @@ module Bootstrap
       return :done if ENV["ASC_SUBMISSION_PREREQS_ACK"].to_s.strip.downcase == "true"
       require "spaceship"
       Bootstrap.ensure_asc_token!(config)
-      app = Spaceship::ConnectAPI::App.find(config["BUNDLE_ID"])
+      app = Spaceship::ConnectAPI::App.find(Bootstrap.identity!("BUNDLE_ID"))
       return [:warn, "ASC App record not found (covered by VerifyAscApp); submission prerequisites skipped."] unless app
 
       missing = []
@@ -1735,8 +2324,10 @@ module Bootstrap
       CheckAppleCreds,
       CheckGHCreds,
       RemoteMatches,
-      RenameStub,
-      IdentityAdopted,       # verifies what RenameStub writes, to depth (D-64)
+      IdentityPresent,       # tier 1: the four keys exist and resolve (A-01)
+      IdentityAdopted,       # tiers 2-3: and they are not the template's (D-64)
+      StoreMetadataGenerated, # identity verified FIRST, then generated from (D-74/A-07)
+      LocalSigningTeam,      # the Team ID reaches the build; refuses rather than writing blank (UP-04)
       BrewBootstrap,
       Icon1024,              # tree mutations land before InitialPush
       MakeIcons,
@@ -1790,7 +2381,7 @@ module Bootstrap
     def doctor
       @config.validate!
       UI.section "Configuration"
-      puts "  app:     #{@config['APP_NAME']} (#{@config['BUNDLE_ID']})"
+      puts "  app:     #{Bootstrap.identity_for_display('APP_PRODUCT_NAME')} (#{Bootstrap.identity_for_display('BUNDLE_ID')})"
       puts "  mode:    RELEASE_MODE=#{UI.bold @config.release_mode}"
       puts "  apple:   team #{@config['FASTLANE_TEAM_ID']}, ASC key #{@config['ASC_API_KEY_ID']}"
       gh_line = "  gh:      app=#{@config.repo_slug}"
@@ -1904,7 +2495,7 @@ module Bootstrap
       puts UI.bold "✅ Bootstrap complete."
       puts
       puts "What just happened on #{@config.repo_slug}:"
-      puts "  - #{@config['APP_NAME']} (#{@config['BUNDLE_ID']}) project files committed"
+      puts "  - #{Bootstrap.identity_for_display('APP_PRODUCT_NAME')} (#{Bootstrap.identity_for_display('BUNDLE_ID')}) project files committed"
       puts "  - Pushed directly to main (no GitHub PR opened — bootstrap-fork pushes straight)"
       if @config.ci_mode?
         puts
@@ -1960,7 +2551,7 @@ module Bootstrap
     Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
       key_id:    ENV.fetch("ASC_API_KEY_ID"),
       issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
-      key:       File.read(p8_path),
+      key:       File.binread(p8_path),
     )
   end
 

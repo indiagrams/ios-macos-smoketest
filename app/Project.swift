@@ -233,7 +233,7 @@ let iosUnitTestTarget = Target.target(
     bundleId: "$(BUNDLE_ID).tests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
-    sources: ["Tests/**", "Shared/Engine/**", "EngineTests/**"],
+    sources: ["Tests/**", "Shared/Engine/**", "Shared/Model/**", "EngineTests/**"],
     dependencies: [.target(name: "App-iOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "App-iOS",
@@ -247,7 +247,7 @@ let macUnitTestTarget = Target.target(
     bundleId: "$(BUNDLE_ID).mactests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
-    sources: ["MacOSTests/**", "Shared/Engine/**", "EngineTests/**"],
+    sources: ["MacOSTests/**", "Shared/Engine/**", "Shared/Model/**", "EngineTests/**"],
     dependencies: [.target(name: "App-macOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "App-macOS",

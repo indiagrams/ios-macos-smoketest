@@ -215,6 +215,12 @@ targets:
       # silently broken test build. The engine is pure value types with no
       # dependency on the app module, so compiling it in costs nothing.
       - path: Shared/Engine
+      # ConversionFailure lives under Shared/Model, not Shared/Engine, so it
+      # needs its own entry: the app targets take all of Shared/, but the unit
+      # test targets list subpaths one at a time. Without this line the engine
+      # compiles into the app and NOT into the tests, and every test that names
+      # the type fails to compile. Added by 06-03.
+      - path: Shared/Model
       - path: EngineTests
     settings:
       base:
@@ -268,6 +274,8 @@ targets:
       # (06-RESEARCH Open Question 1). One engine, one corpus, two unit
       # targets, no identity literal in any test file.
       - path: Shared/Engine
+      # See AppTests above — Shared/Model carries ConversionFailure.
+      - path: Shared/Model
       - path: EngineTests
     settings:
       base:

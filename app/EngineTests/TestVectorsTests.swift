@@ -137,7 +137,7 @@ struct TestVectorsTests {
     /// Re-measure every digest through CryptoKit itself.
     @Test
     func digestVectorsAreStillWhatCryptoKitProduces() {
-        #expect(TestVectors.digestVectors.count == 2, "corpus is empty; the loop below would assert nothing")
+        #expect(TestVectors.digestVectors.count == 6, "corpus is empty or truncated; the loop below would assert nothing")
         for vector in TestVectors.digestVectors {
             let data = Data(vector.input.utf8)
             #expect(Self.hex(Insecure.MD5.hash(data: data)) == vector.md5, "MD5 changed for \(String(reflecting: vector.input))")
@@ -151,7 +151,7 @@ struct TestVectorsTests {
     /// being pasted in — which is how RESEARCH quotes the SHA-512.
     @Test
     func digestLiteralsAreFullLength() {
-        #expect(TestVectors.digestVectors.count == 2, "corpus is empty; the loop below would assert nothing")
+        #expect(TestVectors.digestVectors.count == 6, "corpus is empty or truncated; the loop below would assert nothing")
         for vector in TestVectors.digestVectors {
             #expect(vector.md5.count == 32)
             #expect(vector.sha1.count == 40)

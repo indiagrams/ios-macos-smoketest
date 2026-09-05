@@ -263,6 +263,54 @@ enum TestVectors {
             sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
             sha512: "9b71d224bd62f3785d96d46ad3ea3d73319bfbc2890caadae2dff72519673ca7"
                 + "2323c3d99ba5c11d7c7acc6e14b8c5da0c4663475c2e5c3adef46f73bcdec043"
+        ),
+        // Added by 06-04, which needs at least five. The two rows above were
+        // measured only against CryptoKit; these first two are ALSO the
+        // published vectors of their specifications, so the corpus now
+        // contains values that would catch CryptoKit itself being wrong
+        // rather than merely catching a change in it. Re-measured through
+        // CryptoKit on 2026-09-04 before being written, and re-measured
+        // against the live platform on every run by
+        // `TestVectorsTests.digestVectorsAreStillWhatCryptoKitProduces`.
+        DigestVector(
+            input: "abc",
+            md5: "900150983cd24fb0d6963f7d28e17f72",
+            sha1: "a9993e364706816aba3e25717850c26c9cd0d89d",
+            sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            sha512: "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
+                + "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+        ),
+        DigestVector(
+            input: "The quick brown fox jumps over the lazy dog",
+            md5: "9e107d9d372bb6826bd81d3542a419d6",
+            sha1: "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12",
+            sha256: "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592",
+            sha512: "07e547d9586f6a73f73fbac0435ed76951218fb7d0c8d788a309d785436bbb64"
+                + "2e93a252a954f23912547d1e8a3b5ed6e1bfd7097821233fa0538f3db854fee6"
+        ),
+        // Non-ASCII, so a digest taken over the wrong encoding differs. "é" is
+        // ONE Character and TWO UTF-8 bytes (C3 A9) — and 0xA9 is the byte
+        // both Foundation string APIs on this project have been measured
+        // mishandling, which is a coincidence worth having in the corpus.
+        DigestVector(
+            input: "é",
+            md5: "66ddcd97cfdeabb2f6fb8a999b4bc76f",
+            sha1: "bf15be717ac1b080b4f1c456692825891ff5073d",
+            sha256: "4a99557e4033c3539de2eb65472017cad5f9557f7a0625a09f1c3f6e2ba69c4c",
+            sha512: "9e2ad28633f24451bd4f3c1cb20586a21a44c3aeedbdc01b9cc8fa72917ea7bd"
+                + "689c82b8bf1fef89b911cf8cc46fa2c1ccc10087b2094fd4d3350ecd88526a2c"
+        ),
+        // A multi-scalar grapheme: 3 Characters, 27 UTF-8 bytes — the same
+        // string `positionCases` uses. A hasher that walked Characters or
+        // UTF-16 rather than UTF-8 bytes produces a different digest here and
+        // the same digest for every ASCII row above.
+        DigestVector(
+            input: "a👨‍👩‍👧‍👦b",
+            md5: "4ea1b8b17344dee37995309729714d0f",
+            sha1: "f369187e6c175d4b39815116cadd2894d884cbe6",
+            sha256: "43ea233b1b448e7e2b2c456f6b40908dd404ff891da171e7d8baa54b12bc665c",
+            sha512: "ae0fd92f114962b8f35d120c5fd6ce1585a04d8c84f55c893e86bafff4a00ba0"
+                + "d41c5f4ed199985246132165c977369d54da973894bb9318fcbd58bc5b1b1d57"
         )
     ]
 

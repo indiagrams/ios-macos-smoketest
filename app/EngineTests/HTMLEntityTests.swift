@@ -207,12 +207,28 @@ struct HTMLEntityTests {
     /// **The ordering bug, asserted directly.** `&` must be escaped first, or
     /// the `&` of an escape sequence gets escaped again by a later pass and
     /// `"&lt;"` comes back as `"&lt;"` instead of `"&amp;lt;"`.
+    ///
+    /// - Important: **The first four expectations below do NOT discriminate
+    ///   the ordering**, and that was measured rather than assumed. Driving
+    ///   `control=entity-ampersand-ordering` — the chained
+    ///   `replacingOccurrences` shape with `&` escaped LAST — left this test
+    ///   GREEN: under that bug `encode("&lt;")` is still `"&amp;lt;"`, because
+    ///   the input has no `<` to escape in the first place. The plan named
+    ///   that line as its ordering assertion; it is not one. The four
+    ///   expectations that DO fire are the last four here, where the bug
+    ///   double-escapes an ampersand the encoder itself produced.
     @Test
     func theAmpersandIsEscapedFirstSoAnEscapeIsEscapedAgain() {
         #expect(HTMLEntityCodec.encode("a & b") == "a &amp; b")
         #expect(HTMLEntityCodec.encode("&lt;") == "&amp;lt;")
         #expect(HTMLEntityCodec.encode("&amp;") == "&amp;amp;")
         #expect(HTMLEntityCodec.encode("&&") == "&amp;&amp;")
+        // The discriminating four: each replacement contains an `&` that must
+        // NOT be escaped again.
+        #expect(HTMLEntityCodec.encode("<") == "&lt;")
+        #expect(HTMLEntityCodec.encode(">") == "&gt;")
+        #expect(HTMLEntityCodec.encode("\"") == "&quot;")
+        #expect(HTMLEntityCodec.encode("'") == "&#39;")
     }
 
     /// The apostrophe is `&#39;`, NOT `&apos;`. Stated in the codec's doc

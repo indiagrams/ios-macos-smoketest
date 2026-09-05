@@ -323,6 +323,29 @@ jobs:
           # tracked file, no key gitleaks would silently ignore — and the version
           # pin agreeing between tools/gitleaks.rb and the step name below.
           ruby test/gitleaks_config_test.rb
+          # APP-03's data half (plan 06-05). app/Shared/Engine/HTMLEntityTable{A,B}.swift
+          # are GENERATED and TRACKED: the generator is the source of truth and the
+          # output is reviewable. Two properties are checked here and nowhere else on a
+          # pull request, because both are invisible to the compiler.
+          #
+          # 1. THE COUNT. The obvious packing format for an entity table uses ';' as its
+          #    record delimiter, and three entity TARGETS are delimiter characters, so
+          #    such a pack loses records. Measured on this tree: 2122 of 2125 parsed,
+          #    with `swiftc -typecheck` exiting 0 over the broken tables and emitting no
+          #    diagnostic at all. Nothing in the Swift toolchain notices; a count
+          #    assertion is the only thing that does. Both halves are asserted
+          #    separately and then summed, because a union that has stopped drawing from
+          #    one source looks identical to one that never did.
+          # 2. PURE ASCII. 17 entities target invisible or format characters. Written as
+          #    literal characters they are `invisible_character` errors under
+          #    swiftlint --strict — which runs in the macos matrix in pr.yml, not here.
+          #    Asserting the byte-level property in Ruby puts it on EVERY pull request.
+          #
+          # --check never fetches: the WHATWG document is downloaded once, at generation
+          # time, on a developer's machine (APP-11). Both files are Ruby core plus
+          # json/open3, so bundler-cache: false above still holds.
+          ruby tools/gen-html-entities.rb --check
+          ruby test/gen_html_entities_test.rb
 
       # A SEPARATE, NAMED STEP — and deliberately still a step in THIS job, not a
       # job of its own. A new job would be a tenth status context, and branch

@@ -181,9 +181,12 @@ struct OutputAccessory: View {
         .menuIndicator(.hidden)
         .buttonStyle(.borderless)
         .disabled(!isEnabled)
-        // "Add step" is the catalog KEY as well as its English value — 06-10's
-        // one declared alias, kept because 06-14's G8 amendment counts that
-        // string twice. Writing `step.addStep` here would resolve to nothing.
+        // The label below is the catalog KEY as well as its English value —
+        // 06-10's one declared alias, kept because 06-14's amended G8 group
+        // counts that string twice in Localizable.xcstrings and exactly ONCE
+        // here. Writing `step.addStep` instead would resolve to nothing, and
+        // naming the label again in this comment would inflate G8's Swift-side
+        // count to two, so it is described here rather than spelled.
         .accessibilityLabel("Add step")
         .accessibilityIdentifier(AccessibilityIdentifiers.Step.addStep)
     }

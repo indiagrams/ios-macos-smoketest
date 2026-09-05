@@ -147,35 +147,58 @@ NAME_TXT          = "fastlane/metadata/en-US/name.txt"
 
 # ─── G8 vocabulary — the app's own user-visible copy ─────────────────────────
 #
-# Two files, and BOTH of them, because they carry the SAME sentence: the Swift
+# Two files, and BOTH of them, because they carry the SAME string: the Swift
 # source as a literal, and the string catalog as the KEY and its `en` value. An
-# assertion over ContentView.swift alone goes green while the retired instruction
+# assertion over the Swift surface alone goes green while a retired instruction
 # is still shipping in the catalog — measured, not imagined: A-08's original
 # wording named only the Swift file, and the catalog was found by grepping for
 # the string rather than by reading the plan.
 #
+# AMENDED 2026-09-05 (plan 06-14, D-66 / PRIV-06). Phase 6 replaced the
+# placeholder root view wholesale and DELETED it, together with the two template
+# rows it resolved from the catalog — which is precisely what the previous
+# wording of this comment said was coming. The three assertion shapes below are
+# UNCHANGED. Only the POPULATION and the POSITIVE ANCHOR moved, which is the
+# least an amendment can change and still be honest:
+#
+#   * the Swift member is now app/Shared/Views/OutputAccessory.swift, the file
+#     that renders the add-step control and labels it;
+#   * the anchor is now `Add step`. It was chosen because it is the phase's
+#     primary call to action, it is on every output on every surface, and its
+#     absence would mean APP-08 had regressed — so an anchor that goes missing
+#     is a real regression rather than a copy edit. It also lands in the catalog
+#     as BOTH the key and its `en` value, so the count below survives at 2,
+#     unchanged;
+#   * RETIRED_SCRIPT and the negative half are untouched, now applied over the
+#     new population. "The shipped app does not tell its user to run a retired
+#     script" is exactly as valid over the new UI as it was over the old one.
+#
 # SCOPE, stated so it is not widened by the next reader. This group asserts the
-# absence of ONE retired command and the presence of the sentence that replaced
-# it. It is deliberately NOT a check on app-facing prose in general: the app's
-# title and its "iOS + macOS template" subtitle are still the template's and are
-# still here, Phase 6 replaces that screen wholesale under D-66/PRIV-06, and the
-# IDENT-15 / UL-045 gate-blindness CLASS is Phase 6 criterion 7. A group that
-# quietly grew into the prose class would fail this repository today for a reason
-# nobody in Phase 5 signed up to fix.
-APP_COPY_FILES  = %w[app/Shared/ContentView.swift app/Shared/Localizable.xcstrings].freeze
+# absence of ONE retired command and the presence of ONE anchor. It is
+# deliberately NOT a check on app-facing prose in general: that population is
+# criterion 7's (tools/check-contamination.rb, IDENT-15) over tracked files, and
+# criterion 6's (the rendered-string sweep, D-93/D-94) over what a running app
+# puts on screen. Three populations on purpose, and this is the narrowest.
+APP_COPY_FILES  = %w[app/Shared/Views/OutputAccessory.swift app/Shared/Localizable.xcstrings].freeze
 # The retired script, spelled without its `bin/` prefix so the assertion also
 # catches a bare `rename.sh --help` written from inside bin/.
 RETIRED_SCRIPT  = "rename.sh"
-# The POSITIVE half. Without it, deleting the Text call outright — or emptying the
+# The POSITIVE half. Without it, deleting the label outright — or emptying the
 # catalog — satisfies the negative half completely, which is the shape 05-11
 # recorded as "a scope assertion needs a positive half or an empty file satisfies
 # it". Spelled here as a frozen constant rather than read out of either file.
-APP_COPY_STRING = "Set this app's identity in `app/Identity.xcconfig`."
-# In the catalog the same sentence is BOTH the key and its `en` value, so it must
+APP_COPY_STRING = "Add step"
+# In the catalog the same string is BOTH the key and its `en` value, so it must
 # appear exactly twice. The pairing is asserted as a COUNT rather than by parsing
 # JSON on purpose: this file carries exactly ONE require-family line
 # (require_relative "../bin/lib/xcconfig"), which is what the `review notes` job's
 # bundler-cache: false rests on, and `require "json"` would be a second.
+#
+# The Swift member must carry the anchor exactly ONCE, and that exactness is the
+# point rather than an accident: a prose mention of the anchor in a comment in
+# that file inflates the count just as surely as a second rendered label would.
+# Plan 06-14 reworded one such comment rather than relaxing this half to `>= 1`
+# — a file swept by a content gate must not spell the gate's own subject.
 APP_COPY_CATALOG_OCCURRENCES = 2
 
 # ─── G3 vocabulary — the Team ID and where it must never appear ──────────────
@@ -465,7 +488,7 @@ assert !xcconfig_display_name.nil? && xcconfig_display_name == listing_name,
 # ─── G8: the app does not tell its user to run a retired script (A-08) ───────
 
 puts
-puts "G8 — no app-facing string names `#{RETIRED_SCRIPT}`, and the string that replaced it is present:"
+puts "G8 — no app-facing string names `#{RETIRED_SCRIPT}`, and the anchor string is present:"
 
 APP_COPY_FILES.each do |rel|
   exists = File.exist?(File.join(ROOT, rel))
@@ -485,15 +508,16 @@ swift_rel = APP_COPY_FILES[0]
 if File.exist?(File.join(ROOT, swift_rel))
   swift_hits = read_utf8(swift_rel).scan(APP_COPY_STRING).length
   assert swift_hits == 1, "G8", swift_rel,
-         "carries the replacement string exactly once (found #{swift_hits}); without " \
-         "this half, deleting the Text call satisfies the absence check completely"
+         "carries the anchor string exactly once (found #{swift_hits}); without " \
+         "this half, deleting the label satisfies the absence check completely, and a " \
+         "second hit means this file spells the anchor in prose as well as rendering it"
 end
 
 catalog_rel = APP_COPY_FILES[1]
 if File.exist?(File.join(ROOT, catalog_rel))
   catalog_hits = read_utf8(catalog_rel).scan(APP_COPY_STRING).length
   assert catalog_hits == APP_COPY_CATALOG_OCCURRENCES, "G8", catalog_rel,
-         "carries the replacement string exactly #{APP_COPY_CATALOG_OCCURRENCES} times, " \
+         "carries the anchor string exactly #{APP_COPY_CATALOG_OCCURRENCES} times, " \
          "once as the catalog KEY and once as its `en` value (found #{catalog_hits}); a " \
          "key that stops matching its source string stops resolving, silently"
 end

@@ -33,7 +33,7 @@ import Foundation
 /// spaced prose from anything reaching a user or a reviewer, and the D-93 sweep
 /// harvests identifiers as well as labels — so the app's own selectors must not
 /// make it special-case the app's own name. The feature scopes are ``Shell``,
-/// ``Encode``, ``Hashing``, ``Timestamps`` and ``Step``.
+/// ``Encode``, ``Hashing``, ``Timestamps``, ``Step`` and ``Input``.
 ///
 /// **Two-level leaves are flattened in Swift, not in the value.** `swiftlint`'s
 /// `nesting` rule allows one level of type nesting, so a `tab` enum inside
@@ -142,6 +142,28 @@ public enum AccessibilityIdentifiers {
 
         /// The date-and-time representation cell.
         public static let cellDateTime = "Timestamps.cell.dateTime"
+    }
+
+    /// The one input block all three surfaces share — see
+    /// `app/Shared/Views/InputArea.swift`.
+    ///
+    /// **A scope of its own rather than a member of the three surface scopes,
+    /// and that is the whole point.** The three surface scopes each mint an
+    /// `input` and a `useExample` because those elements are PER SURFACE: there
+    /// are three text fields on screen over the course of a walk and a query has
+    /// to say which one it means. The control below is not per surface. There is
+    /// exactly one software keyboard, the toolbar hangs off it rather than off
+    /// any surface, and only the focused field can have raised it — so a
+    /// per-surface constant here would mint three selectors for one element and
+    /// leave a test free to pick the wrong one.
+    ///
+    /// Added by plan 06-19 to close GAP-06-01.
+    public enum Input {
+        /// The control on the iOS keyboard toolbar that resigns first responder.
+        ///
+        /// iOS only. macOS has no software keyboard, the modifier that installs
+        /// this is compiled out there, and nothing on that platform queries it.
+        public static let done = "Input.done"
     }
 
     /// The step card and its output accessory — the repeated unit of the whole

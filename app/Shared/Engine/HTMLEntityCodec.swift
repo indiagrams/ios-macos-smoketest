@@ -120,11 +120,18 @@ enum HTMLEntityCodec {
     ///   numeric form is universally understood. Plan 06-12's UI strings must
     ///   match this choice.
     /// - Important: `&` is escaped FIRST — structurally, not by ordering luck.
-    ///   The classic bug lives in the chained-replacement shape, where a
-    ///   later `replacingOccurrences` re-reads the `&` an earlier one emitted
-    ///   and double-escapes it. A single traversal appends replacements to the
-    ///   OUTPUT and never re-examines them, so the fault cannot occur. The
-    ///   regression assertion is `encode("&lt;") == "&amp;lt;"`.
+    ///   The classic bug lives in the CHAINED-REPLACEMENT shape, where a later
+    ///   String-replacing pass re-reads the `&` an earlier one emitted and
+    ///   double-escapes it. A single traversal appends replacements to the
+    ///   OUTPUT and never re-examines them, so the fault cannot occur. (The
+    ///   chained API is named descriptively here for the same reason the
+    ///   platform decoder is in the file header: the plan greps this file for
+    ///   its name and expects 0. The gate was driven RED separately.)
+    /// - Important: The regression assertion is NOT `encode("&lt;") ==
+    ///   "&amp;lt;"`, which the plan proposed and which MEASURABLY PASSES
+    ///   under the `&`-last bug — that input has no `<` for an earlier pass to
+    ///   escape. It is `encode("<") == "&lt;"` and its three siblings, whose
+    ///   replacements each contain an `&` the encoder must leave alone.
     private static let escapes: [Unicode.Scalar: String] = [
         "&": "&amp;",
         "<": "&lt;",

@@ -25,12 +25,31 @@ import XCTest
 // `@MainActor final class`, `override func setUpWithError()`, no `async`, no
 // Swift 6 isolation syntax.
 //
-// NEVER QUERY BY VISIBLE TEXT. Every destination below is reached through an
-// `AccessibilityIdentifiers.Shell.*` constant. The three are asserted
-// INDIVIDUALLY, each with a message naming which one is missing, BEFORE any
-// total — because a count of three reached by two tabs and one stray element
-// would pass a total-only assertion, and "a correct check pointed at the wrong
-// population" is the failure class this phase exists to stop repeating.
+// NEVER QUERY BY VISIBLE TEXT. Every destination below is identified by an
+// `AccessibilityIdentifiers.Shell.*` constant, asserted INDIVIDUALLY, each with
+// a message naming which one is missing, BEFORE any total — because a count of
+// three reached by two tabs and one stray element would pass a total-only
+// assertion, and "a correct check pointed at the wrong population" is the
+// failure class this phase exists to stop repeating.
+//
+// MEASURED, AND IT DECIDES THE SHAPE OF THIS FILE: **SwiftUI DOES NOT PUT AN
+// ACCESSIBILITY IDENTIFIER ON AN iOS TAB BAR BUTTON.** Dumped from the running
+// app on three runtimes, with the identifier tried in four placements — on the
+// `Label` inside `.tabItem`, on the view carrying `.tabItem`, on a `Text` inside
+// a composed `Label`, and on iOS 18's `Tab` — the tab bar's buttons carry a
+// label and no identifier on iOS 18.6 and 26.1 in every one of them. (On 17.5
+// the Label placement alone does reach the button, which is exactly how a
+// 17.5-only check would have shipped a suite that fails on the other two.) An
+// `.accessibilityLabel` DOES propagate; an `.accessibilityIdentifier` does not.
+//
+// So the identifier is attached to each tab's CONTENT, which works identically
+// on all three runtimes, and this suite VISITS each destination rather than
+// looking for three buttons. That is a stronger statement than the one it
+// replaces — it says the Nth tab item leads to the destination whose content
+// carries the Nth constant, and that it leads to no other — and the only
+// non-identifier addressing it uses is an INDEX into `app.tabBars.buttons`,
+// whose population is asserted to be exactly 3 before any index is taken. No
+// query anywhere in this file matches on a word the user can read.
 
 /// The iOS navigation shell: three destinations, and work that survives a
 /// destination change (APP-10, D-82).
@@ -49,35 +68,57 @@ final class ShellTests: XCTestCase {
 
     // MARK: - APP-10
 
-    /// The three destinations exist, each asserted by its own constant.
+    /// The three destinations exist, each asserted by its own constant, and each
+    /// one reached by its own tab item.
     func testThreeDestinationsExist() {
         app.launch()
 
-        let encode = element(AccessibilityIdentifiers.Shell.tabEncode)
-        let hashing = element(AccessibilityIdentifiers.Shell.tabHashing)
-        let timestamps = element(AccessibilityIdentifiers.Shell.tabTimestamps)
+        let bar = app.tabBars.firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 30), "the app presents no tab bar at all")
 
-        XCTAssertTrue(
-            encode.waitForExistence(timeout: 30),
-            "the Encode/decode destination is missing — no element carries \(AccessibilityIdentifiers.Shell.tabEncode)"
-        )
-        XCTAssertTrue(
-            hashing.exists,
-            "the Hashing destination is missing — no element carries \(AccessibilityIdentifiers.Shell.tabHashing)"
-        )
-        XCTAssertTrue(
-            timestamps.exists,
-            "the Timestamps destination is missing — no element carries \(AccessibilityIdentifiers.Shell.tabTimestamps)"
-        )
+        // The population, asserted BEFORE any index is taken into it. Three
+        // destinations means three tab items and nothing else; an index into a
+        // collection of unknown size is the wrong-population shape.
+        XCTAssertEqual(bar.buttons.count, 3, "the tab bar carries \(bar.buttons.count) items, expected 3")
 
-        // Only now a total, and it is computed from the three elements just
-        // asserted rather than from a query that could match anything else.
-        let found = [encode, hashing, timestamps].filter(\.exists).count
+        var found = 0
+        for (index, expected) in Self.destinations.enumerated() {
+            bar.buttons.element(boundBy: index).tap()
+
+            let reached = element(expected.identifier).waitForExistence(timeout: 15)
+            XCTAssertTrue(
+                reached,
+                "the \(expected.name) destination is missing — tab item \(index) does not show "
+                    + expected.identifier
+            )
+            if reached {
+                found += 1
+            }
+
+            // And it leads to that destination ONLY. This is what ties the index
+            // to the constant one-to-one: three tab items that all showed the
+            // same surface would satisfy the assertion above three times over.
+            for other in Self.destinations where other.identifier != expected.identifier {
+                XCTAssertFalse(
+                    element(other.identifier).exists,
+                    "tab item \(index) shows \(other.identifier) as well as \(expected.identifier)"
+                )
+            }
+        }
+
         XCTAssertEqual(found, 3, "destinations_ios=\(found), expected 3")
 
         print("destinations_ios=\(found)")
         print("destinations_source=ShellTests-ios")
     }
+
+    /// The three destinations in tab order, each with the constant its content
+    /// carries and a human name for the failure message.
+    private static let destinations: [(identifier: String, name: String)] = [
+        (AccessibilityIdentifiers.Shell.tabEncode, "Encode/decode"),
+        (AccessibilityIdentifiers.Shell.tabHashing, "Hashing"),
+        (AccessibilityIdentifiers.Shell.tabTimestamps, "Timestamps")
+    ]
 
     // MARK: - D-82
 
@@ -108,8 +149,8 @@ final class ShellTests: XCTestCase {
             "the add-step control appended nothing: \(cardsBefore) cards before, \(cardsAfter) after"
         )
 
-        switchTo(AccessibilityIdentifiers.Shell.tabHashing)
-        switchTo(AccessibilityIdentifiers.Shell.tabEncode)
+        visit(1, expecting: AccessibilityIdentifiers.Shell.tabHashing, named: "Hashing")
+        visit(0, expecting: AccessibilityIdentifiers.Shell.tabEncode, named: "Encode/decode")
 
         let restored = inputValue()
         XCTAssertEqual(restored, populated, "the Encode input did not survive the destination change")
@@ -159,10 +200,20 @@ final class ShellTests: XCTestCase {
         item.tap()
     }
 
-    /// Move to the destination carrying `identifier`.
-    private func switchTo(_ identifier: String) {
-        let destination = element(identifier)
-        XCTAssertTrue(destination.waitForExistence(timeout: 10), "cannot reach the destination \(identifier)")
-        destination.tap()
+    /// Tap the tab item at `index` and confirm it showed the destination whose
+    /// content carries `identifier`.
+    ///
+    /// The index addresses `app.tabBars.buttons`, whose count is asserted to be
+    /// exactly 3 in `testThreeDestinationsExist`; what the index LEADS TO is
+    /// then checked by constant, so a reordering of the tabs fails here rather
+    /// than silently testing the wrong surface.
+    private func visit(_ index: Int, expecting identifier: String, named name: String) {
+        let bar = app.tabBars.firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 15), "the app presents no tab bar at all")
+        bar.buttons.element(boundBy: index).tap()
+        XCTAssertTrue(
+            element(identifier).waitForExistence(timeout: 15),
+            "cannot reach the \(name) destination — tab item \(index) does not show \(identifier)"
+        )
     }
 }

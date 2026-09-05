@@ -157,8 +157,8 @@ struct RootView: View {
                     }
                     .tabItem {
                         Label(destination.tabLabelKey, systemImage: destination.symbol)
-                            .accessibilityIdentifier(destination.tabIdentifier)
                     }
+                    .accessibilityIdentifier(destination.tabIdentifier)
                 }
             }
         }

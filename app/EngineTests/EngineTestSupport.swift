@@ -33,6 +33,39 @@ struct SeededGenerator: RandomNumberGenerator {
     }
 }
 
+/// String generators shared by the codec suites.
+///
+/// These live here rather than in one suite for the same reason
+/// ``SeededGenerator`` does: 06-04, 06-06, 06-07 and 06-08 all sweep over
+/// random text, and four private copies with four different pools make a
+/// cross-suite failure impossible to compare.
+extension SeededGenerator {
+    /// A string of up to `maxScalars` scalars drawn from `pool`.
+    ///
+    /// Scalars rather than Characters, so a pool can contain combining marks
+    /// and the generator can build multi-scalar graphemes.
+    mutating func randomScalarString(from pool: [Unicode.Scalar], maxScalars: Int) -> String {
+        guard !pool.isEmpty, maxScalars > 0 else { return "" }
+        var out = ""
+        let count = Int(next() % UInt64(maxScalars + 1))
+        for _ in 0 ..< count {
+            out.unicodeScalars.append(pool[Int(next() % UInt64(pool.count))])
+        }
+        return out
+    }
+
+    /// A string of up to `maxLength` Characters drawn from `pool`.
+    mutating func randomString(from pool: [Character], maxLength: Int) -> String {
+        guard !pool.isEmpty, maxLength > 0 else { return "" }
+        var out = ""
+        let count = Int(next() % UInt64(maxLength + 1))
+        for _ in 0 ..< count {
+            out.append(pool[Int(next() % UInt64(pool.count))])
+        }
+        return out
+    }
+}
+
 /// Readers that keep an assertion about a codec from being mostly about
 /// unwrapping a `Result`.
 extension Result {

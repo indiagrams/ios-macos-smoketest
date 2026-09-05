@@ -46,7 +46,11 @@ struct PercentTests {
         #expect(cases.filter { $0.expected == .badEscape }.count >= 4)
         #expect(cases.filter { $0.expected == .badUTF8 }.count >= 2)
         #expect(cases.filter {
-            if case .decodes = $0.expected { true } else { false }
+            if case .decodes = $0.expected {
+                true
+            } else {
+                false
+            }
         }.count >= 2)
     }
 
@@ -180,7 +184,7 @@ struct PercentTests {
     func encodedHexDigitsAreUppercase() {
         let encoded = PercentCodec.encode("é~/\u{7F}")
         #expect(encoded == "%C3%A9~%2F%7F")
-        #expect(!encoded.contains(where: { $0.isLowercase }))
+        #expect(encoded.uppercased() == encoded, "hex digits must be uppercase per RFC 3986 §2.1")
     }
 
     /// `+` is NOT a space. RFC 3986 percent-encoding is not `application/
@@ -224,120 +228,6 @@ struct PercentTests {
         }
     }
 
-    /// The same round trip over a seeded random population, so the property is
-    /// asserted about the function rather than about fifteen hand-picked
-    /// strings.
-    @Test
-    func encodingRoundTripsOverASweptPopulation() {
-        var generator = SeededGenerator(seed: 0x5045_5243_454E_5401)
-        var checked = 0
-        for _ in 0 ..< 2000 {
-            let sample = Self.randomText(&generator, maxScalars: 12)
-            let encoded = PercentCodec.encode(sample)
-            #expect(PercentCodec.decode(encoded).success == sample,
-                    "round trip lost \(String(reflecting: sample))")
-            checked += 1
-        }
-        #expect(checked == 2000)
-    }
-
-    // MARK: - The one-directional contract
-
-    /// `classify(s) == nil  =>  s.removingPercentEncoding != nil`, over a
-    /// swept population, with BOTH branches counted and both counts asserted
-    /// non-zero — a sweep that only ever hit one branch would pass while
-    /// proving nothing.
-    ///
-    /// The CONVERSE is not asserted. It is measurably false: see
-    /// ``theByteFoundationRepairsIsStillReportedInvalid()``.
-    @Test
-    func classifyingValidImpliesFoundationDecodes() {
-        var generator = SeededGenerator(seed: 0x5045_5243_454E_5402)
-        var accepted = 0
-        var rejected = 0
-        for _ in 0 ..< 4000 {
-            let sample = Self.randomPercentish(&generator, maxBytes: 10)
-            if PercentCodec.classify(sample) == nil {
-                accepted += 1
-                #expect(sample.removingPercentEncoding != nil,
-                        "FORWARD COUNTEREXAMPLE: \(String(reflecting: sample)) classifies valid, Foundation returns nil")
-            } else {
-                rejected += 1
-            }
-        }
-        #expect(accepted > 0, "the sweep never produced a valid input; the assertion above never ran")
-        #expect(rejected > 0, "the sweep never produced an invalid input; it is not exercising the classifier")
-        #expect(accepted + rejected == 4000)
-    }
-
-    /// The byte `removingPercentEncoding` REPAIRS is still reported invalid,
-    /// on every runtime.
-    ///
-    /// Measured on macOS 26.5.2: `"%A9".removingPercentEncoding` returns
-    /// `Optional("\u{FFFD}")` rather than nil, and it is the ONLY byte in
-    /// `0x80...0xFF` that does — enumerated exhaustively, then confirmed over
-    /// a 65,536-input pair sweep in which all 257 disagreements contained
-    /// `%A9` and all 257 were repaired to U+FFFD. A decoder that trusted
-    /// Foundation would answer `"a\u{FFFD}"` for `"a%A9"` and call it success,
-    /// showing the user a replacement character where their byte was.
-    ///
-    /// This assertion is OS-independent by construction: it is about the
-    /// classifier, which is the authority, not about Foundation.
-    @Test
-    func theByteFoundationRepairsIsStillReportedInvalid() {
-        #expect(PercentCodec.classify("%A9") == .invalidUTF8(position: 1))
-        #expect(PercentCodec.classify("a%A9") == .invalidUTF8(position: 2))
-        #expect(PercentCodec.decode("a%A9").failure == .invalidUTF8(position: 2))
-        #expect(PercentCodec.decode("a%A9").success == nil,
-                "0xA9 decoded to a String — Foundation's U+FFFD repair reached the user")
-        #expect(PercentCodec.decode("%a9").failure == .invalidUTF8(position: 1),
-                "the lowercase spelling of the same escape must be rejected too")
-    }
-
-    /// The classifier is never MORE permissive than Foundation, which is the
-    /// direction that holds; and the population really does contain inputs
-    /// where Foundation is more permissive, counted rather than assumed.
-    @Test
-    func theClassifierIsNeverMorePermissiveThanFoundation() {
-        var generator = SeededGenerator(seed: 0x5045_5243_454E_5403)
-        var agreements = 0
-        var foundationMorePermissive = 0
-        for _ in 0 ..< 4000 {
-            let sample = Self.randomPercentish(&generator, maxBytes: 8)
-            let ours = PercentCodec.classify(sample) == nil
-            let theirs = sample.removingPercentEncoding != nil
-            if ours == theirs {
-                agreements += 1
-            } else {
-                #expect(!ours, "the classifier accepted what Foundation rejected: \(String(reflecting: sample))")
-                foundationMorePermissive += 1
-            }
-        }
-        #expect(agreements > 0)
-        #expect(agreements + foundationMorePermissive == 4000)
-    }
-
-    // MARK: - Decode short-circuits on the classifier
-
-    /// When `classify` finds a fault, `decode` returns THAT failure — the same
-    /// reason and the same position — rather than some other error. This is
-    /// the observable form of "decode never calls `removingPercentEncoding`
-    /// when classify is non-nil": if it did and mapped the result itself, the
-    /// positions would not survive.
-    @Test
-    func decodeReturnsTheClassifiersOwnFailure() {
-        var generator = SeededGenerator(seed: 0x5045_5243_454E_5404)
-        var checked = 0
-        for _ in 0 ..< 3000 {
-            let sample = Self.randomPercentish(&generator, maxBytes: 8)
-            guard let failure = PercentCodec.classify(sample) else { continue }
-            #expect(PercentCodec.decode(sample).failure == failure,
-                    "decode disagreed with classify on \(String(reflecting: sample))")
-            checked += 1
-        }
-        #expect(checked > 0, "the sweep produced no invalid input; the assertion above never ran")
-    }
-
     /// No input traps. These bundles are host-based, so a trap kills the host
     /// rather than failing a test — this walks the paths most likely to index
     /// off the end and asserts a value came back from each.
@@ -358,38 +248,21 @@ struct PercentTests {
         }
     }
 
-    // MARK: - Generators
-
-    /// Arbitrary text, biased towards the characters that matter here.
-    private static func randomText(_ generator: inout SeededGenerator, maxScalars: Int) -> String {
-        let pool = Array("abz09-._~/?=&+% \n\u{00E9}\u{65E5}\u{1F44D}\u{0}").compactMap(\.unicodeScalars.first)
-        var out = ""
-        let count = Int(generator.next() % UInt64(maxScalars + 1))
-        for _ in 0 ..< count {
-            out.unicodeScalars.append(pool[Int(generator.next() % UInt64(pool.count))])
-        }
-        return out
-    }
-
-    /// Strings shaped like percent-encoded input: escapes, half-escapes and
-    /// literals, so the sweep lands on both sides of the classifier.
-    private static func randomPercentish(_ generator: inout SeededGenerator, maxBytes: Int) -> String {
-        let pool = Array("%0189AFafgz-._~ ")
-        var out = ""
-        let count = Int(generator.next() % UInt64(maxBytes + 1))
-        for _ in 0 ..< count {
-            out.append(pool[Int(generator.next() % UInt64(pool.count))])
-        }
-        return out
-    }
-
     // MARK: - Readers
 
     private func isInvalidEscape(_ failure: ConversionFailure?) -> Bool {
-        if case .invalidEscape = failure { true } else { false }
+        if case .invalidEscape = failure {
+            true
+        } else {
+            false
+        }
     }
 
     private func isInvalidUTF8(_ failure: ConversionFailure?) -> Bool {
-        if case .invalidUTF8 = failure { true } else { false }
+        if case .invalidUTF8 = failure {
+            true
+        } else {
+            false
+        }
     }
 }

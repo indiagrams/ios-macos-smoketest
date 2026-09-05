@@ -187,12 +187,25 @@ struct TimestampsSurface: View {
         }
     }
 
-    /// Start a chain at `representation`'s value and put `operation` after it.
+    /// Start a chain at `representation`'s value and put `operation` after it —
+    /// or APPEND, when the chain is already rooted at that same cell.
     ///
     /// The chain is rooted at whichever cell the user reached for, which is what
     /// "feed any tool's output into another tool" means on a surface with three
-    /// outputs. Reaching for a different cell re-roots the chain there.
-    private func chain(from representation: TimestampRepresentation, to operation: Operation) {
+    /// outputs. Reaching for a DIFFERENT cell re-roots the chain there.
+    ///
+    /// - Important: **The root check is the whole point (WR-01).** Until
+    ///   2026-09-05 this assigned a fresh `Pipeline` unconditionally, so tapping
+    ///   `+` twice on the SAME cell destroyed every card already chained below
+    ///   it — no confirmation, no undo. `model.timestampsChainRoot` was already
+    ///   stored and simply never read here; it is read now.
+    /// - Note: Internal rather than `private` so a host-based unit test can
+    ///   drive THIS function rather than a copy of its rule.
+    func chain(from representation: TimestampRepresentation, to operation: Operation) {
+        guard model.timestampsChainRoot != representation || model.timestamps.steps.isEmpty else {
+            model.timestamps = model.timestamps.appending(operation)
+            return
+        }
         model.timestampsChainRoot = representation
         model.timestamps = Pipeline(input: model.timestamps.input, steps: [Step(operation: operation)])
     }

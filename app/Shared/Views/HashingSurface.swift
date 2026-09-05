@@ -346,12 +346,32 @@ struct HashingSurface: View {
         }
     }
 
-    /// Start a chain at `row`'s digest and put `operation` after it.
+    /// Start a chain at `row`'s digest and put `operation` after it — or
+    /// APPEND, when the chain is already rooted at that same digest.
     ///
     /// The chain is rooted at whichever digest the user reached for, which is
     /// what "feed any tool's output into another tool" means on a surface with
-    /// four outputs. Choosing a different digest re-roots the chain there.
-    private func chain(from row: DigestRow, to operation: Operation) {
+    /// four outputs. Choosing a DIFFERENT digest re-roots the chain there.
+    ///
+    /// - Important: **The root check is the whole point (WR-01).** Until
+    ///   2026-09-05 this assigned a fresh `Pipeline` unconditionally, so a user
+    ///   who had built `SHA-256 → Base64 encode → MD5` and then tapped `+` on
+    ///   the SAME SHA-256 row lost both appended cards, with no confirmation
+    ///   and no undo. The doc comment justified re-rooting as "choosing a
+    ///   different digest re-roots the chain there" — but the code never
+    ///   checked which output was tapped, so it re-rooted on the same one too.
+    ///   The `+` control is identical on every row and is this surface's
+    ///   primary call to action, so it was easy to hit by accident. That is
+    ///   D-84's family inverted: work the user still has, thrown away.
+    /// - Note: Internal rather than `private` so a host-based unit test can
+    ///   drive THIS function. The test that covered chaining before rebuilt the
+    ///   pipeline by hand and asserted the result, which is a test of the
+    ///   test's copy of the rule — it could not have caught WR-01, and did not.
+    func chain(from row: DigestRow, to operation: Operation) {
+        guard model.hashing.steps.first?.operation != row.operation else {
+            model.hashing = model.hashing.appending(operation)
+            return
+        }
         model.hashing = Pipeline(
             input: model.hashing.input,
             steps: [Step(operation: row.operation), Step(operation: operation)]

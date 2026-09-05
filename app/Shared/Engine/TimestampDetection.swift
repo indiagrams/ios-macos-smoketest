@@ -1,5 +1,13 @@
-// TimestampDetection — D-88 (one field, format auto-detected) and D-89
-// (the detection shown and overridable).
+// TimestampDetection — D-88 (one field, format auto-detected) and D-89 (the
+// detection shown and overridable).
+//
+// The positional scan that fills `timestamps.error.iso8601` is the other half
+// of this type and lives in `TimestampTemplateScan.swift`. It is an extension
+// rather than a second type so there is ONE namespace for detection, and it is
+// a second FILE because `swiftlint --strict` enforces file_length (400) on this
+// repo's config and one file carrying both halves is 526 lines. The same call
+// `HTMLEntityTablePacking` and `TimestampContractTests` already made; the lint
+// config is not touched.
 //
 // WHY THE RULE IS AN ORDERED LIST AND NOT A HEURISTIC
 //
@@ -41,7 +49,8 @@
 // here: a FORCE-UNWRAPPED INTEGER CONVERSION of a string that does not fit
 // (measured `nil`; the conversion below is bound with `guard let` instead),
 // and a `Date` built from a value outside the window the formatter can render
-// (clause 6 refuses those by name).
+// (clause 6 refuses those by name). The scan's own trap site — an index walked
+// past the end of its input — is closed in `TimestampTemplateScan.swift`.
 //
 // THE PROCEDURAL REASON THIS FILE SPELLS NEITHER OF THOSE TWO THINGS
 //
@@ -94,6 +103,9 @@ enum DetectedFormat: Equatable, Sendable {
 }
 
 /// The auto-detection rule and the override path it produces.
+///
+/// The positional classifier every date failure in this app is reported
+/// through is an extension of this type, in `TimestampTemplateScan.swift`.
 ///
 /// A caseless enum: no instance state, nothing to construct, and — as in
 /// `TimestampCodec` — no static stored property that could be shared mutable
@@ -263,11 +275,13 @@ enum TimestampDetection {
     /// `"2026-09-04"`. The same complementary-styles finding `TimestampCodec`
     /// records for fractional seconds, in a second place.
     ///
-    /// - Note: The failure below carries no interior position, and says so.
-    ///   **Plan 06-08 Task 2's positional template scan replaces it**, at
-    ///   which point every date failure this engine produces names an expected
-    ///   token and the character it was expected at.
+    /// - Note: Failures are reported by the same positional scan, run with the
+    ///   time and the zone optional — so a bare calendar date is valid here
+    ///   and `"2026-09-04X00:00:00"` still names the `T` at position 11.
     private nonisolated static func parseLocalTime(_ trimmed: String, timeZone: TimeZone) -> Result<Double, ConversionFailure> {
+        if let failure = classifyLocalTime(trimmed) {
+            return .failure(failure)
+        }
         let base = Date.ISO8601FormatStyle(timeZone: timeZone).year().month().day().dateSeparator(.dash)
         let styles = [
             base.dateTimeSeparator(.standard).time(includingFractionalSeconds: false),
@@ -279,7 +293,13 @@ enum TimestampDetection {
                 return withinWindow(trimmed)(instant.timeIntervalSince1970)
             }
         }
-        return .failure(.expectedCharacter("a date this app can read", position: 1))
+        // Unreachable while the one-directional contract holds, and it is the
+        // contract that is asserted rather than this branch that is argued
+        // away. It still needs a value, and the honest one names the end of
+        // the input rather than inventing an interior position no scan found.
+        return .failure(.expectedCharacter("a date this app can read",
+                                           position: characterPosition(utf8Offset: trimmed.utf8.count,
+                                                                       in: trimmed)))
     }
 
     /// Clause 6's second half, shared by both date paths.

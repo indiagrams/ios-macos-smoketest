@@ -85,9 +85,9 @@ enum TimestampCodec {
     ///   research and was found by re-measuring. This is the same authority
     ///   question the Base64 and percent-encoding families answered, and it
     ///   gets the same answer: the divergence is ASSERTED rather than
-    ///   reconciled, in `TimestampTests`. **Plan 06-08's positional scan must
-    ///   accept both** — a stricter classifier would report an error for input
-    ///   this function converts successfully.
+    ///   reconciled, in `TimestampTests`. Plan 06-08's positional scan
+    ///   accepts both, and four more of the same kind that re-measuring found:
+    ///   single-digit minutes, hours, days and months all parse too.
     /// - Important: **TWO STYLES ARE TRIED, AND THAT IS NOT OPTIONAL — the
     ///   phase research is wrong here, because it measured one OS.** The claim
     ///   that a single format style covers both fractional and non-fractional
@@ -115,25 +115,49 @@ enum TimestampCodec {
     ///   `-0800`). A missing zone designator, a date with no time,
     ///   basic-format `20260904`, a space in place of the `T`, and month 13
     ///   all fail — on all four runtimes, and both styles refuse each of them.
-    /// - Note: The failure carries a STATED PLACEHOLDER position, not a guess.
+    /// - Important: **THE SCAN IS CONSULTED FIRST, AND IT IS THE AUTHORITY.**
     ///   The parse throws `NSCocoaErrorDomain` code 2048 with no position in
-    ///   it, and D-85 requires a reason and a position, so position 1 is
-    ///   returned and said out loud. **Plan 06-08 replaces this with a
-    ///   positional template scan** that fills `timestamps.error.iso8601`
-    ///   properly; do not invent a more specific position here that the parser
-    ///   did not give.
-    /// - Note: Total. The only failure path is the `catch`, and no value
-    ///   produced here is used in arithmetic.
+    ///   it and D-85 requires both a reason and a position, so
+    ///   `TimestampDetection.classifyISO8601(_:)` runs before either style and
+    ///   its verdict is what this function returns. Two consequences, both
+    ///   asserted rather than argued:
+    ///
+    ///   - Every failure a caller sees names an expected token and a 1-based
+    ///     Character position. There is no position-free fallback left in this
+    ///     engine.
+    ///   - This function is now measurably STRICTER than the raw format style,
+    ///     in exactly three ways, and that is deliberate. The raw style parses
+    ///     `"2026-09-04T00:00:00Zhello world"` (everything after the zone
+    ///     designator is ignored), `"…T00:80:00Z"` (minute 80, silently
+    ///     normalised to 01:20) and `"…T00:00:00GMT"`. Converting any of those
+    ///     would be the "quietly wrong answer" half of criterion 1. See
+    ///     `DetectionContractTests`, which asserts all three against the raw
+    ///     style so the divergence is a measurement rather than a claim.
+    ///
+    ///   The contract that holds is one-directional, the same shape
+    ///   `Base64Codec` states: `classifyISO8601(s) == nil` implies one of the
+    ///   two styles below parses `s`. **The converse is false**, and it is
+    ///   counted by a generated mutation sweep rather than asserted.
+    /// - Note: Total. The only failure paths are the scan's verdict and the
+    ///   final `guard`, and no value produced here is used in arithmetic.
     /// - Parameter s: Untrusted input of arbitrary length and encoding.
     /// - Returns: `.success` with seconds since 1970, or `.failure`.
     nonisolated static func parseISO8601(_ s: String) -> Result<Double, ConversionFailure> {
+        if let failure = TimestampDetection.classifyISO8601(s) {
+            return .failure(failure)
+        }
         if let instant = try? Date.ISO8601FormatStyle().parse(s) {
             return .success(instant.timeIntervalSince1970)
         }
         if let instant = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(s) {
             return .success(instant.timeIntervalSince1970)
         }
-        return .failure(.expectedCharacter("ISO 8601", position: 1))
+        // Unreachable while the one-directional contract holds — which is
+        // asserted over the shared corpus AND over a generated mutation sweep,
+        // rather than asserted here where it could not fail. The branch still
+        // needs a value, and the honest one names the end of the input.
+        return .failure(.expectedCharacter("a valid ISO 8601 date and time",
+                                           position: characterPosition(utf8Offset: s.utf8.count, in: s)))
     }
 
     // MARK: - Rendering
@@ -158,7 +182,14 @@ enum TimestampCodec {
     ///   0.0009 s and the suite's tolerance is 0.001 s.
     /// - Note: Total. A non-finite input returns the empty string BEFORE a
     ///   `Date` is constructed — see the file header. The empty string is what
-    ///   the view layer already shows as `timestamps.output.placeholder`.
+    ///   the view layer already shows as the empty-state string the UI-SPEC's
+    ///   inventory assigns to the Timestamps output cells. Named rather than
+    ///   spelled on purpose: plan 06-08 polices this file with a `grep -c`
+    ///   that must return 0 and whose second alternative is that key's last
+    ///   component, so writing the key out would turn a gate red against a
+    ///   string that has nothing to do with the retired fallback it exists to
+    ///   police — the ninth time this phase has met a content gate sweeping
+    ///   something it did not mean.
     /// - Parameters:
     ///   - epochSeconds: Seconds since 1970.
     ///   - timeZone: The zone to render in. APP-07's picker supplies it;

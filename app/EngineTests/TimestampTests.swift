@@ -117,12 +117,14 @@ struct TimestampTests {
     }
 
     /// A failure names a reason and carries a position (D-85), and never a
-    /// bare `nil`. The position is a stated placeholder, not a guess: the
-    /// parser throws without one. Plan 06-08 replaces it with a scan.
+    /// bare `nil`. The position is now REAL: 06-07 returned a stated
+    /// placeholder because the parser throws without one, and 06-08's
+    /// positional scan replaced it. `"2026-09-04"` is a complete calendar date
+    /// missing its time, so the expected token is the `T` that would follow.
     @Test
     func aFailureIsAConversionFailureAndNotABareNil() {
-        #expect(TimestampCodec.parseISO8601("2026-09-04").failure == .expectedCharacter("ISO 8601", position: 1))
-        #expect(TimestampCodec.parseISO8601("").failure != nil)
+        #expect(TimestampCodec.parseISO8601("2026-09-04").failure == .expectedCharacter("T", position: 11))
+        #expect(TimestampCodec.parseISO8601("").failure == .expectedCharacter("a digit", position: 1))
     }
 
     // MARK: - Rendering

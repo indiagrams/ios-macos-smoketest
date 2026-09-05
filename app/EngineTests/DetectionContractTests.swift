@@ -60,7 +60,16 @@ extension DetectionTests {
 
     // MARK: - What a valid extended date and time looks like
 
-    /// Every zone form measured as parsing is also accepted by the scan.
+    /// Every form measured as parsing ON ALL FOUR SUPPORTED RUNTIMES is also
+    /// accepted by the scan.
+    ///
+    /// - Important: The population is the INTERSECTION, not what macOS
+    ///   accepts. `"…T24:00:00Z"` and `"…T00:00:60Z"` are absent because they
+    ///   are nil on iOS 17.5 and parse on the other three; `"…+05"` is absent
+    ///   because it is nil on iOS 18.6 and parses on the other three. A list
+    ///   drawn from the development machine would put all three here and go
+    ///   red on the floor — which is exactly what it did before it was
+    ///   re-measured.
     @Test
     func theClassifierAcceptsEveryZoneFormTheParserAccepts() {
         let valid = [
@@ -70,13 +79,18 @@ extension DetectionTests {
             "2026-09-04T00:00:00+0530",
             "2026-09-04T00:00:00-0800",
             "2026-09-04T00:00:00-07:00",
-            "2026-09-04T00:00:00+05",
+            "2026-09-04T00:00:00+5:30",
+            "2026-09-04T00:00:00+05:3",
+            "2026-09-04T00:00:00+18:00",
             "2026-09-04T00:00:00.123Z",
             "2026-09-04T00:00:00.123456789Z",
-            "2026-09-04T24:00:00Z",
-            "2026-09-04T00:00:60Z"
+            "2026-09-04T23:59:59Z",
+            "202-09-04T00:00:00Z",
+            "2024-02-29T00:00:00Z",
+            "0001-01-01T00:00:00Z",
+            "9999-12-31T23:59:59Z"
         ]
-        #expect(valid.count >= 10)
+        #expect(valid.count >= 15)
         for input in valid {
             #expect(TimestampDetection.classifyISO8601(input) == nil, "\(input) should classify clean")
             #expect(Self.rawParse(input) != nil, "\(input) should parse")
@@ -103,6 +117,13 @@ extension DetectionTests {
             == .expectedCharacter(":", position: 14))
         #expect(TimestampDetection.classifyISO8601("2026-13-04T00:00:00Z")
             == .expectedCharacter("a month from 01 to 12", position: 6))
+        // The calendar is real, and February knows what year it is.
+        #expect(TimestampDetection.classifyISO8601("2026-02-31T00:00:00Z")
+            == .expectedCharacter("a day from 01 to 28", position: 9))
+        #expect(TimestampDetection.classifyISO8601("2024-02-31T00:00:00Z")
+            == .expectedCharacter("a day from 01 to 29", position: 9))
+        #expect(TimestampDetection.classifyISO8601("2026-04-31T00:00:00Z")
+            == .expectedCharacter("a day from 01 to 30", position: 9))
         #expect(TimestampDetection.classifyISO8601("2026-09-04T00:00:00")
             == .expectedCharacter("a time zone designator", position: 20))
         #expect(TimestampDetection.classifyISO8601("2026-09-04T00:00:00Zx")
@@ -173,14 +194,55 @@ extension DetectionTests {
     func theClassifierRefusesThreeFormsTheParserSilentlyAccepts() {
         let diverging = [
             "2026-09-04T00:00:00Zhello": "everything after the zone designator is ignored by the parser",
-            "2026-09-04T00:80:00Z": "minute 80 is silently normalised to 01:20",
-            "2026-09-04T00:00:00GMT": "a named zone is not ISO 8601"
+            "2026-09-04T00:00:00GMT": "a named zone parses on all four runtimes and is not ISO 8601",
+            "2026-009-04T00:00:00Z": "a three-digit month parses on all four and is not ISO 8601"
         ]
         #expect(diverging.count == 3)
         for (input, why) in diverging {
             #expect(Self.rawParse(input) != nil, "the RAW parser accepts it: \(why)")
             #expect(TimestampDetection.classifyISO8601(input) != nil, "the scan refuses it: \(why)")
             #expect(TimestampCodec.parseISO8601(input).success == nil, "so the app refuses it: \(why)")
+        }
+    }
+
+    /// THE REGRESSION TEST FOR THIS PLAN'S LARGEST FINDING.
+    ///
+    /// Ten forms whose accept/reject verdict SPLITS across the four supported
+    /// runtimes. The scan refuses every one of them, so the app behaves the
+    /// same on iOS 17.5, 18.6, 26.1 and macOS — which is what these codecs
+    /// exist for, and what the plan's original macOS-derived accept-list would
+    /// have broken on the floor.
+    ///
+    /// Measured, and none of it is in 06-RESEARCH.md:
+    ///
+    /// - **iOS 17.5 applies a real calendar; the other three normalise
+    ///   forward.** `2026-02-31` is nil on the floor and 2026-03-03 elsewhere.
+    /// - **iOS 17.5 rejects hour 24 and second 60**, which ISO 8601 permits
+    ///   and the other three accept.
+    /// - **iOS 18.6 rejects an hours-only offset** that the other three
+    ///   accept, and accepts three forms (offset past 18:00, a seven-digit
+    ///   year, ten fraction digits) that the other three reject.
+    ///
+    /// These assertions do not depend on which runtime they run on, which is
+    /// the point: the scan's verdict is the app's behaviour, everywhere.
+    @Test
+    func theClassifierRefusesEveryFormThatSplitsAcrossTheSupportedRuntimes() {
+        let split = [
+            "2026-09-04T24:00:00Z": "hour 24 is nil on iOS 17.5 and parses on the other three",
+            "2026-09-04T00:00:60Z": "second 60 is nil on iOS 17.5 and parses on the other three",
+            "2026-09-04T00:00:61Z": "second 61, the same split",
+            "2026-02-29T00:00:00Z": "Feb 29 of a non-leap year is nil on iOS 17.5, 2026-03-01 elsewhere",
+            "2026-02-31T00:00:00Z": "Feb 31 is nil on iOS 17.5, 2026-03-03 elsewhere",
+            "2026-04-31T00:00:00Z": "Apr 31 is nil on iOS 17.5, 2026-05-01 elsewhere",
+            "2026-09-04T00:00:00+05": "an hours-only offset is nil on iOS 18.6 and parses on the other three",
+            "2026-09-04T00:00:00+18:01": "an offset past 18:00 parses on iOS 18.6 alone",
+            "1234567-09-04T00:00:00Z": "a seven-digit year parses on iOS 18.6 alone",
+            "2026-09-04T00:00:00.1234567890Z": "ten fraction digits parse on iOS 18.6 alone"
+        ]
+        #expect(split.count == 10)
+        for (input, why) in split {
+            #expect(TimestampDetection.classifyISO8601(input) != nil, "\(input): \(why)")
+            #expect(TimestampCodec.parseISO8601(input).success == nil, "\(input): \(why)")
         }
     }
 
@@ -240,7 +302,12 @@ extension DetectionTests {
                 stricter += 1
             }
         }
-        #expect(accepted >= 50, "only \(accepted) mutants classified clean; the sweep proves nothing")
+        // Measured on this tree: 500 mutants, 51 accepted, 33 diverging, 0
+        // contract violations. The floor is 40 rather than 51 because these
+        // are Foundation parse results and this suite runs on four runtimes —
+        // a frozen equality here would be a plan literal that goes stale by OS
+        // release. It is still far above 0, which is what the guard is for.
+        #expect(accepted >= 40, "only \(accepted) mutants classified clean; the sweep proves nothing")
         #expect(stricter >= 1, "\(stricter) mutants parse but are refused; the converse is false")
     }
 

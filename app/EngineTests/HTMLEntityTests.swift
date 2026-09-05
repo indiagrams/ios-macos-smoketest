@@ -37,10 +37,15 @@ import Testing
 ///   `entity-lookup-must-not-be-mutable-global` in
 ///   `evidence/06-06-html-codec.txt`: turning `static let lookup` into a
 ///   `static var` is a hard error under `-strict-concurrency=complete`, which
-///   is what makes the ABSENCE of `nonisolated(unsafe)` in the shipped file
-///   mean something. 06-03 shipped a Sendable probe that was measurably
-///   incapable of failing; this comment exists so this one is not mistaken for
-///   a gate.
+///   is what makes the ABSENCE of the unsafe-isolation annotation in the
+///   shipped file mean something. 06-03 shipped a Sendable probe that was
+///   measurably incapable of failing; this comment exists so this one is not
+///   mistaken for a gate.
+///   Its spelling is deliberately NOT written here: 06-17 measured this line
+///   as the ONLY match in all of `app/` for the grep counting the two hatches
+///   APP-12 forbids, so the file explaining the ban was the sole thing keeping
+///   that count off zero — 06-09's fix to `PercentCodec.swift`, same reason.
+///   The standing gate is `test/app_offline_test.rb`.
 private func requireSendable(_: (some Sendable).Type) {}
 
 /// Reading the lazily-parsed table from a `nonisolated` context, which is

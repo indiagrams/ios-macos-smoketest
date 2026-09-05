@@ -352,6 +352,45 @@ enum TestVectors {
                       reason: "Int(...) returns nil; measured, and must be handled")
     ]
 
+    // MARK: - HTML entities (APP-03, assumption A1)
+
+    /// Inputs the HTML round trip `decode(encode(x)) == .success(x)` is
+    /// asserted over, one member per property that could break it.
+    ///
+    /// The last five are the interesting ones: `encode` makes text that is
+    /// ALREADY malformed HTML safe, so `"&bogus;"`, `"&copy"` and
+    /// `"&#999999999;"` — every one of which `decode` alone refuses by name —
+    /// round-trip through the pair unchanged. That is the property a chaining
+    /// pipeline needs and it is why the escape set is exactly five characters
+    /// rather than all 2125 named references.
+    ///
+    /// - Note: Lives here rather than in HTMLEntityTests because this file is
+    ///   the ONE shared corpus for phase 6's engine work. `HTMLEntityTests`
+    ///   asserts this list has at least 10 members before sweeping it, so an
+    ///   emptied list fails rather than asserting nothing.
+    static let htmlRoundTripSamples: [String] = [
+        "",
+        "&",
+        "<",
+        ">",
+        "\"",
+        "'",
+        "&<>\"'",
+        "plain text",
+        "café",
+        "日本語",
+        "line1\nline2",
+        "  spaced  ",
+        "\ttabs\t",
+        "a👨\u{200D}👩\u{200D}👧\u{200D}👦b",
+        "<b>bold</b>",
+        "a & b",
+        "&amp;",
+        "&bogus;",
+        "&copy",
+        "&#999999999;"
+    ]
+
     /// The two strings whose three length answers differ, so a test reporting
     /// the wrong unit fails with the wrong unit visible in its message.
     static let positionCases: [PositionCase] = [

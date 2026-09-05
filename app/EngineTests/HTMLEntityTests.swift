@@ -193,4 +193,185 @@ struct HTMLEntityTests {
         requireSendable([String: String].self)
         #expect(entityCountFromANonisolatedContext() == 2125)
     }
+
+    // MARK: - Encoding: exactly five characters, and the ordering bug
+
+    /// Markup is ESCAPED, not stripped. The platform decoder measured
+    /// `"<b>bold</b>"` -> `"bold"`; this is that measurement as a regression.
+    @Test
+    func markupIsEscapedRatherThanStripped() {
+        #expect(HTMLEntityCodec.encode("<b>x</b>") == "&lt;b&gt;x&lt;/b&gt;")
+        #expect(HTMLEntityCodec.encode("<b>bold</b>") == "&lt;b&gt;bold&lt;/b&gt;")
+    }
+
+    /// **The ordering bug, asserted directly.** `&` must be escaped first, or
+    /// the `&` of an escape sequence gets escaped again by a later pass and
+    /// `"&lt;"` comes back as `"&lt;"` instead of `"&amp;lt;"`.
+    @Test
+    func theAmpersandIsEscapedFirstSoAnEscapeIsEscapedAgain() {
+        #expect(HTMLEntityCodec.encode("a & b") == "a &amp; b")
+        #expect(HTMLEntityCodec.encode("&lt;") == "&amp;lt;")
+        #expect(HTMLEntityCodec.encode("&amp;") == "&amp;amp;")
+        #expect(HTMLEntityCodec.encode("&&") == "&amp;&amp;")
+    }
+
+    /// The apostrophe is `&#39;`, NOT `&apos;`. Stated in the codec's doc
+    /// comment and asserted here; plan 06-12's UI strings must match.
+    @Test
+    func theApostropheIsTheNumericFormAndTheQuoteIsNamed() {
+        #expect(HTMLEntityCodec.encode("\"'") == "&quot;&#39;")
+        #expect(HTMLEntityCodec.decode("&#39;").success == "'")
+        // &apos; still DECODES — it is a legitimate table entry. It is simply
+        // not what this encoder emits.
+        #expect(HTMLEntityCodec.decode("&apos;").success == "'")
+    }
+
+    /// Whitespace survives. The platform decoder measured `"line1\nline2"` ->
+    /// `"line1 line2"` and `"  spaced  "` -> `"spaced"`.
+    @Test
+    func whitespaceSurvivesEncoding() {
+        #expect(HTMLEntityCodec.encode("line1\nline2") == "line1\nline2")
+        #expect(HTMLEntityCodec.encode("  spaced  ") == "  spaced  ")
+        #expect(HTMLEntityCodec.encode("\t\ttabs\t") == "\t\ttabs\t")
+    }
+
+    /// Non-ASCII is left alone. Encoding all 2125 named references would turn
+    /// `café` into `caf&eacute;`, which is the choice A1 rejected.
+    @Test
+    func nonASCIIIsLeftAlone() {
+        #expect(HTMLEntityCodec.encode("café") == "café")
+        #expect(HTMLEntityCodec.encode("日本語") == "日本語")
+        #expect(HTMLEntityCodec.encode("\u{A0}") == "\u{A0}")
+    }
+
+    /// **The population assertion for A1.** Every ASCII scalar is put through
+    /// `encode` and the set that CHANGES is compared against the stated five.
+    /// A total-only count would pass on the wrong five.
+    @Test
+    func exactlyFiveCharactersAreEscapedAndNoOthers() {
+        var changed = Set<Unicode.Scalar>()
+        for value in UInt32(0) ... UInt32(0x7F) {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            let input = String(String.UnicodeScalarView([scalar]))
+            if HTMLEntityCodec.encode(input) != input {
+                changed.insert(scalar)
+            }
+        }
+        #expect(changed == ["&", "<", ">", "\"", "'"])
+        #expect(changed.count == 5)
+    }
+
+    // MARK: - Decoding: named and numeric references
+
+    /// Named references, including the two the encoder emits.
+    @Test
+    func namedReferencesDecode() {
+        #expect(HTMLEntityCodec.decode("&amp;").success == "&")
+        #expect(HTMLEntityCodec.decode("&lt;b&gt;").success == "<b>")
+        #expect(HTMLEntityCodec.decode("&quot;").success == "\"")
+        #expect(HTMLEntityCodec.decode("&Tab;").success == "\u{9}")
+        #expect(HTMLEntityCodec.decode("&NotEqualTilde;").success == "\u{2242}\u{338}")
+    }
+
+    /// Numeric character references, decimal and hexadecimal. The generated
+    /// table does not carry these and the scanner must.
+    @Test
+    func numericReferencesDecode() {
+        #expect(HTMLEntityCodec.decode("&#65;").success == "A")
+        #expect(HTMLEntityCodec.decode("&#x41;").success == "A")
+        #expect(HTMLEntityCodec.decode("&#X41;").success == "A")
+        #expect(HTMLEntityCodec.decode("&#233;").success == "é")
+        #expect(HTMLEntityCodec.decode("&#x1F600;").success == "\u{1F600}")
+        #expect(HTMLEntityCodec.decode("&#0;").success == "\u{0}")
+    }
+
+    /// **The measurement this codec exists to not reproduce.** The platform
+    /// decoder turns `"&#999999999;"` into U+FFFD with no error at all, so the
+    /// user is shown a replacement character where their text was and never
+    /// told. Here it is a named failure with a position (T-06-25).
+    @Test
+    func anOutOfRangeNumericReferenceIsNamedRatherThanRepaired() {
+        let failure = HTMLEntityCodec.decode("&#999999999;").failure
+        #expect(failure == .unknownEntity("&#999999999;", position: 1))
+        #expect(HTMLEntityCodec.decode("&#999999999;").success == nil)
+        // ...and specifically NOT the platform's answer.
+        #expect(HTMLEntityCodec.decode("&#999999999;").success != "\u{FFFD}")
+    }
+
+    /// The other numeric references that name nothing: a surrogate, an empty
+    /// digit run, and a digit run with a stray letter. None of these may trap
+    /// — `Unicode.Scalar(_:)` returns nil for a surrogate and a force-unwrap
+    /// would kill the host process rather than fail a test.
+    @Test
+    func malformedNumericReferencesAreNamedAndNeverTrap() {
+        #expect(HTMLEntityCodec.decode("&#xD800;").failure == .unknownEntity("&#xD800;", position: 1))
+        #expect(HTMLEntityCodec.decode("&#x110000;").failure == .unknownEntity("&#x110000;", position: 1))
+        #expect(HTMLEntityCodec.decode("&#;").failure == .unknownEntity("&#;", position: 1))
+        #expect(HTMLEntityCodec.decode("&#x;").failure == .unknownEntity("&#x;", position: 1))
+        #expect(HTMLEntityCodec.decode("&#12a;").failure == .unknownEntity("&#12a;", position: 1))
+        #expect(HTMLEntityCodec.decode("&#99999999999999999999999;").success == nil)
+    }
+
+    // MARK: - The two named failures, and where they point
+
+    /// `.unknownEntity`'s payload is the entity AS TYPED — `&` and `;`
+    /// included — because that is what `'%@'` renders in
+    /// `encode.error.html.unknown`.
+    @Test
+    func anUnknownEntityCarriesTheTextTheUserTyped() {
+        #expect(HTMLEntityCodec.classify("&bogus;") == .unknownEntity("&bogus;", position: 1))
+        #expect(HTMLEntityCodec.classify("ok &nope; ok") == .unknownEntity("&nope;", position: 4))
+    }
+
+    /// `.unterminatedEntity` names the position of the `&`, 1-based, in
+    /// Characters. Three terminators, one rule: another `&`, whitespace, or
+    /// the end of the input.
+    @Test
+    func anUnterminatedEntityNamesItsAmpersand() {
+        #expect(HTMLEntityCodec.classify("a &copy") == .unterminatedEntity(position: 3))
+        #expect(HTMLEntityCodec.classify("100% & more") == .unterminatedEntity(position: 6))
+        #expect(HTMLEntityCodec.classify("&") == .unterminatedEntity(position: 1))
+        #expect(HTMLEntityCodec.classify("&amp&amp;") == .unterminatedEntity(position: 1))
+        #expect(HTMLEntityCodec.classify("x&\ny") == .unterminatedEntity(position: 2))
+    }
+
+    /// Positions are CHARACTER offsets, so non-ASCII text before the fault
+    /// does not shift them. This is the assertion that would fail if the
+    /// scan's UTF-8 offset arithmetic were wrong.
+    @Test
+    func positionsAreCharacterOffsetsEvenAfterNonASCII() {
+        #expect(HTMLEntityCodec.classify("héllo &bogus;") == .unknownEntity("&bogus;", position: 7))
+        #expect(HTMLEntityCodec.classify("日本 &bogus;") == .unknownEntity("&bogus;", position: 4))
+        // Three Characters, 27 UTF-8 bytes (TestVectors.positionCases).
+        #expect(HTMLEntityCodec.classify("a👨\u{200D}👩\u{200D}👧\u{200D}👦b &x") == .unterminatedEntity(position: 5))
+    }
+
+    /// Text with no `&` in it is not an entity problem.
+    @Test
+    func plainTextClassifiesAsValidAndDecodesToItself() {
+        #expect(HTMLEntityCodec.classify("plain text") == nil)
+        #expect(HTMLEntityCodec.decode("plain text").success == "plain text")
+        #expect(HTMLEntityCodec.classify("") == nil)
+        #expect(HTMLEntityCodec.decode("").success == "")
+    }
+
+    // MARK: - The round trip
+
+    /// The sample set is populated. A sweep over an emptied list runs zero
+    /// cases and reports success.
+    @Test
+    func theRoundTripSampleSetIsPopulated() {
+        #expect(TestVectors.htmlRoundTripSamples.count >= 10)
+    }
+
+    /// `decode(encode(x)) == .success(x)`, which is the property the
+    /// five-character escape set exists to buy for a chaining pipeline.
+    @Test(arguments: TestVectors.htmlRoundTripSamples)
+    func encodingThenDecodingReturnsTheInput(_ input: String) {
+        let encoded = HTMLEntityCodec.encode(input)
+        #expect(HTMLEntityCodec.classify(encoded) == nil,
+                "encode produced text its own classifier rejects: \(String(reflecting: encoded))")
+        #expect(HTMLEntityCodec.decode(encoded).success == input,
+                "round trip lost \(String(reflecting: input))")
+    }
 }

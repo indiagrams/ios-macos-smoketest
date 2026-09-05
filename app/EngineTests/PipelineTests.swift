@@ -53,7 +53,7 @@ struct PipelineTests {
         .md5,
         .sha1,
         .sha256,
-        .sha512,
+        .sha512
     ]
 
     /// The Timestamps conversions are deliberately absent: they take an
@@ -164,7 +164,9 @@ struct PipelineTests {
                     failures += 1
                     continue
                 }
-                if value.count != widths[operation] { wrongWidth += 1 }
+                if value.count != widths[operation] {
+                    wrongWidth += 1
+                }
             }
         }
         #expect(failures == 0, "a digest operation reported a failure, which no input can cause")

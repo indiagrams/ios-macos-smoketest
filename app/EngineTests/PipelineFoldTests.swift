@@ -92,7 +92,13 @@ extension PipelineTests {
         let states = pipeline.evaluate()
         #expect(states.count == 5)
         #expect(states.filter { $0 == .blocked }.count == 3)
-        #expect(states.filter { if case .failure = $0 { true } else { false } }.count == 1)
+        #expect(states.filter {
+            if case .failure = $0 {
+                true
+            } else {
+                false
+            }
+        }.count == 1)
         #expect(states == [.value("a%20b"), .failure(Self.chainFailure), .blocked, .blocked, .blocked])
     }
 
@@ -121,7 +127,9 @@ extension PipelineTests {
         for operation in Operation.allCases {
             for input in inputs {
                 let pipeline = Pipeline(input: input, steps: Self.steps(operation, .base64Decode, .md5))
-                if pipeline.evaluate().first == .blocked { blockedFirsts += 1 }
+                if pipeline.evaluate().first == .blocked {
+                    blockedFirsts += 1
+                }
                 checked += 1
             }
         }

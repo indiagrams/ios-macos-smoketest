@@ -150,6 +150,68 @@ extension Base64Tests {
         #expect(notText >= 100, "the sweep must actually reach the not-text path; it reached it \(notText) times")
     }
 
+    // MARK: - Moved here 2026-09-05 (plan 06-20) from Base64Tests.swift
+
+    // Both tests below asserted the OLD case and the OLD positions, so both
+    // had to be amended by CR-03; they were moved into this file at the same
+    // time because rewriting them in place put Base64Tests.swift at 415 lines
+    // and `swiftlint --strict` enforces file_length (400). Same suite, so
+    // `-only-testing:AppMacOSTests/Base64Tests` still runs them.
+
+    /// Valid Base64 whose bytes are not text fails with a named reason and a
+    /// position IN THE INPUT — not a crash, and not mojibake.
+    ///
+    /// - Important: **AMENDED 2026-09-05 (plan 06-20, CR-03).** These three
+    ///   expectations previously read `.invalidUTF8(position: 4 / 2 / 1)` —
+    ///   the percent-encoding case, carrying a byte offset into the DECODED
+    ///   OUTPUT. Both halves were wrong and this test asserted them. The case
+    ///   is now `.decodedBytesAreNotUTF8` and the position is a 1-based
+    ///   Character offset into the input, per `Position.swift`. The numbers
+    ///   below are DERIVED from that definition (`4 * (i / 3) + 1`, the start
+    ///   of the quantum that produced output byte `i`) and then confirmed by
+    ///   execution, not read off a run and written down.
+    @Test
+    func decodeOfBytesThatAreNotTextFailsWithAPosition() {
+        // 0xFF is never a valid UTF-8 lead byte. "aGkA//8=" is "hi\0" followed
+        // by 0xFF 0xFF, so the first invalid byte is output byte 3 (0-based),
+        // which came from the second quantum — input characters 5-8, "//8=".
+        let encoded = Data([0x68, 0x69, 0x00, 0xFF, 0xFF]).base64EncodedString()
+        #expect(encoded == "aGkA//8=")
+        #expect(Base64Codec.classify(encoded) == nil, "the fixture must be valid Base64 for this test to mean anything")
+        #expect(Base64Codec.decode(encoded) == .failure(.decodedBytesAreNotUTF8(position: 5)))
+
+        // A truncated multi-byte sequence: 0xC3 with nothing after it. One
+        // quantum, so the answer is its first character whichever byte failed.
+        let truncated = Data([0x61, 0xC3]).base64EncodedString()
+        #expect(Base64Codec.decode(truncated) == .failure(.decodedBytesAreNotUTF8(position: 1)))
+
+        // A lone continuation byte at the very start.
+        let orphan = Data([0x80]).base64EncodedString()
+        #expect(Base64Codec.decode(orphan) == .failure(.decodedBytesAreNotUTF8(position: 1)))
+    }
+
+    /// The one byte the deployment floor silently repairs is still reported as
+    /// invalid, with a position — on every runtime.
+    ///
+    /// MEASURED on iOS 17.5: `String(bytes: [0xA9], encoding: .utf8)` is
+    /// `Optional("\u{FFFD}")`, and `[0x61, 0xA9, 0x62]` is `"a\u{FFFD}b"`. A
+    /// decoder that took Foundation's word for it would show the user a
+    /// replacement character where their byte was and call it success — the
+    /// "wrong answer" half of criterion 1, on the oldest OS this app supports
+    /// and nowhere else. That is the second reason the scan exists; the first
+    /// is that D-85 needs a position.
+    @Test
+    func theByteTheDeploymentFloorRepairsIsStillReportedInvalid() {
+        let single = Data([0xA9]).base64EncodedString()
+        #expect(Base64Codec.classify(single) == nil, "the fixture must be valid Base64 for this test to mean anything")
+        #expect(Base64Codec.decode(single) == .failure(.decodedBytesAreNotUTF8(position: 1)))
+
+        // Both bytes came out of the one quantum this three-byte input encodes
+        // to, so the input position is 1 — not the 2 the output offset gave.
+        let embedded = Data([0x61, 0xA9, 0x62]).base64EncodedString()
+        #expect(Base64Codec.decode(embedded) == .failure(.decodedBytesAreNotUTF8(position: 1)))
+    }
+
     /// Valid Base64 that decodes to text is untouched by any of this.
     @Test
     func textStillDecodesToText() {

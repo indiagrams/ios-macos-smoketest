@@ -278,25 +278,6 @@ struct Base64Tests {
         }
     }
 
-    /// Valid Base64 whose bytes are not text fails with a named reason and a
-    /// byte position — not a crash, and not mojibake.
-    @Test
-    func decodeOfBytesThatAreNotTextFailsWithAPosition() {
-        // 0xFF is never a valid UTF-8 lead byte. "aGkA//8=" is "hi\0" followed
-        // by 0xFF 0xFF, so the first invalid byte is the 4th, 1-based.
-        let encoded = Data([0x68, 0x69, 0x00, 0xFF, 0xFF]).base64EncodedString()
-        #expect(Base64Codec.classify(encoded) == nil, "the fixture must be valid Base64 for this test to mean anything")
-        #expect(Base64Codec.decode(encoded) == .failure(.invalidUTF8(position: 4)))
-
-        // A truncated multi-byte sequence: 0xC3 with nothing after it.
-        let truncated = Data([0x61, 0xC3]).base64EncodedString()
-        #expect(Base64Codec.decode(truncated) == .failure(.invalidUTF8(position: 2)))
-
-        // A lone continuation byte at the very start.
-        let orphan = Data([0x80]).base64EncodedString()
-        #expect(Base64Codec.decode(orphan) == .failure(.invalidUTF8(position: 1)))
-    }
-
     /// The hand-written scan is never MORE permissive than Foundation, and the
     /// codec's answer is the scan's either way.
     ///
@@ -337,26 +318,6 @@ struct Base64Tests {
         #expect(scanValid + scanInvalid == 5000)
         #expect(scanValid > 0, "no valid sequences were generated, so that branch asserted nothing")
         #expect(scanInvalid > 0, "no invalid sequences were generated, so that branch asserted nothing")
-    }
-
-    /// The one byte the deployment floor silently repairs is still reported as
-    /// invalid, with a position — on every runtime.
-    ///
-    /// MEASURED on iOS 17.5: `String(bytes: [0xA9], encoding: .utf8)` is
-    /// `Optional("\u{FFFD}")`, and `[0x61, 0xA9, 0x62]` is `"a\u{FFFD}b"`. A
-    /// decoder that took Foundation's word for it would show the user a
-    /// replacement character where their byte was and call it success — the
-    /// "wrong answer" half of criterion 1, on the oldest OS this app supports
-    /// and nowhere else. That is the second reason the scan exists; the first
-    /// is that D-85 needs a position.
-    @Test
-    func theByteTheDeploymentFloorRepairsIsStillReportedInvalid() {
-        let single = Data([0xA9]).base64EncodedString()
-        #expect(Base64Codec.classify(single) == nil, "the fixture must be valid Base64 for this test to mean anything")
-        #expect(Base64Codec.decode(single) == .failure(.invalidUTF8(position: 1)))
-
-        let embedded = Data([0x61, 0xA9, 0x62]).base64EncodedString()
-        #expect(Base64Codec.decode(embedded) == .failure(.invalidUTF8(position: 2)))
     }
 
     // MARK: - Totality (V5, T-06-08)

@@ -171,16 +171,45 @@ enum Base64Codec {
 
         let bytes = [UInt8](data)
         if let invalidOffset = firstInvalidUTF8Offset(bytes) {
-            return .failure(.invalidUTF8(position: invalidOffset + 1))
+            return .failure(.decodedBytesAreNotUTF8(position: inputPosition(ofDecodedByte: invalidOffset, in: s)))
         }
         guard let text = String(bytes: bytes, encoding: .utf8) else {
             // Unreachable because the scan above is strictly STRICTER than
             // this initializer, never the other way round — asserted over
             // random bytes in Base64Tests. A failure keeps the path total
             // where a force-unwrap would trap and kill the host.
-            return .failure(.invalidUTF8(position: 1))
+            return .failure(.decodedBytesAreNotUTF8(position: 1))
         }
         return .success(text)
+    }
+
+    /// The 1-based CHARACTER position, in the INPUT, of the quantum that
+    /// produced the decoded byte at `decodedOffset`.
+    ///
+    /// - Important: **The position a user is shown must be a position in the
+    ///   string the user typed.** `Position.swift` states there is exactly ONE
+    ///   definition of position in this app and it is a 1-based Character
+    ///   offset into the input. Until 2026-09-05 this path reported
+    ///   `invalidOffset + 1`, a byte offset into the decoded OUTPUT — a string
+    ///   the user cannot see. Measured: `decode("YWJj/w==")` reported 4, and
+    ///   character 4 of that input is `j`, a perfectly valid Base64 character
+    ///   sitting in the quantum BEFORE the one at fault (CR-03).
+    /// - Note: Base64 is a 4:3 code, so output byte `i` comes from input
+    ///   characters `4*(i/3) … 4*(i/3)+3` and the honest answer is the first of
+    ///   them. The result is therefore always one of 1, 5, 9, …, which
+    ///   `everyReportedPositionStartsAQuantum` sweeps rather than samples.
+    /// - Note: The offset is resolved through
+    ///   ``characterPosition(utf8Offset:in:)`` even though the input is pure
+    ///   ASCII here — the classifier has already refused everything outside the
+    ///   alphabet, so byte and Character offsets coincide. The DEFINITION is
+    ///   what must not fork, not the arithmetic; going around it is how this
+    ///   path came to report an output offset in the first place.
+    /// - Note: Total. `decodedOffset` is only ever divided and multiplied by
+    ///   small constants and is bounded by the decoded length, so no overflow
+    ///   is reachable, and `characterPosition` is total for every `Int`.
+    private nonisolated static func inputPosition(ofDecodedByte decodedOffset: Int, in s: String) -> Int {
+        let quantumStart = (decodedOffset / 3) * 4
+        return characterPosition(utf8Offset: quantumStart, in: s)
     }
 
     /// The 0-based offset of the first byte that cannot start or continue a

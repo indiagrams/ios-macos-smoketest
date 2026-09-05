@@ -150,7 +150,7 @@ struct InputAreaTests {
             ("URL decode", .headline),
             ("HTML encode", .headline),
             ("HTML decode", .headline),
-            ("Hash", .headline),
+            ("Hashing", .headline),
             ("22 characters", .caption1),
             ("12 bytes hashed.", .caption1),
             ("Output appears here as you type.", .body),

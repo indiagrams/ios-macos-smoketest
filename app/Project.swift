@@ -210,6 +210,21 @@ let macUITestTarget = Target.target(
 )
 
 // MARK: - Unit test targets (sanity tests; forks should add real tests here)
+//
+// Both unit-test targets compile the conversion engine and the tests that
+// cover it, exactly as app/project.yml does — the same shape as the shared
+// selector enum on the UI-test targets above, and the same reason: single
+// source of truth preserved (same path, listed twice). One corpus, asserted
+// twice; two copies would drift.
+//
+// This is how 06-RESEARCH Open Question 1 was routed. The alternative was
+// `@testable import <the app module>`, which works — but the module name
+// resolves from APP_PRODUCT_NAME in Identity.xcconfig, so that import spells
+// the fork's identity inside a test file, and tools/migrate-identity.rb's
+// MUST_NOT_TOUCH list does not cover app/Tests or app/MacOSTests. A fork that
+// renamed itself would get a silently broken test build. The engine is pure
+// value types with no dependency on the app module, so compiling it in costs
+// nothing.
 
 let iosUnitTestTarget = Target.target(
     name: "AppTests",
@@ -218,7 +233,17 @@ let iosUnitTestTarget = Target.target(
     bundleId: "$(BUNDLE_ID).tests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
-    sources: ["Tests/**"],
+    sources: [
+        "Tests/**",
+        "Shared/Engine/**",
+        "Shared/Model/**",
+        // The view layer plus the two things it needs to compile. Kept in parity
+        // with app/project.yml; see that file for why 06-11 added them.
+        "Shared/Design/**",
+        "Shared/AccessibilityIdentifiers.swift",
+        "Shared/Views/**",
+        "EngineTests/**",
+    ],
     dependencies: [.target(name: "App-iOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "App-iOS",
@@ -232,7 +257,17 @@ let macUnitTestTarget = Target.target(
     bundleId: "$(BUNDLE_ID).mactests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
-    sources: ["MacOSTests/**"],
+    sources: [
+        "MacOSTests/**",
+        "Shared/Engine/**",
+        "Shared/Model/**",
+        // The view layer plus the two things it needs to compile. Kept in parity
+        // with app/project.yml; see that file for why 06-11 added them.
+        "Shared/Design/**",
+        "Shared/AccessibilityIdentifiers.swift",
+        "Shared/Views/**",
+        "EngineTests/**",
+    ],
     dependencies: [.target(name: "App-macOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "App-macOS",

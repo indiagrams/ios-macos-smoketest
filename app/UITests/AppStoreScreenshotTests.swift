@@ -60,14 +60,31 @@ final class AppStoreScreenshotTests: XCTestCase {
         app.launchArguments.append(contentsOf: ["-UITestColorScheme", scheme])
         app.launch()
 
-        // Wait for the title text by accessibility identifier (set in
-        // ContentView via AccessibilityIdentifiers.title). Never query by
-        // visible text — that's fragile to localization and copy edits.
-        // staticTexts is the right query category for SwiftUI Text elements;
-        // containers like VStack don't surface independently in XCUITest.
+        // Wait for the first destination by accessibility identifier. Never
+        // query by visible text — that's fragile to localization and copy edits.
+        //
+        // REPOINTED BY PLAN 06-13 (C-22). This waited on a title identifier
+        // that the template's placeholder root view carried; plan 06-13
+        // repointed `app/Shared/App.swift` at `RootView`, so that identifier
+        // stopped reaching a running app and this wait timed out in the
+        // required `app (iOS Simulator)` job. C-22 names `Shell.tab.encode` as
+        // the replacement and this is it. Plan 06-14 then deleted the
+        // placeholder view and that identifier outright, in the same change as
+        // the `test/identity_test.rb` G8 amendment that had asserted the view
+        // existed.
+        //
+        // NOT `staticTexts`: `Shell.tab.encode` is attached to the destination's
+        // CONTENT container, not to a `Text`, because SwiftUI does not put an
+        // accessibility identifier on an iOS tab bar button on 18.6 or 26.1 —
+        // measured on three runtimes by plan 06-13 and recorded in
+        // `app/UITests/ShellTests.swift`. A type-agnostic query is what works on
+        // all three.
         XCTAssertTrue(
-            app.staticTexts[AccessibilityIdentifiers.title].waitForExistence(timeout: 10),
-            "Title didn't appear within 10s — check app.launch() succeeded and the identifier is attached"
+            app.descendants(matching: .any)
+                .matching(identifier: AccessibilityIdentifiers.Shell.tabEncode)
+                .firstMatch
+                .waitForExistence(timeout: 10),
+            "The first destination didn't appear within 10s — check app.launch() succeeded and the identifier is attached"
         )
 
         snapshot("01-home-\(label)")

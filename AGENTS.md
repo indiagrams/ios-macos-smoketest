@@ -298,3 +298,21 @@ editing the existing one.
   `docs/CONTRIBUTING-UPSTREAM.md`; when `git am` rejects a patch because the template's
   context lines say a different name, the change is authored by hand in a separate clone
   against the template's own text, which is the route apple-shipkit #281 took.
+- **The repo-wide lint disables are inherited DELIBERATELY, decided 2026-09-05 (C-27).**
+  `.swiftlint.yml` disables `comma`, `trailing_comma` and `identifier_name` for the whole
+  tree, so app code written in `app/Shared/` inherits a looser lint than a freshly generated
+  app would get. Phase 6 **accepted** that inheritance rather than narrowing it, and the
+  reason is that all three disables exist for TEMPLATE INFRASTRUCTURE and not for app code:
+  `comma` and `trailing_comma` fight the Tuist manifest DSL's settings tuples, and
+  `identifier_name` exists for the two-letter pixel-coordinate variables in the
+  icon-generation code. Re-enabling `identifier_name` scoped to `app/Shared/` with an
+  `included:`/`excluded:` pair is a fork-owned option a later phase may take; it was not
+  taken here because changing a lint config mid-phase re-lints eighteen plans' worth of
+  code against a rule none of it was written to, and that blast radius belongs to its own
+  change. **`.swiftlint.yml` and `.swiftformat` were not edited by any of Phase 6's
+  eighteen plans** — `swiftlint --config .swiftlint.yml --strict app/` and
+  `swiftformat --lint app/` both exit 0 with both files untouched, which is what makes this
+  an accepted inheritance rather than an unexamined one. Note the separate consequence of
+  running `--strict` at all: it promotes every rule's WARNING threshold to the real error
+  limit, so the effective budget is 400 lines per file and 250 non-comment lines per type
+  body, not the 1000 and 350 SwiftLint's error thresholds name (`UL-056`).

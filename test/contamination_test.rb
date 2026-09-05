@@ -782,4 +782,266 @@ assert gate_text.include?(DOMAIN_ALLOWLIST_REL), "CT", GATE_REL,
 assert gate_text.include?(VARS_ALLOW_REL), "CT", GATE_REL,
        "names #{VARS_ALLOW_REL} — the one file whose vars.* reads are frozen"
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# D-91 / D-92 — TEMPLATE IDENTITY WRITTEN AS PROSE (IDENT-15, criterion 7)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# LITERALS matches contiguous stems, so `fastlane/metadata/en-US/name.txt` carried the
+# pre-Phase-3 display name — spelled with a space — through three phases of green identity
+# gates. That is UL-044. The site was patched; the class is what these cases close.
+#
+# FIXTURE TERMS ARE BUILT, NEVER SPELLED, exactly as `addr` above builds fixture addresses
+# and for exactly the same reason: THIS FILE IS TRACKED AND SWEPT BY THE GATE IT TESTS. A
+# literal term here would be matched by the predicate under test, would need an allowlist
+# row bought to keep the tree green, and would move this file's own dated count from 10.
+# That trap has landed fourteen times in this project; the draft of the gate's own comment
+# block hit it a fifteenth time and was caught by a mechanical sweep, not by reading. The
+# terms below are therefore assembled from character arrays, the shape
+# test/docs_structure_test.rb:698-700 uses and the gate itself now uses.
+#
+# ACCEPTED COST, stated: a reader cannot see which terms these are without running it.
+
+def prose(words, separator = " ")
+  words.map(&:join).join(separator)
+end
+
+# One qualifier+subject phrase per strict source, and the narrow pair term. Built, not spelled.
+STRICT_SWIFT   = prose([%w[d e m o], %w[a p p]])
+STRICT_CATALOG = prose([%w[b e t a], %w[v e r s i o n]])
+STRICT_META    = prose([%w[t r i a l], %w[b u i l d]])
+NARROW_SPACED  = prose([%w[s m o k e], %w[a p p]])
+NARROW_HYPHEN  = prose([%w[s m o k e], %w[a p p]], "-")
+# A word that is a 2.2 noun on its own but NOT a term, because it qualifies nothing. This
+# is the "Use an example" case (06-RESEARCH Open Question 5) and the HTML-entity Greek
+# letter case, both of which occur legitimately in app/Shared today.
+BARE_NOUN      = prose([%w[e x a m p l e]])
+# And the IDENTIFIER-shaped template stem, built for a second and sharper reason: this
+# file carries a dated row in tools/identity-allowlist.txt whose COUNT is the number of
+# its lines matching LITERALS. Spelling one more moves that count, and the gate caught
+# exactly that during this plan's own execution — `expected 10 line(s), found 11` — which
+# is D-65's counted rows doing the job they were added for, on the executor who added
+# them. The fixture file the gate reads still contains the literal; this source does not.
+IDENT_LITERAL  = %w[S m o k e A p p].join
+
+# The four strict sources, named exactly as the gate names them on its summary lines.
+PROSE_SOURCES = %w[catalog plist-inputs app-shared store-metadata].freeze
+
+# A fixture tree carrying one tracked file in EACH of the four strict sources. Without
+# this, a case about one source would be confounded by the population-empty rule firing
+# for the other three, and the assertion would pass for the wrong reason.
+def strict_tree(extra = {})
+  {
+    "app/Shared/App.swift"             => "// nothing interesting\n",
+    "app/Shared/Localizable.xcstrings" => "{ \"strings\" : { } }\n",
+    "app/project.yml"                  => "name: App\n",
+    "fastlane/metadata/en-US/name.txt" => "A Real Product Name\n",
+  }.merge(extra)
+end
+
+puts
+puts "CT — D-91/D-92 the prose population: template identity written as prose:"
+
+# ─── P1. the strict population is clean and reports each source separately ───
+with_repo(strict_tree) do |root, al|
+  out, _err, code = gate(root, al, "")
+  # Guarded enumeration: an .each over an empty list asserts nothing (.continue-here.md
+  # blocking row 9). Assert the collection is non-empty and print its size FIRST.
+  assert PROSE_SOURCES.size == 4, "CT", "-",
+         "the fixture knows all #{PROSE_SOURCES.size} strict source names (#{PROSE_SOURCES.join(', ')})"
+  missing = PROSE_SOURCES.reject { |s| out.include?("prose_strict: #{s} 1 files, 0 hits") }
+  assert code.zero? && missing.empty?, "CT", "-",
+         "a clean strict tree exits 0 and prints ALL FOUR sources with their own counts — " \
+         "never a union#{missing.empty? ? '' : " — missing: #{missing.join(', ')}"} " \
+         "(exit=#{code}, out=#{out.inspect})"
+  assert out.include?("prose_narrow: 0 files, 0 hits") && out.include?("prose_excluded=0"),
+         "CT", "-",
+         "the narrow population and the exclusion count are printed too (out=#{out.inspect})"
+end
+
+# ─── P2. control prose-strict-swift: a term in an app/Shared/ Swift string ───
+with_repo(strict_tree("app/Shared/Views/RootView.swift" =>
+                      "import SwiftUI\nlet s = \"This #{STRICT_SWIFT} does nothing\"\n")) do |root, al|
+  out, _err, code = gate(root, al, "")
+  assert code == 1 &&
+           out.include?("FAIL prose app/Shared/Views/RootView.swift:2: #{STRICT_SWIFT} — " \
+                        "template identity as prose in the app-shared source"),
+         "CT", "app/Shared/Views/RootView.swift",
+         "a prose term in an app/Shared/ Swift string fails, NAMING the term and the source " \
+         "(exit=#{code}, out=#{out.inspect})"
+  assert out.include?("prose_strict: app-shared 2 files, 1 hits"), "CT", "-",
+         "and the app-shared source's own hit count moves to 1 (out=#{out.inspect})"
+end
+
+# ─── P3. control prose-strict-catalog: the same union, a DIFFERENT source ────
+# The point of a second case is not a second term: it is that the catalog is attributed to
+# its OWN source, so a per-source count can show which half of the union went quiet.
+with_repo(strict_tree("app/Shared/Localizable.xcstrings" =>
+                      "{ \"strings\" : { \"k\" : \"#{STRICT_CATALOG}\" } }\n")) do |root, al|
+  out, _err, code = gate(root, al, "")
+  assert code == 1 &&
+           out.include?("FAIL prose app/Shared/Localizable.xcstrings:1: #{STRICT_CATALOG} — " \
+                        "template identity as prose in the catalog source"),
+         "CT", "app/Shared/Localizable.xcstrings",
+         "a prose term in the string catalog fails and is attributed to the CATALOG source, " \
+         "not to app-shared, even though it lives under app/Shared/ (exit=#{code}, out=#{out.inspect})"
+  assert out.include?("prose_strict: catalog 1 files, 1 hits") &&
+           out.include?("prose_strict: app-shared 1 files, 0 hits"),
+         "CT", "-",
+         "each source's contribution is its own number (out=#{out.inspect})"
+end
+
+# ─── P4. the store metadata source — UL-044's own population ─────────────────
+with_repo(strict_tree("fastlane/metadata/en-US/subtitle.txt" => "A #{STRICT_META}\n")) do |root, al|
+  out, _err, code = gate(root, al, "")
+  assert code == 1 &&
+           out.include?("FAIL prose fastlane/metadata/en-US/subtitle.txt:1: #{STRICT_META} — " \
+                        "template identity as prose in the store-metadata source"),
+         "CT", "fastlane/metadata/en-US/subtitle.txt",
+         "App Store metadata is in the strict population — the file class UL-044 was found in, " \
+         "which no rendered-string check would ever see (exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── P5. control prose-narrow-tree: the spaced display name OUTSIDE app/ ─────
+with_repo(strict_tree("docs/SOMETHING.md" => "The #{NARROW_SPACED} was renamed.\n")) do |root, al|
+  out, _err, code = gate(root, al, "")
+  assert code == 1 &&
+           out.include?("FAIL prose docs/SOMETHING.md:1: #{NARROW_SPACED} — the template " \
+                        "identity as prose, and docs/SOMETHING.md carries no allowlist row"),
+         "CT", "docs/SOMETHING.md",
+         "the narrow list runs tree-wide, so the spaced display name fails in a file that is " \
+         "in no strict source at all (exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── P6. the hyphen is not a hiding place ────────────────────────────────────
+with_repo(strict_tree("docs/SOMETHING.md" => "The #{NARROW_HYPHEN} was renamed.\n")) do |root, al|
+  out, _err, code = gate(root, al, "")
+  assert code == 1 && out.include?("FAIL prose docs/SOMETHING.md:1: #{NARROW_HYPHEN}"),
+         "CT", "docs/SOMETHING.md",
+         "a hyphen reads to App Review exactly as a space does and is matched too " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── P7. a dated row is the ONLY way to buy a narrow occurrence ──────────────
+# The same instrument as the identifier half: one list, one date, one reason. This is what
+# keeps CHANGELOG.md, docs/UPSTREAM-LEDGER.md and the ASC fixture green on the real tree
+# without a second exemption surface being invented for prose.
+with_repo(strict_tree("docs/SOMETHING.md" =>
+                      "The #{NARROW_SPACED} was renamed.\n#{IDENT_LITERAL}\n")) do |root, al|
+  out, _err, code = gate(root, al, row("docs/SOMETHING.md", 1, "2026-09-05",
+                                       "historical record: names what the fork was called"))
+  assert code.zero? && !out.include?("FAIL prose"), "CT", "docs/SOMETHING.md",
+         "a path carrying a dated, counted, reasoned row may mention it as prose too " \
+         "(exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── P8. CONTROL prose-scope-empty — THE ONE MOST LIKELY TO BE SKIPPED ───────
+# A population that has gone empty is NOT a clean tree. Without this the gate can silently
+# stop looking: rename a directory and a union reports the same reassuring zero it reports
+# when the tree is genuinely clean.
+EMPTY_SOURCE_CASES = {
+  "store-metadata" => "fastlane/metadata/en-US/name.txt",
+  "catalog"        => "app/Shared/Localizable.xcstrings",
+  "plist-inputs"   => "app/project.yml",
+}.freeze
+assert EMPTY_SOURCE_CASES.size == 3, "CT", "-",
+       "the empty-source enumeration has #{EMPTY_SOURCE_CASES.size} cases to run — an .each " \
+       "over an empty collection would assert nothing"
+EMPTY_SOURCE_CASES.each do |source, path|
+  with_repo(strict_tree.reject { |rel, _| rel == path }) do |root, al|
+    out, _err, code = gate(root, al, "")
+    assert code == 1 &&
+             out.include?("FAIL prose #{source}: strict source matched no tracked file — " \
+                          "the population went empty, which is not a clean tree") &&
+             out.include?("prose_strict: #{source} 0 files, 0 hits"),
+           "CT", path,
+           "removing the last tracked file of the #{source} source FAILS rather than reading " \
+           "as clean, and the source reports 0 files on its own line (exit=#{code}, out=#{out.inspect})"
+  end
+end
+
+# ─── P9. the emptiness rule is scoped, so it cannot fire on a tree with no app ─
+# The workflows_present analogue, asserted rather than assumed: this is precisely why the
+# twenty-odd fixture cases above — none of which has an app/ directory — are still green.
+with_repo("a.txt" => NO_HITS) do |root, al|
+  out, _err, code = gate(root, al, "")
+  assert code.zero? && !out.include?("FAIL prose"), "CT", "-",
+         "a fixture repository with no app/ at all is not an application that went missing, " \
+         "so the emptiness rule stays silent (exit=#{code}, out=#{out.inspect})"
+  assert out.include?("prose_excluded=1"), "CT", "-",
+         "and its one file is counted as excluded — a number that moves when a file is " \
+         "added (out=#{out.inspect})"
+end
+
+# ─── P10. a bare 2.2 noun qualifying nothing is NOT a term ───────────────────
+# Open Question 5, asserted rather than remembered. The UI-SPEC ships "Use an example" and
+# the HTML entity table ships the Greek letter; a bare-noun list would go red on the app's
+# own primary empty-state affordance and on its own entity table.
+with_repo(strict_tree("app/Shared/Views/InputArea.swift" =>
+                      "let hint = \"Use an #{BARE_NOUN}\"\n")) do |root, al|
+  out, _err, code = gate(root, al, "")
+  assert code.zero? && !out.include?("FAIL prose"), "CT", "app/Shared/Views/InputArea.swift",
+         "a 2.2 noun that qualifies no subject is not a term — the app's own empty-state " \
+         "affordance stays green (exit=#{code}, out=#{out.inspect})"
+end
+
+# ─── P11. the two standing constraints, re-confirmed AFTER the prose extension ─
+# They already existed (C-26 and the zero-require rule). What is new is that the prose half
+# must not have moved either: G-2 says the rewritten app/Shared must be green ON THE GATE,
+# not allowlisted into green, and G-1 is what review-notes.yml's bundler-cache: false rests
+# on. Re-measured here from the files rather than restated.
+prose_shipped = allowlist_rows.map { |r| r[:path] }.select { |p| p.start_with?("app/") }
+assert prose_shipped.empty?, "CT", ALLOWLIST_REL,
+       "the prose extension bought NO row under app/ — the strict population is green on " \
+       "its own merits (C-26)#{prose_shipped.empty? ? '' : " — #{prose_shipped.join(', ')}"}"
+
+prose_gate_requires = File.read(GATE, encoding: "UTF-8").lines.grep(/\A\s*require\b/)
+assert prose_gate_requires.empty?, "CT", GATE_REL,
+       "and it added no require line, so bundler-cache: false still holds" \
+       "#{prose_gate_requires.empty? ? '' : " — #{prose_gate_requires.map(&:strip).join('; ')}"}"
+
+# ─── P12. D-92 on the real files: no term is spelled in either of them ───────
+# Measured, not asserted by reading. Both files are admitted by counted rows, so a spelled
+# term would move a count AND satisfy the predicate it configures.
+D92_FILES = [GATE_REL, "test/contamination_test.rb"].freeze
+assert D92_FILES.size == 2, "CT", "-",
+       "the D-92 sweep has #{D92_FILES.size} files to read"
+D92_TERMS = [prose([%w[d e m o], %w[a p p]]), prose([%w[b e t a], %w[v e r s i o n]]),
+             prose([%w[t r i a l], %w[b u i l d]]), prose([%w[s m o k e], %w[a p p]]),
+             prose([%w[s m o k e], %w[a p p]], "-"), prose([%w[s m o k e], %w[t e s t]]),
+             prose([%w[h e l l o], %w[a p p]]), prose([%w[c o m i n g], %w[s o o n]])].freeze
+assert D92_TERMS.size == 8, "CT", "-",
+       "and #{D92_TERMS.size} built terms to look for — a sweep over an empty term list " \
+       "would pass without having looked"
+D92_FILES.each do |rel|
+  spelled = []
+  File.read(File.join(ROOT, rel), encoding: "UTF-8").each_line.with_index(1) do |line, n|
+    down = line.scrub("?").downcase
+    D92_TERMS.each { |t| spelled << "#{n}:#{t}" if down.include?(t) }
+  end
+  assert spelled.empty?, "CT", rel,
+         "spells none of the #{D92_TERMS.size} prose terms it configures — D-92, the " \
+         "fifteen-times trap#{spelled.empty? ? '' : " — #{spelled.join(', ')}"}"
+end
+
+# ─── P13. the real tree: the gate is green, and it actually LOOKED ───────────
+# A summary line of all zeros is what a gate prints when it is working and also what it
+# prints when it has stopped drawing from a source. So the file counts are asserted
+# positive, per source, by name.
+prose_out, _prose_err, prose_status = Open3.capture3(RbConfig.ruby, GATE, chdir: ROOT)
+prose_code = prose_status.exitstatus
+assert prose_code.zero? && !prose_out.include?("FAIL prose"), "CT", "-",
+       "HEAD is green on the prose populations (exit=#{prose_code}, out=#{prose_out.inspect})"
+empty_on_head = PROSE_SOURCES.reject do |s|
+  files_seen = prose_out[/prose_strict: #{Regexp.escape(s)} (\d+) files/, 1].to_i
+  files_seen.positive?
+end
+assert empty_on_head.empty?, "CT", "-",
+       "and every one of the four strict sources scanned at least one tracked file on HEAD" \
+       "#{empty_on_head.empty? ? '' : " — EMPTY: #{empty_on_head.join(', ')}"} " \
+       "(out=#{prose_out.inspect})"
+assert prose_out.include?("prose_narrow:") && prose_out =~ /^prose_excluded=\d+$/,
+       "CT", "-",
+       "the narrow line and the exclusion count are printed on HEAD too (out=#{prose_out.inspect})"
+
 verdict!

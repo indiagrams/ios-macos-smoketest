@@ -240,6 +240,43 @@ jobs:
           # the UL-003 failure class). Zero require lines, so bundler-cache: false still holds.
           ruby tools/check-contamination.rb
           ruby test/contamination_test.rb
+          # APP-11 and APP-12 (ROADMAP Phase 6 criterion 5), plan 06-17. Two properties
+          # that are TRUE on this tree today and that nothing was watching.
+          #
+          # APP-11 holds because nobody has changed the two entitlements files. The build
+          # does not enforce that: one added key removes the property and every other gate
+          # in this repository stays green. So both files are asserted PER FILE — existence,
+          # the complete frozen key set, a frozen dated sha256, and a five-key
+          # network-capability denylist — against the PARSED plist, never against the file
+          # text. That last part is not fussiness: BOTH files name a forbidden capability
+          # inside an XML COMMENT, so `grep -q` on either one goes red on a correct tree
+          # (06-RESEARCH Pitfall 11). Where plutil exists the stdlib parse is cross-checked
+          # against Apple's own; on this runner it is not, and the route taken is PRINTED
+          # (entitlements_parse_route=) rather than assumed.
+          #
+          # APP-12's build half already runs continuously in the required `app (…)` matrix:
+          # every target except the two UI-test hosts inherits SWIFT_VERSION 6.0 and
+          # SWIFT_STRICT_CONCURRENCY complete, so a source file that fails strict concurrency
+          # fails that job. Its OTHER half is not enforced by anything, because both banned
+          # escape hatches COMPILE CLEAN — that is what they are for. This gate scans the
+          # tracked Swift population under app/ for them with comments stripped by a real
+          # scanner, refuses an empty population with exit 2 instead of reporting a clean
+          # tree, and never spells either token: both are assembled from character arrays at
+          # run time, because a file that configures a content gate is swept by that gate.
+          #
+          # It also decides, in one place and out loud, what criterion 5's "the app" ranges
+          # over — swift6_targets=4, with swift6_excluded_uitest_targets=2 printed as a
+          # COUNTED exemption rather than taken silently, and both manifests required to
+          # exclude the same targets. tools/identity-parity.rb does not read build settings,
+          # so that drift is invisible to every other gate here.
+          #
+          # WHAT THIS STEP CANNOT DO. There is no Xcode and no codesign on ubuntu-latest, so
+          # the BUILT-artefact half does not run here and says so (builtapp_checked=false
+          # with its reason). That half is exercised on a developer machine against
+          # ad-hoc-signed iOS and macOS bundles, and was driven red by re-signing a copy of
+          # the built app with a network entitlement while the source file stayed green.
+          # One require line (digest, a default gem), so bundler-cache: false still holds.
+          ruby test/app_offline_test.rb
           # UL-048's gate, and the merge-blocking half of a two-gate pair. Ruby takes the
           # encoding of a file it reads from the environment; with LANG and LC_ALL unset it is
           # US-ASCII, so an unpinned read of tracked text hands back a String whose bytes are
@@ -323,6 +360,29 @@ jobs:
           # tracked file, no key gitleaks would silently ignore — and the version
           # pin agreeing between tools/gitleaks.rb and the step name below.
           ruby test/gitleaks_config_test.rb
+          # APP-03's data half (plan 06-05). app/Shared/Engine/HTMLEntityTable{A,B}.swift
+          # are GENERATED and TRACKED: the generator is the source of truth and the
+          # output is reviewable. Two properties are checked here and nowhere else on a
+          # pull request, because both are invisible to the compiler.
+          #
+          # 1. THE COUNT. The obvious packing format for an entity table uses ';' as its
+          #    record delimiter, and three entity TARGETS are delimiter characters, so
+          #    such a pack loses records. Measured on this tree: 2122 of 2125 parsed,
+          #    with `swiftc -typecheck` exiting 0 over the broken tables and emitting no
+          #    diagnostic at all. Nothing in the Swift toolchain notices; a count
+          #    assertion is the only thing that does. Both halves are asserted
+          #    separately and then summed, because a union that has stopped drawing from
+          #    one source looks identical to one that never did.
+          # 2. PURE ASCII. 17 entities target invisible or format characters. Written as
+          #    literal characters they are `invisible_character` errors under
+          #    swiftlint --strict — which runs in the macos matrix in pr.yml, not here.
+          #    Asserting the byte-level property in Ruby puts it on EVERY pull request.
+          #
+          # --check never fetches: the WHATWG document is downloaded once, at generation
+          # time, on a developer's machine (APP-11). Both files are Ruby core plus
+          # json/open3, so bundler-cache: false above still holds.
+          ruby tools/gen-html-entities.rb --check
+          ruby test/gen_html_entities_test.rb
 
       # A SEPARATE, NAMED STEP — and deliberately still a step in THIS job, not a
       # job of its own. A new job would be a tenth status context, and branch

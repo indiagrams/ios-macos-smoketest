@@ -200,6 +200,38 @@ targets:
     platform: iOS
     sources:
       - path: Tests
+      # The conversion engine and the tests that cover it, compiled into BOTH
+      # unit-test targets — the same shape as the shared selector enum on
+      # AppUITests above, and the same reason: single source of truth
+      # preserved (same path, listed twice). One corpus, asserted twice; two
+      # copies would drift.
+      #
+      # This is how 06-RESEARCH Open Question 1 was routed. The alternative was
+      # `@testable import <the app module>`, which works — but the module name
+      # resolves from APP_PRODUCT_NAME in Identity.xcconfig, so that import
+      # spells the fork's identity inside a test file, and
+      # tools/migrate-identity.rb's MUST_NOT_TOUCH list does not cover
+      # app/Tests or app/MacOSTests. A fork that renamed itself would get a
+      # silently broken test build. The engine is pure value types with no
+      # dependency on the app module, so compiling it in costs nothing.
+      - path: Shared/Engine
+      # ConversionFailure lives under Shared/Model, not Shared/Engine, so it
+      # needs its own entry: the app targets take all of Shared/, but the unit
+      # test targets list subpaths one at a time. Without this line the engine
+      # compiles into the app and NOT into the tests, and every test that names
+      # the type fails to compile. Added by 06-03.
+      - path: Shared/Model
+      # The view layer, and the two files it needs to compile: Shared/Design
+      # (Spacing, Palette) and the shared selector enum. Added by 06-11 so the
+      # failure-to-sentence mapping in Shared/Views/FailureText.swift can be
+      # asserted by RENDERING all eleven sentences in a host-based unit test,
+      # and so the pasteboard write in Shared/Views/OutputAccessory.swift can be
+      # proven by an executed round trip. A copy control asserted only by a grep
+      # over its source is a file-level gate that never exercises the artefact.
+      - path: Shared/Design
+      - path: Shared/AccessibilityIdentifiers.swift
+      - path: Shared/Views
+      - path: EngineTests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).tests
@@ -248,6 +280,23 @@ targets:
     platform: macOS
     sources:
       - path: MacOSTests
+      # See AppTests above — the same two paths for the same reason
+      # (06-RESEARCH Open Question 1). One engine, one corpus, two unit
+      # targets, no identity literal in any test file.
+      - path: Shared/Engine
+      # See AppTests above — Shared/Model carries ConversionFailure.
+      - path: Shared/Model
+      # The view layer, and the two files it needs to compile: Shared/Design
+      # (Spacing, Palette) and the shared selector enum. Added by 06-11 so the
+      # failure-to-sentence mapping in Shared/Views/FailureText.swift can be
+      # asserted by RENDERING all eleven sentences in a host-based unit test,
+      # and so the pasteboard write in Shared/Views/OutputAccessory.swift can be
+      # proven by an executed round trip. A copy control asserted only by a grep
+      # over its source is a file-level gate that never exercises the artefact.
+      - path: Shared/Design
+      - path: Shared/AccessibilityIdentifiers.swift
+      - path: Shared/Views
+      - path: EngineTests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).mactests

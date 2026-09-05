@@ -200,6 +200,21 @@ EXEMPTIONS = [
     anchor: "empty?",
     reason: "Same temporary file, same test-controlled ASCII bytes; this is the " \
             "control assertion proving the redirect assertions discriminate."
+  },
+  {
+    path:   "tools/gen-html-entities.rb",
+    anchor: "swift_source",
+    reason: "Not a file read. This iterates a String the caller already pulled off " \
+            "disk with an explicit encoding a few lines above, so the encoding is " \
+            "pinned upstream of this line and pinning again is impossible -- the " \
+            "same shape as the two check-contamination.rb entries. There is a " \
+            "second, stronger reason here: the subject is a GENERATED Swift table " \
+            "whose every scalar is a backslash-u escape, and the very same method " \
+            "that produced this String asserts byte by byte that it holds nothing " \
+            "above 0x7F before this line runs. An all-ASCII String cannot raise on " \
+            "the locale. Measured 2026-09-04 on 3.3.12 and 4.0.6 with LC_ALL, LANG " \
+            "and LC_CTYPE all cleared: the generator reports EXT=US-ASCII and its " \
+            "--check still exits 0 over both tracked tables."
   }
 ].freeze
 

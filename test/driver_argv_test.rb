@@ -423,6 +423,45 @@ POPULATION = (SEED_POPULATION + INTERP_LAUNCHED.keys).uniq.sort.freeze
 # enumerated, and the number is how a reader sees it grow.
 UNENUMERATED_BIN = (tracked_executables("bin") - POPULATION).sort.freeze
 
+# ─── A13: tools/ is outside the population, and that is SAID, COUNTED and MEASURED
+#
+# WHY THIS EXISTS (added 2026-09-04 by plan 06-05). That plan created
+# tools/gen-html-entities.rb, a fork-owned generator that WRITES TRACKED SWIFT
+# SOURCE. Every one of this suite's three sources missed it by construction: no
+# Makefile recipe references tools/ at all, source 2 is scoped to ci/, and source
+# 3 only follows interpreter launches made by members of 1 or 2. So a new
+# executable arrived in this repository outside the argv audit and nothing said
+# so -- which is the exact shape of "a correct check pointed at the wrong
+# POPULATION", the class ci/bump-asc-version.rb was an instance of.
+#
+# WIDENING WAS NOT THE FIX, for the reason already recorded above for bin/:
+# enumerating tools/ would add several unmeasured members at a stroke, and a
+# disposition written without a measurement behind it is the assumption this
+# whole group exists to refuse. It is also not available cheaply -- AGENTS.md
+# marks the Makefile template-owned, so a `make gen-entities` target that would
+# put this file inside source 1 is not a change this fork may make. That is the
+# same wall .github/workflows/review-notes.yml documents for its own generator.
+#
+# WHAT IS DONE INSTEAD is the idiom this file already uses for bin/: the number
+# is PRINTED so it moves, and the scoping decision is asserted rather than
+# assumed. The second assertion below states the decision in its strongest
+# falsifiable form -- NOT ONE tracked executable under tools/ is reached by any
+# of the three sources. The day somebody wires one into a make recipe or launches
+# it from a ci/ script, that assertion goes red and a disposition has to be
+# written for it. A silent exclusion cannot do that. Closing this half properly
+# is UL-052's sibling and is deliberately not attempted here.
+TRACKED_TOOLS = tracked_executables("tools").sort.freeze
+UNENUMERATED_TOOLS = (TRACKED_TOOLS - POPULATION).sort.freeze
+
+assert TRACKED_TOOLS.length >= 5, "A13", "tools/",
+       "the tools/ executable enumeration found #{TRACKED_TOOLS.length} scripts (floor 5); a " \
+       "zero here would make the printed unenumerated_tools count vacuous rather than informative"
+assert UNENUMERATED_TOOLS.length == TRACKED_TOOLS.length, "A13", "tools/",
+       "every one of the #{TRACKED_TOOLS.length} tracked executables under tools/ is OUTSIDE this " \
+       "suite's population (#{UNENUMERATED_TOOLS.length} of them) -- a stated scoping decision, not " \
+       "an accident. If this went red, a tools/ script became reachable from a make recipe or from " \
+       "a ci/ launcher, and it now needs a row in DISPOSITIONS with a measurement behind it"
+
 # ─── the disposition of every member, with its reason as an ASSERTION ────────
 #
 # Three dispositions, and each one's REASON is asserted rather than written in a
@@ -1832,11 +1871,14 @@ puts "RESULT control=driver-argv-table-complete exit=#{exit_code} " \
 # did. The last number is the half of source 2 that is deliberately NOT
 # enumerated -- tracked executables under bin/ that no recipe launches. It is
 # printed rather than asserted against a literal so a reader sees it move, and
-# closing it is UL-052.
+# closing it is UL-052. The tools/ count beside it is the same statement for the
+# fork-owned generator directory; A13 above asserts that the whole of tools/ is
+# outside the population rather than leaving it to be noticed.
 puts "RESULT control=driver-argv-enumeration exit=#{exit_code} " \
      "make_invoked=#{MAKE_INVOKED.keys.length} ci_executable=#{EXECUTABLE_CI.length} " \
      "interpreter_launched=#{INTERP_LAUNCHED.length} " \
-     "unenumerated_bin=#{UNENUMERATED_BIN.length} restored=ok"
+     "unenumerated_bin=#{UNENUMERATED_BIN.length} " \
+     "unenumerated_tools=#{UNENUMERATED_TOOLS.length} restored=ok"
 puts "RESULT control=driver-argv-front-door exit=#{exit_code} " \
      "drivers=#{DRIVERS.length} executed=#{EXECUTED.length} restored=ok"
 puts

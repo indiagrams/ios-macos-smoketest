@@ -102,13 +102,22 @@ enum SweepPopulation {
 
     // `(format segment, text)`. The direction picker is on decode for all of these — encoding cannot
     // fail, so every error sentence the encode surface owns is reachable only in the other direction.
-    // NO FIXTURE CONSTANTS HERE, AND THAT IS THE MEASURED DIFFERENCE FROM THE iOS TWIN. The iOS walk
-    // types five inputs to reach the error sentences; this one does not type at all. What a headless
-    // GitHub Actions runner does with `typeText` is UNMEASURED — 06-01 measured launch and snapshot,
-    // and `ShellTests` measures clicking, and neither of them measures typing. A walk step that might
-    // silently not happen is the population failure this phase exists to stop, and a walk step that
-    // hard-fails on the only machine that runs it is a gate that is red forever. The macOS half
-    // therefore reaches its error states by CLICKING the direction picker, and says so.
+    // THE FIXTURES ARE HERE BECAUSE TYPING ON A HEADLESS RUNNER WAS MEASURED, NOT ASSUMED. This file
+    // first shipped with no fixtures at all and said so: 06-01 measured launch and snapshot,
+    // `ShellTests` measures clicking, and neither measured `typeText`, so the walk reached its error
+    // states by clicking the direction picker instead. Run 33960384969, job `app (macOS)`, then
+    // measured it directly — `TYPING_PROBE typed=zz observed=zz` on a runner with
+    // `runner_headless=true` — and a population gap that is known to be closable is not one to leave
+    // open. The lists below are the iOS twin's, verbatim.
+
+    /// Typed ONCE each, then read under every format listed — typing is the expensive half of the
+    /// walk and a format change costs one click.
+    static let encodeFixtures: [(text: String, formats: [Int])] = [
+        ("&%zz!", [0, 1, 2]), ("aGVsbG8", [0]), ("a=GVsbG8=", [0]), ("&nosuch;", [2]), ("%FF%FE", [1])
+    ]
+
+    /// Inputs the timestamps surface cannot read, so its own failure sentences enter the tree.
+    static let timestampFixtures = ["12x4", "999999999999999999"]
 
     /// `TimeZone.knownTimeZoneIdentifiers` — Foundation data, exempt and counted as `system_data`.
     static let timeZoneIdentifiers = Set(TimeZone.knownTimeZoneIdentifiers)

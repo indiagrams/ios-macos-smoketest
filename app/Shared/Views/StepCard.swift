@@ -93,7 +93,7 @@ struct StepCard<Content: View>: View {
     /// Header, divider, body, divider, strip — in that order, always.
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            Text(verbatim: "demo app")
+            Text(title)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier(AccessibilityIdentifiers.Step.header)

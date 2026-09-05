@@ -4,30 +4,25 @@ import XCTest
 //
 // ROUTED BY PLAN 06-01's MEASURED VERDICT, NOT BY ASSUMPTION. That plan asked whether a macOS UI test
 // executes at all on a headless GitHub Actions runner, wrote routing for all four possible answers
-// before anything depended on one, and recorded `probe_verdict=viable` —
-// `harvested_strings=114 harvested_distinct=109 probe_reached_subject=true runner_headless=true`,
-// run 33925478706, job `app (macOS)`. The `viable` branch says: write the macOS twin exactly like the
-// iOS one, on the template-owned `.github/workflows/pr.yml` unedited, and delete the probe. This file
-// is that branch. `HarvestProbeTests.swift` is deleted in the same change: it has served its purpose,
-// and a second launching UI test in this target doubles the runner cost and the flake surface.
+// before anything depended on one, and recorded `probe_verdict=viable` (harvested_strings=114,
+// reached_subject=true, runner_headless=true; run 33925478706). The `viable` branch says: write the
+// macOS twin exactly like the iOS one, on the template-owned `pr.yml` unedited, and delete the probe.
 //
 // TWO CONSTRAINTS 06-01 MEASURED, WHICH SHAPE EVERYTHING BELOW:
 //
 //  1. A `print` FROM THIS BUNDLE NEVER REACHES THE CI LOG. The bundle is injected into
 //     `AppMacOSUITests-Runner.app`, launched by `testmanagerd`, whose stdout is not connected to
-//     xcodebuild's pipe; only XCTest's own IPC crosses back. So every number this sweep produces
-//     rides an ASSERTION MESSAGE or an `XCTContext` activity in the `.xcresult`. The `print` calls
-//     are kept for a local run and are evidence of nothing on a runner. A green
-//     `XCTAssertGreaterThan(count, 20)` proves the predicate, not the number.
+//     xcodebuild's pipe; only XCTest's own IPC crosses back. Every number therefore rides an
+//     ASSERTION MESSAGE or an `XCTContext` activity. A green `XCTAssertGreaterThan(count, 20)`
+//     proves the predicate, not the number.
 //  2. THE HARVEST IS MOSTLY NOT THE APP. `try app.snapshot()` on the application element returns the
 //     whole menu bar. `SweepPopulation` is the counted exclusion that fixes it; see that file.
 //
 // THE DETECTION IDIOM IS COPIED FROM `AppStoreScreenshotTests.swift:52-54`; THE SKIP IS NOT, AND
 // NEITHER IS THE FOREGROUND-ACTIVATION CALL. launchd scrubs `CI` and `GITHUB_ACTIONS` from the
-// runner's environment, so the home directory is the only usable signal — and it is recorded here as
-// an observable FACT rather than branched on. A sweep that skipped on a headless runner would be a
-// gate that has never executed, which is the blocking row this phase inherited and the one 06-14's
-// own macOS assertion fell into (`harness_macos=skipped`, run 33953867591). This one executes.
+// runner's environment, so the home directory is the only usable signal — recorded here as an
+// observable FACT rather than branched on. A sweep that skipped would be a gate that has never
+// executed, the row this phase inherited and the one 06-14's macOS assertion fell into.
 //
 // C-25 BOUNDS WHAT THIS PROVES: this target is pinned to Swift 5.9 / minimal concurrency, so the file
 // is criterion-6 evidence only and NEVER evidence for APP-12.
@@ -78,21 +73,7 @@ final class VisibleStringSweep: XCTestCase {
     private static let distinctFloor = 50
 
     override func setUpWithError() throws {
-        continueAfterFailure = true // CONTROL RUN ONLY
-    }
-
-    /// CONTROL MUTATION sweep-reached-subject-macos: the walk points at a surface that does not exist.
-    func testControlNearEmptyHarvest() {
-        let seen = SweepHarvest()
-        app = XCUIApplication()
-        app.launch()
-        _ = element("Shell.sidebar.doesNotExist").waitForExistence(timeout: 2)
-        XCTAssertGreaterThan(
-            seen.rendered.count,
-            20,
-            "the sweep saw almost nothing — it did not reach the app. harvested_strings=\(seen.rendered.count)"
-        )
-        app.terminate()
+        continueAfterFailure = false
     }
 
     override func tearDownWithError() throws {
@@ -163,21 +144,9 @@ final class VisibleStringSweep: XCTestCase {
             XCTFail("the product name is rendered outside system chrome: it appears in \"\(string)\"")
         }
 
-        // CONTROL RUN ONLY — carries the counters out over XCTest's IPC, which is the only channel a
-        // number can leave this bundle by (06-01). Placed last on purpose: reaching it proves every
-        // assertion above it ran.
-        XCTFail("SWEEP_COUNTERS \(counters) a3_menu_title_source=\(name.source) "
-            + "a3_menu_title_value=\(name.value) menu_bar=\(menuBarItems.prefix(9).joined(separator: " | ")) "
-            + "chrome_distinct=\(Set(seen.chrome).sorted().joined(separator: " | "))")
-
-        // CONTROL RUN ONLY — is typing viable on a headless runner at all? Unmeasured until now.
-        app = XCUIApplication()
-        app.launch()
-        let field = element(Ident.Encode.input)
-        XCTAssertTrue(field.waitForExistence(timeout: 30), "TYPING_PROBE could not reach the input")
-        field.click()
-        field.typeText("zz")
-        XCTFail("TYPING_PROBE typed=zz observed=\((field.value as? String) ?? "<nil>")")
+        // CONTROL RUN ONLY — carries the counters out over XCTest's IPC, the only channel a number can
+        // leave this bundle by. Placed last: reaching it proves every assertion above it ran.
+        XCTFail("SWEEP_COUNTERS \(counters) a3_menu_title_source=\(name.source)")
     }
 
     // MARK: - The harvest
@@ -254,8 +223,18 @@ final class VisibleStringSweep: XCTestCase {
             press(segment(Ident.Encode.format, index), "the format picker's segment \(index)")
             try snap(into: &out)
         }
+        for fixture in SweepPopulation.encodeFixtures {
+            replaceInput(Ident.Encode.input, with: fixture.text)
+            for format in fixture.formats {
+                press(segment(Ident.Encode.format, format), "the format picker's segment \(format)")
+                try snap(into: &out)
+            }
+        }
+
+        clearInput(Ident.Encode.input, revealing: Ident.Encode.useExample)
         press(segment(Ident.Encode.direction, 0), "the direction picker's encode segment")
         press(segment(Ident.Encode.format, 0), "the format picker's first segment")
+        press(element(Ident.Encode.useExample), "the Encode worked-value button")
 
         try chainAndBlock(into: &out)
     }
@@ -331,6 +310,13 @@ final class VisibleStringSweep: XCTestCase {
         press(element(Ident.Timestamps.detect), "the detect control")
         try snap(into: &out)
 
+        for fixture in SweepPopulation.timestampFixtures {
+            replaceInput(Ident.Timestamps.input, with: fixture)
+            try snap(into: &out)
+        }
+        clearInput(Ident.Timestamps.input, revealing: Ident.Timestamps.useExample)
+        press(element(Ident.Timestamps.useExample), "the Timestamps worked-value button")
+
         press(control(Ident.Step.copy, 0), "the first representation's copy control")
         try snap(into: &out)
         press(control(Ident.Step.addStep, 0), "the first representation's add-step control")
@@ -375,6 +361,35 @@ final class VisibleStringSweep: XCTestCase {
             XCTAssertTrue(target.waitForExistence(timeout: 20), "the walk cannot reach \(what)")
         }
         target.click()
+    }
+
+    /// Replaces a field's contents. A FIXED, GENEROUS DELETE COUNT rather than one derived from
+    /// `value`: an empty field reports its PROMPT as `value`, so a derived count is wrong in both
+    /// directions, over-deleting an empty field is a no-op, and the whole run is one `typeText` call
+    /// whatever its length.
+    private func replaceInput(_ identifier: String, with text: String) {
+        let field = element(identifier)
+        if !field.exists {
+            XCTAssertTrue(field.waitForExistence(timeout: 20), "the walk cannot reach the input \(identifier)")
+        }
+        field.click()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
+        if !text.isEmpty {
+            field.typeText(text)
+        }
+    }
+
+    /// Empties a field and CONFIRMS it, by the worked-value button that only exists while it is empty.
+    /// Measured on the iOS twin: a single delete pass left a field non-empty on one run of two, and a
+    /// clear that is not verified is a step that can silently not happen.
+    private func clearInput(_ identifier: String, revealing button: String) {
+        for _ in 0 ..< 3 {
+            replaceInput(identifier, with: "")
+            if element(button).exists {
+                return
+            }
+        }
+        XCTFail("clearing \(identifier) never revealed \(button) — the field would not empty")
     }
 
     /// Moves to the destination carrying `identifier` and confirms it arrived.

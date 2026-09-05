@@ -65,12 +65,15 @@ final class VisibleStringSweep: XCTestCase {
     /// The floor for `harvested_distinct`. A floor rather than an equality, so adding a string cannot
     /// break the gate but losing a surface must.
     ///
-    /// PROVISIONAL AND SAID TO BE. The iOS twin's floor is measured — 85 against a measured 105-106.
-    /// This one cannot be, until CI has run the sweep once: no number this bundle produces reaches the
-    /// workflow log (06-01), so the real distinct count arrives only in a run whose assertion message
-    /// carries it. Set low enough not to hold the first run red on a guess, and tightened against the
-    /// measurement rather than left as the guess.
-    private static let distinctFloor = 50
+    /// MEASURED, not guessed, and it took a deliberately red run to measure it: no number this bundle
+    /// produces reaches the workflow log (06-01), so the distinct count could only arrive in a run
+    /// whose assertion message carried it. Run 33960685203, job `app (macOS)`, with every real
+    /// assertion passing and only the temporary counters `XCTFail` failing:
+    /// `harvested_strings=2192 harvested_distinct=94 system_chrome_strings=7644
+    /// system_data_strings=22 platform_control_strings=152`. The floor is 85 — nine below the
+    /// measurement, and low enough that adding strings cannot break it while losing the smallest
+    /// surface (Hashing, about eleven distinct strings) still trips it.
+    private static let distinctFloor = 85
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -143,10 +146,6 @@ final class VisibleStringSweep: XCTestCase {
         for string in distinct.sorted() where SweepPopulation.squash(string).contains(squashed) {
             XCTFail("the product name is rendered outside system chrome: it appears in \"\(string)\"")
         }
-
-        // CONTROL RUN ONLY — carries the counters out over XCTest's IPC, the only channel a number can
-        // leave this bundle by. Placed last: reaching it proves every assertion above it ran.
-        XCTFail("SWEEP_COUNTERS \(counters) a3_menu_title_source=\(name.source)")
     }
 
     // MARK: - The harvest
@@ -365,8 +364,7 @@ final class VisibleStringSweep: XCTestCase {
 
     /// Replaces a field's contents. A FIXED, GENEROUS DELETE COUNT rather than one derived from
     /// `value`: an empty field reports its PROMPT as `value`, so a derived count is wrong in both
-    /// directions, over-deleting an empty field is a no-op, and the whole run is one `typeText` call
-    /// whatever its length.
+    /// directions, and over-deleting an empty field is a no-op.
     private func replaceInput(_ identifier: String, with text: String) {
         let field = element(identifier)
         if !field.exists {
@@ -380,8 +378,7 @@ final class VisibleStringSweep: XCTestCase {
     }
 
     /// Empties a field and CONFIRMS it, by the worked-value button that only exists while it is empty.
-    /// Measured on the iOS twin: a single delete pass left a field non-empty on one run of two, and a
-    /// clear that is not verified is a step that can silently not happen.
+    /// Measured on the iOS twin: a clear that is not verified is a step that can silently not happen.
     private func clearInput(_ identifier: String, revealing button: String) {
         for _ in 0 ..< 3 {
             replaceInput(identifier, with: "")

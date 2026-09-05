@@ -49,7 +49,9 @@
 // Characters because entity DEcoding is where a combining mark can join what
 // precedes it: `&bne;` targets U+003D U+20E5, which is ONE Character made of
 // two scalars, and 06-05 measured a packed format losing records to exactly
-// that. Nothing here ever splits on a `Character`.
+// that. Nothing here ever splits on a `Character`. The table format itself,
+// and the eight records the obvious format loses, are in
+// HTMLEntityTablePacking.swift.
 //
 // THE 106 LEGACY SEMICOLON-OPTIONAL FORMS ARE REJECTED, BY DESIGN
 //
@@ -68,16 +70,6 @@ import Foundation
 /// is nothing to construct.
 enum HTMLEntityCodec {
     // MARK: - The packed table, parsed once
-
-    /// The record delimiter in the generated tables, U+0001.
-    ///
-    /// Stated as a scalar VALUE and compared as one, so no `Character`
-    /// comparison can absorb it into a grapheme cluster. The generator holds
-    /// the same two constants; see `tools/gen-html-entities.rb`.
-    private static let recordDelimiter: UInt32 = 0x0001
-
-    /// The field delimiter in the generated tables, U+0002.
-    private static let fieldDelimiter: UInt32 = 0x0002
 
     /// Entity name (with no `&` and no `;`) to the text it stands for.
     ///
@@ -98,7 +90,8 @@ enum HTMLEntityCodec {
     ///
     /// - Note: `entity_lookup_form=static-let`. The plan's fallback — parsing
     ///   on every call, measured at ~2 ms — was not needed.
-    static let lookup: [String: String] = parse(HTMLEntityTableA.chunks + HTMLEntityTableB.chunks)
+    static let lookup: [String: String] =
+        HTMLEntityTablePacking.parse(HTMLEntityTableA.chunks + HTMLEntityTableB.chunks)
 
     /// Records that reached runtime. **Must be 2125**, and
     /// `HTMLEntityTests.everyGeneratedRecordSurvivesParsing` asserts it.
@@ -110,6 +103,36 @@ enum HTMLEntityCodec {
         lookup.count
     }
 
+    // MARK: - The five characters the encoder escapes
+
+    /// The OWASP escape set: `&`, `<`, `>`, `"`, `'`.
+    ///
+    /// A **stated** choice, not an emergent one — RESEARCH assumption A1,
+    /// decided in plan 06-05 and recorded in both generated table headers.
+    /// Encoding all 2125 named references would turn `café` into
+    /// `caf&eacute;`, which is not what anyone types this tool for. What this
+    /// set buys is the property a chaining pipeline needs:
+    /// `decode(encode(x)) == .success(x)` for every `x`, asserted over a
+    /// sample set and over a seeded sweep.
+    ///
+    /// - Important: The apostrophe is escaped as **`&#39;`**, not `&apos;`.
+    ///   Both decode correctly here, but `&apos;` is not in HTML 4 and the
+    ///   numeric form is universally understood. Plan 06-12's UI strings must
+    ///   match this choice.
+    /// - Important: `&` is escaped FIRST — structurally, not by ordering luck.
+    ///   The classic bug lives in the chained-replacement shape, where a
+    ///   later `replacingOccurrences` re-reads the `&` an earlier one emitted
+    ///   and double-escapes it. A single traversal appends replacements to the
+    ///   OUTPUT and never re-examines them, so the fault cannot occur. The
+    ///   regression assertion is `encode("&lt;") == "&amp;lt;"`.
+    private static let escapes: [Unicode.Scalar: String] = [
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+    ]
+
     // MARK: - The three entry points
 
     /// Why `s` is not decodable HTML entity text, or `nil` if it is.
@@ -120,17 +143,19 @@ enum HTMLEntityCodec {
     ///    another `&`, or before the end of the input. Renders as
     ///    `encode.error.html.unterminated`.
     /// 2. `.unknownEntity` — a `;`-terminated reference whose name is not in
-    ///    the table. Renders as `encode.error.html.unknown`, and the payload
-    ///    is the entity **as typed**, `&` and `;` included, because that is
-    ///    what the string's `'%@'` slot shows the user.
+    ///    the table, or a numeric reference that is not a legal Unicode
+    ///    scalar. Renders as `encode.error.html.unknown`, and the payload is
+    ///    the entity **as typed**, `&` and `;` included, because that is what
+    ///    the string's `'%@'` slot shows the user.
     ///
     /// Both name the 1-based Character position of the `&` that begins the
     /// offending reference.
     ///
     /// - Note: Total. Every branch returns; there is no force-unwrap, no
-    ///   `try!` and no unguarded subscript — which matters because these
-    ///   bundles are host-based and a trap kills the host rather than failing
-    ///   a test.
+    ///   `try!` and no unguarded subscript. Numeric references are accumulated
+    ///   with an early bail above `0x10FFFF`, so no arithmetic can overflow —
+    ///   which matters because these bundles are host-based and a trap kills
+    ///   the host rather than failing a test.
     /// - Parameter s: Untrusted input of arbitrary length and content.
     nonisolated static func classify(_ s: String) -> ConversionFailure? {
         switch scan(s) {
@@ -149,6 +174,29 @@ enum HTMLEntityCodec {
     ///   and percent-encoding, no Foundation call is consulted here at all.
     nonisolated static func decode(_ s: String) -> Result<String, ConversionFailure> {
         scan(s)
+    }
+
+    /// The HTML-escaped spelling of `s`, escaping exactly the five characters
+    /// in ``escapes`` and nothing else.
+    ///
+    /// - Note: Total and cannot fail. Every scalar either has a replacement or
+    ///   is itself, so there is no error path here and none should be invented
+    ///   for symmetry with ``decode(_:)``.
+    /// - Important: `café` comes back unchanged, `"line1\nline2"` keeps its
+    ///   newline and `"  spaced  "` keeps both runs of spaces. Those are the
+    ///   three measured destruction modes of the platform decoder named in the
+    ///   file header, asserted here as regressions rather than trusted.
+    nonisolated static func encode(_ s: String) -> String {
+        var out = ""
+        out.reserveCapacity(s.utf8.count)
+        for scalar in s.unicodeScalars {
+            if let replacement = escapes[scalar] {
+                out += replacement
+            } else {
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
     }
 
     // MARK: - The one traversal
@@ -235,11 +283,63 @@ enum HTMLEntityCodec {
 
     /// The text a reference name stands for, or `nil` when it names nothing.
     ///
-    /// Named references only, for now. Numeric references (`&#65;`, `&#x41;`)
-    /// are the scanner's job because the table does not carry them, and they
-    /// land in plan 06-06's second task.
+    /// Named references come from the generated table; numeric references are
+    /// resolved here, because the table does not carry them and the scanner
+    /// must (`&#65;` and `&#x41;` are both `A`).
     private nonisolated static func resolve(_ name: String) -> String? {
-        lookup[name]
+        guard name.unicodeScalars.first == "#" else {
+            return lookup[name]
+        }
+        return numericReference(name)
+    }
+
+    /// The scalar a numeric character reference names, or `nil` when it names
+    /// none.
+    ///
+    /// - Important: The value is accumulated with an early bail the moment it
+    ///   passes `0x10FFFF`, so a reference like `&#99999999999999999999;`
+    ///   cannot overflow. The obvious `Int(digits)` shape traps or silently
+    ///   wraps; this one returns `nil` and the caller names it
+    ///   `.unknownEntity`. Surrogates U+D800...U+DFFF are refused for the same
+    ///   reason: `Unicode.Scalar(_:)` returns `nil` for them and a
+    ///   force-unwrap would trap the host.
+    /// - Returns: `nil` for an empty digit run, a non-digit, a value above
+    ///   U+10FFFF, or a surrogate. The platform decoder returns U+FFFD with no
+    ///   error for these; this app names them (T-06-25).
+    private nonisolated static func numericReference(_ name: String) -> String? {
+        var scalars = Substring(name).unicodeScalars.dropFirst()
+        let radix: UInt32
+        if scalars.first == "x" || scalars.first == "X" {
+            scalars = scalars.dropFirst()
+            radix = 16
+        } else {
+            radix = 10
+        }
+        guard !scalars.isEmpty else { return nil }
+
+        var value: UInt32 = 0
+        for scalar in scalars {
+            guard let digit = digitValue(scalar, radix: radix) else { return nil }
+            // Bail BEFORE the multiply, so the arithmetic below cannot
+            // overflow: value is at most 0x10FFFF here, so value * 16 + 15 is
+            // at most 0x10FFFF_F and far inside UInt32.
+            guard value <= 0x10FFFF else { return nil }
+            value = value * radix + digit
+        }
+        guard let resolved = Unicode.Scalar(value) else { return nil }
+        return String(Character(resolved))
+    }
+
+    /// The value of an ASCII digit in `radix`, or `nil` when it is not one.
+    private nonisolated static func digitValue(_ scalar: Unicode.Scalar, radix: UInt32) -> UInt32? {
+        let value: UInt32? = switch scalar {
+        case "0" ... "9": scalar.value - 0x30
+        case "a" ... "f": scalar.value - 0x61 + 10
+        case "A" ... "F": scalar.value - 0x41 + 10
+        default: nil
+        }
+        guard let value, value < radix else { return nil }
+        return value
     }
 
     /// Space, tab, newline, carriage return, vertical tab and form feed.
@@ -269,46 +369,5 @@ enum HTMLEntityCodec {
         case 0x0800 ... 0xFFFF: 3
         default: 4
         }
-    }
-
-    // MARK: - Parsing the packed table
-
-    /// Split the packed chunks into `name -> text`, on SCALARS.
-    ///
-    /// Records are separated by U+0001 and the two fields of a record by
-    /// U+0002. State is carried across chunk boundaries, so a future generator
-    /// that split a record across two chunks would still parse — the count
-    /// assertion in HTMLEntityTests is what would catch it if it did not.
-    ///
-    /// - Note: Never splits on a `Character`. See the file header.
-    private static func parse(_ chunks: [String]) -> [String: String] {
-        var out = [String: String]()
-        out.reserveCapacity(2200)
-        var name = ""
-        var text = ""
-        var inTarget = false
-
-        for chunk in chunks {
-            for scalar in chunk.unicodeScalars {
-                switch scalar.value {
-                case recordDelimiter:
-                    if !name.isEmpty {
-                        out[name] = text
-                    }
-                    name = ""
-                    text = ""
-                    inTarget = false
-                case fieldDelimiter:
-                    inTarget = true
-                default:
-                    if inTarget {
-                        text.unicodeScalars.append(scalar)
-                    } else {
-                        name.unicodeScalars.append(scalar)
-                    }
-                }
-            }
-        }
-        return out
     }
 }

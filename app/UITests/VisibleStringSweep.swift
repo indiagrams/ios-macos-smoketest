@@ -17,22 +17,18 @@ import XCTest
 // that queried by text would assert on the very strings it is testing.
 //
 // C-25 BOUNDS WHAT THIS PROVES. Both UI-test targets are pinned to `SWIFT_VERSION: "5.9"` /
-// `SWIFT_STRICT_CONCURRENCY: minimal` because fastlane's `SnapshotHelper.swift` predates Swift 6. This
-// file is criterion-6 evidence only and is NEVER evidence for APP-12. Everything below is Swift 5.9
-// syntax: `@MainActor final class`, `override func setUpWithError()`, no `async`.
+// `SWIFT_STRICT_CONCURRENCY: minimal` because fastlane's `SnapshotHelper.swift` predates Swift 6, so
+// this file is criterion-6 evidence only and NEVER evidence for APP-12. Everything below is Swift 5.9.
 //
 // FOUR PROPERTIES, NOT ONE. `label` alone misses every `TextField` prompt — this app has three — which
 // lands in `placeholderValue`, and every field's current text, which lands in `value`. A correct check
 // pointed at an incomplete population is the failure class this phase exists to stop repeating.
 //
 // ONE IPC ROUND TRIP PER HARVEST POINT. `try app.snapshot()` returns the whole tree in one call and
-// `harvest` walks `.children` in this process. The per-element alternative costs one round trip per
-// element, which on a populated three-surface app is the difference between a fast test and a flaky
-// one.
-//
-// REACHED ITS SUBJECT FIRST, SEPARATELY. `harvested_strings=` is printed and asserted BEFORE any
-// property of what was harvested, so a skip, a crash or an empty tree reads as a failure to reach the
-// app rather than as a statement about what the app renders.
+// `harvest` walks `.children` in this process; the per-element alternative costs one round trip per
+// element. REACHED ITS SUBJECT FIRST, SEPARATELY: `harvested_strings=` is printed and asserted BEFORE
+// any property of what was harvested, so a skip, a crash or an empty tree reads as a failure to reach
+// the app rather than as a statement about what the app renders.
 
 /// Every string the app renders, on every surface, in both appearances — and no prose term among them.
 @MainActor
@@ -229,6 +225,11 @@ final class VisibleStringSweep: XCTestCase {
             "the appended step did not render the chained result of \"\(source)\""
         )
         print("app08_chained_ios=ok")
+        // Harvested AFTER the wait, not before it: the snapshot taken straight after the menu tap
+        // caught the appended card unrendered on 17.5 and rendered on 26.1, so the chained value was in
+        // the population on one runtime and not the other. A population that depends on a race is the
+        // wrong population.
+        try snap(into: &out)
 
         press(segment(Ident.Encode.direction, 1), "the direction picker's decode segment")
         let blocked = element(Ident.Step.blocked)
@@ -251,7 +252,7 @@ final class VisibleStringSweep: XCTestCase {
         press(control(Ident.Step.addStep, 0), "the first digest's add-step control")
         try snap(into: &out)
         press(control(Ident.Step.addStepMenu, 0), "the add-step menu's first item")
-        try snap(into: &out)
+        try appendedCard(into: &out)
     }
 
     /// Step 9 on timestamps: the picker's three options, the caption, the Detect title and the cells.
@@ -278,6 +279,12 @@ final class VisibleStringSweep: XCTestCase {
         press(control(Ident.Step.addStep, 0), "the first representation's add-step control")
         try snap(into: &out)
         press(control(Ident.Step.addStepMenu, 0), "the add-step menu's first item")
+        try appendedCard(into: &out)
+    }
+
+    /// Waits for the card the add-step menu appended, THEN harvests it.
+    private func appendedCard(into out: inout SweepHarvest) throws {
+        XCTAssertTrue(control(Ident.Step.output, 0).waitForExistence(timeout: 15), "the menu appended no card")
         try snap(into: &out)
     }
 
@@ -329,9 +336,8 @@ final class VisibleStringSweep: XCTestCase {
 
     /// Empties a field and CONFIRMS it, by the worked-value button that only exists while it is empty.
     ///
-    /// Measured, not assumed: a single delete pass left the Timestamps field non-empty on one run of
-    /// two, and the walk then waited twenty seconds for a button the app was right not to be showing.
-    /// A clear that is not verified is a step that can silently not happen.
+    /// Measured: a single delete pass left the Timestamps field non-empty on one run of two, and the
+    /// walk then waited twenty seconds for a button the app was right not to be showing.
     private func clearInput(_ identifier: String, revealing button: String) {
         for _ in 0 ..< 3 {
             replaceInput(identifier, with: "")
@@ -362,12 +368,10 @@ final class VisibleStringSweep: XCTestCase {
     /// a precondition of step 9, not a nicety.
     ///
     /// A relaunch rather than a gesture, and that is a MEASURED choice: the interactive
-    /// scroll-to-dismiss this used first worked on iOS 17.5 and 18.6 and failed on 26.1, where
-    /// `scrollViews.firstMatch` resolves to an offscreen scroll view and XCUITest refuses the swipe
-    /// ("visible frame is empty"). A gate that must hold on four runtimes cannot depend on which view
-    /// a gesture happens to land in. Nothing in the walk depends on state surviving this: the appended
-    /// card and the blocked sentence are harvested on the surface that created them, before it is
-    /// ever called.
+    /// scroll-to-dismiss this used first worked on 17.5 and 18.6 and failed on 26.1, where
+    /// `scrollViews.firstMatch` resolves to an offscreen scroll view ("visible frame is empty").
+    /// Nothing in the walk depends on state surviving this: the appended card and the blocked sentence
+    /// are harvested on the surface that created them, before it is ever called.
     private func dismissKeyboard() {
         guard app.keyboards.element.exists else { return }
         print("keyboard_dismissed_by=relaunch")

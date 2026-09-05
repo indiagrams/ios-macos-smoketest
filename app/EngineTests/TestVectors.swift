@@ -164,10 +164,10 @@ struct PositionCase: Sendable {
 /// The single shared corpus. Every engine plan in phase 6 reads from here
 /// rather than inventing its own inputs.
 enum TestVectors {
-    /// The 18 measured Base64 inputs, with the classifier's expected verdict
-    /// and whether Foundation decodes them.
+    /// The 20 measured Base64 inputs (18 until 06-20 added two padding shapes),
+    /// with the classifier's verdict and whether Foundation decodes them.
     ///
-    /// Two entries disagree, both in the same direction — Foundation is more
+    /// Five entries disagree, all in the same direction — Foundation is more
     /// permissive than a reasonable classifier. The contract that holds is one
     /// directional: `classify(s) == nil` implies `Data(base64Encoded: s) != nil`.
     /// **The converse is measurably false and must not be asserted.**
@@ -182,9 +182,12 @@ enum TestVectors {
         Base64Case(input: "  aGVsbG8=  ", expected: .unexpectedCharacter(" ", position: 1), foundationDecodes: false),
         Base64Case(input: "aGVs\nbG8=", expected: .unexpectedCharacter("\n", position: 5), foundationDecodes: false),
         Base64Case(input: "", expected: .valid, foundationDecodes: true),
-        // "====" decodes to a single NUL byte. Both sides call it valid, which
-        // is a deliberate acceptance, not an oversight — see 06-RESEARCH §3.
-        Base64Case(input: "====", expected: .valid, foundationDecodes: true),
+        // AMENDED 2026-09-05 (06-20, WR-03): `.valid` until padding with no partial
+        // quantum was refused. All three still decode in Foundation, so all three
+        // are DIVERGENCES now — `Base64Codec.classify` carries the measured table.
+        Base64Case(input: "====", expected: .unexpectedCharacter("=", position: 1), foundationDecodes: true),
+        Base64Case(input: "AAAA====", expected: .unexpectedCharacter("=", position: 5), foundationDecodes: true),
+        Base64Case(input: "AAAAAAAA====", expected: .unexpectedCharacter("=", position: 9), foundationDecodes: true),
         Base64Case(input: "aGVsbG8=x", expected: .earlyPadding(position: 9), foundationDecodes: false),
         Base64Case(input: "aGVsbG9-", expected: .unexpectedCharacter("-", position: 8), foundationDecodes: false),
         Base64Case(input: "aGVsbG9_", expected: .unexpectedCharacter("_", position: 8), foundationDecodes: false),
@@ -197,27 +200,24 @@ enum TestVectors {
         Base64Case(input: "//++AAAA", expected: .valid, foundationDecodes: true)
     ]
 
-    /// The two inputs on which the classifier and Foundation disagree, named
-    /// rather than merely counted. A count of 2 reached by two different
-    /// entries would pass a total-only assertion.
-    ///
-    /// This is a property of the RECORDED corpus (the 26.x measurement), not a
-    /// live probe, so it is the same number on every runtime.
-    static let base64DivergentInputs: Set<String> = ["aGVsbG8==", "AB=A"]
+    /// The five inputs on which the classifier and Foundation disagree, named
+    /// rather than merely counted — a count of 5 reached by five different
+    /// entries would pass a total-only assertion. Two until 06-20 refused
+    /// padding with no partial quantum. A property of the RECORDED corpus, not
+    /// a live probe, so it is the same number on every runtime.
+    static let base64DivergentInputs: Set<String> = ["aGVsbG8==", "AB=A", "====", "AAAA====", "AAAAAAAA===="]
 
     /// Inputs whose `Data(base64Encoded:)` verdict is NOT stable across the OS
     /// versions this app supports (iOS 17.0+ / macOS 14.0+).
     ///
     /// MEASURED 2026-09-04, by running this very corpus in both unit targets:
+    /// `"AB=A"` decodes to 2 bytes on macOS 26.1 and iOS 26.1 and is nil on
+    /// iOS 18.6.
     ///
-    ///   "AB=A"   macOS 26.1        -> decodes (2 bytes)
-    ///   "AB=A"   iOS 26.1 sim      -> decodes
-    ///   "AB=A"   iOS 18.6 sim      -> nil
-    ///
-    /// Found by the shared corpus on its first cross-platform run, which is
-    /// precisely what one corpus compiled into two targets is for: two copies
-    /// would each have stayed green against their own stale expectation.
-    /// 06-RESEARCH recorded only the macOS number and could not have seen this.
+    /// Found by the shared corpus on its first cross-platform run, which is what
+    /// one corpus compiled into two targets is for. 06-RESEARCH recorded only the
+    /// macOS number and could not have seen it. **06-20 found a second instance
+    /// of the same class in the padding shapes.**
     ///
     /// **This variance is unobservable in the app**, and that is asserted
     /// rather than assumed: the classifier is the authority, it returns

@@ -58,19 +58,24 @@ struct Base64Tests {
 
     // MARK: - The corpus itself
 
-    /// The corpus is the 18 measured inputs and exactly 2 of them diverge.
+    /// The corpus is the 20 measured inputs and exactly 5 of them diverge.
     ///
     /// Without this, every `@Test(arguments:)` below would silently assert
     /// less if the corpus shrank — `.continue-here.md`'s "a control that
     /// passes without having looked". The divergent inputs are asserted BY
-    /// NAME before being counted, because a count of 2 reached by two other
+    /// NAME before being counted, because a count of 5 reached by five other
     /// entries is a different corpus with the same total.
+    ///
+    /// - Note: **18 entries / 2 divergent -> 20 / 5 on 2026-09-05, plan 06-20,
+    ///   WR-03.** The three added divergences are padding shapes the classifier
+    ///   used to accept and Foundation still decodes; two of them decode to a
+    ///   different BYTE COUNT across this app's deployment floor.
     @Test
-    func theCorpusIsTheEighteenMeasuredInputs() {
-        #expect(TestVectors.base64Corpus.count == 18)
+    func theCorpusIsTheTwentyMeasuredInputs() {
+        #expect(TestVectors.base64Corpus.count == 20)
         let diverging = Set(TestVectors.base64Corpus.filter(\.foundationDisagrees).map(\.input))
-        #expect(diverging == ["aGVsbG8==", "AB=A"])
-        #expect(diverging.count == 2)
+        #expect(diverging == ["aGVsbG8==", "AB=A", "====", "AAAA====", "AAAAAAAA===="])
+        #expect(diverging.count == 5)
     }
 
     /// Every row of the corpus, asserted against the classifier.
@@ -90,7 +95,7 @@ struct Base64Tests {
     @Test
     func aClassifierVerdictOfValidImpliesFoundationDecodes() {
         let accepted = TestVectors.base64Corpus.filter { Base64Codec.classify($0.input) == nil }
-        #expect(accepted.count == 7, "expected 7 accepted inputs; the loop below would otherwise assert little")
+        #expect(accepted.count == 6, "expected 6 accepted inputs; the loop below would otherwise assert little")
         for testCase in accepted {
             #expect(Data(base64Encoded: testCase.input) != nil,
                     "\(String(reflecting: testCase.input)) is classified valid but Foundation refuses it")
@@ -192,7 +197,7 @@ struct Base64Tests {
     @Test
     func theInputsWhereFoundationDisagreesAreRejectedAnyway() {
         let divergent = Set(TestVectors.base64Corpus.filter(\.foundationDisagrees).map(\.input))
-        #expect(divergent.count == 2, "no divergent inputs; the loop below would assert nothing")
+        #expect(divergent.count == 5, "no divergent inputs; the loop below would assert nothing")
         var stableChecked = 0
         for input in divergent {
             #expect(Base64Codec.classify(input) != nil, "\(String(reflecting: input)) should be rejected")
@@ -204,26 +209,55 @@ struct Base64Tests {
                         "\(String(reflecting: input)) no longer diverges — Foundation now refuses it too")
             }
         }
-        #expect(stableChecked == 1, "2 divergent inputs minus a 1-input OS exemption must leave 1 checked, not \(stableChecked)")
+        #expect(stableChecked == 4, "5 divergent inputs minus a 1-input OS exemption must leave 4 checked, not \(stableChecked)")
     }
 
-    // MARK: - The "====" decision, decided rather than discovered
+    // MARK: - The "====" decision, RE-DECIDED against a four-runtime measurement
 
-    /// A whole quantum of padding is ACCEPTED, deliberately.
+    /// Padding with no partial quantum to complete is REFUSED.
     ///
-    /// `"===="` has zero data characters, 0 % 4 == 0, so the rule rejecting a
-    /// final group of one character has nothing to say about it — and
-    /// Foundation decodes it to a single NUL byte on every runtime measured
-    /// (macOS 26.1, iOS 17.5, 18.6, 26.1). Rejecting it would take a rule
-    /// written for this one input. `TestVectors.base64Corpus` records it as
-    /// `.valid` and 06-02 committed assertions that depend on that. The
-    /// acceptance is EXECUTED here rather than left implicit.
+    /// - Important: **This test asserted the opposite until 2026-09-05**, and
+    ///   the reason it changed is a measurement rather than a preference. The
+    ///   old text argued that rejecting `"===="` "would take a rule written for
+    ///   this one input". That was true of `"===="` alone — but the rule that
+    ///   covers it, *padding completes a PARTIAL final quantum and has no other
+    ///   job*, is RFC 4648's own and it also covers `"AAAA===="`, which is where
+    ///   the real defect was. Measured by running this suite on four runtimes:
+    ///
+    ///       input          iOS 17.5   iOS 18.6   iOS 26.1   macOS 26   macOS 15
+    ///       "AAAA===="     4 bytes    4 bytes    3 bytes    3 bytes    4 bytes
+    ///       "AAAAAAAA====" 7 bytes    7 bytes    6 bytes    6 bytes    —
+    ///
+    ///   The app was handing the user a DIFFERENT NUMBER OF BYTES for the same
+    ///   input depending on their OS version, which is exactly what
+    ///   `noOSVariantInputIsEverHandedToTheDecoder` one screen up says must
+    ///   never happen — that test's population simply did not contain this
+    ///   shape. `"===="` itself is stable at one byte on all four, so it is not
+    ///   refused for being variant; it is refused because the RULE is what is
+    ///   being applied, and a rule with an exception for one literal input is
+    ///   the thing the old comment was right to warn against.
+    /// - Note: This also retires the last source of a NUL byte in a
+    ///   "successful" output (WR-03).
     @Test
-    func aWholeQuantumOfPaddingIsAcceptedAndDecodesToNUL() {
-        #expect(Base64Codec.classify("====") == nil)
-        let decoded = Base64Codec.decode("====")
-        #expect(decoded.success == "\u{0}")
-        #expect(decoded.success?.utf8.count == 1)
+    func paddingWithNoPartialQuantumToCompleteIsRefused() {
+        #expect(Base64Codec.classify("====") == .unexpectedCharacter("=", position: 1))
+        #expect(Base64Codec.classify("AAAA====") == .unexpectedCharacter("=", position: 5))
+        #expect(Base64Codec.classify("AAAAAAAA====") == .unexpectedCharacter("=", position: 9))
+        #expect(Base64Codec.decode("AAAA====").failure == .unexpectedCharacter("=", position: 5))
+
+        // Foundation still decodes all three, so this is the classifier being
+        // the authority and not an agreement.
+        for input in ["====", "AAAA====", "AAAAAAAA===="] {
+            #expect(Data(base64Encoded: input) != nil, "\(input) still decodes in Foundation, which is the point")
+        }
+
+        // The rule is one clause wide: padding that DOES complete a partial
+        // quantum is untouched, and so is an input with no padding at all.
+        #expect(Base64Codec.classify("AA==") == nil)
+        #expect(Base64Codec.classify("AAA=") == nil)
+        #expect(Base64Codec.classify("AAAA") == nil)
+        #expect(Base64Codec.classify("") == nil)
+        #expect(Base64Codec.decode("AAAA").success?.utf8.count == 3)
     }
 
     // MARK: - encode
@@ -272,7 +306,7 @@ struct Base64Tests {
             guard let failure = Base64Codec.classify(testCase.input) else { return nil }
             return (testCase.input, failure)
         }
-        #expect(rejected.count == 11, "expected 11 rejected corpus inputs, not \(rejected.count)")
+        #expect(rejected.count == 14, "expected 14 rejected corpus inputs, not \(rejected.count)")
         for (input, failure) in rejected {
             #expect(Base64Codec.decode(input) == .failure(failure), "decode(\(String(reflecting: input)))")
         }

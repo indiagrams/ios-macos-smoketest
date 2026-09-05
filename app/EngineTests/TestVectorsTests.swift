@@ -48,23 +48,32 @@ struct TestVectorsTests {
         return out
     }
 
-    /// The corpus is the 18 inputs RESEARCH measured. A later plan that adds a
-    /// case must add it deliberately, and re-measure.
+    /// The corpus is the inputs RESEARCH measured, plus the two plan 06-20
+    /// measured. A later plan that adds a case must add it deliberately, and
+    /// re-measure.
+    ///
+    /// - Note: **18 -> 20 on 2026-09-05 (plan 06-20, WR-03).** `"AAAA===="` and
+    ///   `"AAAAAAAA===="` were added because they are the shapes whose
+    ///   Foundation byte COUNT differs across this app's deployment floor, and
+    ///   the corpus is where measured Foundation divergences are recorded. The
+    ///   count moving is this assertion doing its job, not an obstacle to it.
     @Test
-    func base64CorpusHasEighteenEntries() {
-        #expect(TestVectors.base64Corpus.count == 18)
+    func base64CorpusHasTwentyEntries() {
+        #expect(TestVectors.base64Corpus.count == 20)
     }
 
-    /// Exactly two entries diverge — and they are the two known ones, asserted
-    /// BY NAME before being counted. A count of 2 reached by two different
-    /// entries is a different corpus with the same total, and a total-only
-    /// assertion cannot tell the two apart.
+    /// Exactly five entries diverge — and they are the five known ones,
+    /// asserted BY NAME before being counted. A count of 5 reached by five
+    /// different entries is a different corpus with the same total, and a
+    /// total-only assertion cannot tell the two apart.
+    ///
+    /// - Note: **2 -> 5 on 2026-09-05 (plan 06-20, WR-03).**
     @Test
-    func exactlyTwoEntriesDivergeAndTheyAreTheKnownTwo() {
+    func exactlyFiveEntriesDivergeAndTheyAreTheKnownFive() {
         let diverging = Set(TestVectors.base64Corpus.filter(\.foundationDisagrees).map(\.input))
         #expect(diverging == TestVectors.base64DivergentInputs)
-        #expect(diverging == ["aGVsbG8==", "AB=A"])
-        #expect(diverging.count == 2)
+        #expect(diverging == ["aGVsbG8==", "AB=A", "====", "AAAA====", "AAAAAAAA===="])
+        #expect(diverging.count == 5)
     }
 
     /// Re-measure every Foundation verdict. This is the drift detector: it
@@ -76,7 +85,7 @@ struct TestVectorsTests {
     /// this red instead of silently swallowing it.
     @Test
     func foundationBase64VerdictsAreStillWhatWasMeasured() {
-        #expect(TestVectors.base64Corpus.count == 18, "corpus is empty or truncated; the loop below would assert nothing")
+        #expect(TestVectors.base64Corpus.count == 20, "corpus is empty or truncated; the loop below would assert nothing")
         #expect(TestVectors.foundationOSVariantInputs.count == 1, "the OS-variant exemption changed size")
         var stableChecked = 0
         let variant = TestVectors.foundationOSVariantInputs
@@ -85,7 +94,7 @@ struct TestVectorsTests {
             let decodes = Data(base64Encoded: testCase.input) != nil
             #expect(decodes == testCase.foundationDecodes, "Data(base64Encoded:) changed for \(String(reflecting: testCase.input))")
         }
-        #expect(stableChecked == 17, "18 entries minus a 1-input exemption must leave 17 checked, not \(stableChecked)")
+        #expect(stableChecked == 19, "20 entries minus a 1-input exemption must leave 19 checked, not \(stableChecked)")
     }
 
     /// The OS-variant input is never handed to the decoder, so its variance is
@@ -113,7 +122,9 @@ struct TestVectorsTests {
     @Test
     func validAlwaysImpliesFoundationDecodes() {
         let valid = TestVectors.base64Corpus.filter { $0.expected == .valid }
-        #expect(valid.count == 7, "expected 7 valid entries; the loop below would otherwise assert little")
+        // 7 -> 6 on 2026-09-05 (plan 06-20, WR-03): "====" moved from valid to
+        // rejected when padding-with-no-partial-quantum was refused.
+        #expect(valid.count == 6, "expected 6 valid entries; the loop below would otherwise assert little")
         for testCase in valid {
             #expect(testCase.foundationDecodes, "\(String(reflecting: testCase.input)) is classified valid but does not decode")
         }

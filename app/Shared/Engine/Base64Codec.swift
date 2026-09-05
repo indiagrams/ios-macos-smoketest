@@ -27,12 +27,21 @@
 // it returns nil exactly when the count of NON-PADDING characters is congruent
 // to 1 mod 4. A final group of one character carries no whole byte, so there
 // is nothing to decode. Every other combination of data characters and padding
-// decodes, INCLUDING a whole quantum of padding — "====" has zero data
-// characters and yields one NUL byte.
+// decodes, INCLUDING a whole quantum of padding.
 //
 //   total=4  data=1 pads=3   nil          total=4  data=0 pads=4  1 byte
-//   total=8  data=5 pads=3   nil          total=8  data=4 pads=4  3 bytes
+//   total=8  data=5 pads=3   nil          total=8  data=4 pads=4  SEE BELOW
 //   total=12 data=9 pads=3   nil          total=12 data=0 pads=12 1 byte
+//
+// CORRECTION, 2026-09-05 (plan 06-20, WR-03). The `data=4 pads=4` cell above
+// read "3 bytes", stated as if it were universal. IT IS NOT: that number was
+// measured on macOS 26 alone. Re-measured by running the unit suite on four
+// runtimes, "AAAA====" decodes to 4 bytes on iOS 17.5, iOS 18.6 and macOS 15
+// and to 3 bytes on iOS 26.1 and macOS 26 — a different OUTPUT LENGTH for the
+// same input, inside this app's support floor. `classify` now refuses padding
+// that has no partial quantum to complete, which covers that shape and "===="
+// alike, so the divergence is unobservable in the app. The refusal is asserted
+// on all four runtimes rather than argued.
 //
 // With that check added the same 2.18-billion sweep finds ZERO forward
 // counterexamples, as does a 400,000-input random sweep over the full
@@ -125,6 +134,35 @@ enum Base64Codec {
                 // total by inspection rather than by argument.
                 return .badLength(totalCount)
             }
+            return .unexpectedCharacter(characterAt(utf8Offset: paddingOffset, in: s),
+                                        position: characterPosition(utf8Offset: paddingOffset, in: s))
+        }
+
+        // PADDING COMPLETES A PARTIAL FINAL QUANTUM AND HAS NO OTHER JOB. When
+        // the data characters already fill whole quanta there is nothing left
+        // to complete, so RFC 4648 does not consider the padding valid — and
+        // more importantly, **Foundation's answer for that shape is NOT STABLE
+        // ACROSS THIS APP'S DEPLOYMENT FLOOR.** Measured 2026-09-05 by running
+        // this suite on four runtimes:
+        //
+        //   input          iOS 17.5   iOS 18.6   iOS 26.1   macOS 26   macOS 15
+        //   "AAAA===="     4 bytes    4 bytes    3 bytes    3 bytes    4 bytes
+        //   "AAAAAAAA====" 7 bytes    7 bytes    6 bytes    6 bytes    —
+        //
+        // A trailing all-padding quantum contributes an extra NUL byte on the
+        // older runtimes and nothing on the newer ones. Accepting it would mean
+        // the app hands the user a DIFFERENT NUMBER OF BYTES for the same input
+        // depending on which OS they are running, which is the one thing these
+        // codecs exist to prevent — the same answer `TimestampTemplateScan`
+        // gives for `2026-02-31` and this file already gives for `"AB=A"`:
+        // refuse it on every OS, and the variance becomes unobservable.
+        //
+        // This also retires the last source of a NUL byte in a "successful"
+        // output, which `OutputPasteboard` would write to the general
+        // pasteboard where any C-string consumer truncates it.
+        //
+        // `""` is unaffected: no padding, so nothing to reject.
+        if dataCount % 4 == 0, let paddingOffset = firstPaddingOffset {
             return .unexpectedCharacter(characterAt(utf8Offset: paddingOffset, in: s),
                                         position: characterPosition(utf8Offset: paddingOffset, in: s))
         }

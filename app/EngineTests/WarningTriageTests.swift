@@ -129,26 +129,66 @@ struct WarningTriageTests {
         #expect(HTMLEntityCodec.decode("&#x110000;").failure != nil, "above U+10FFFF was already refused")
     }
 
-    // MARK: - WR-03, Base64 half — KEPT, and asserted because it was kept
+    // MARK: - WR-03, Base64 half — RE-DECIDED against a four-runtime measurement
 
-    /// A whole quantum of padding decodes to NUL bytes, and this app agrees
-    /// with Foundation about that ON PURPOSE.
+    /// A trailing all-padding quantum is REFUSED, because Foundation's answer
+    /// for it is not stable across this app's deployment floor.
     ///
-    /// RFC 4648 does not consider `"===="` valid Base64. `Base64Codec` accepts
-    /// it because the classifier mirrors `Data(base64Encoded:)` here and that
-    /// mirroring is what makes the one-directional contract hold. The review
-    /// named three options — keep parity and assert it, add a length rule, or
-    /// stay silent — and said silence was the only unacceptable one. Parity is
-    /// kept, so it is asserted: this test is the record of the decision, and
-    /// changing the behaviour means changing this test and saying why.
+    /// - Important: **This is not the verdict this plan started with.** The
+    ///   review called the Base64 half deliberate Foundation parity and named
+    ///   three options: keep parity and assert it, add a length rule, or stay
+    ///   silent. Parity was chosen and asserted — and the assertion **went red
+    ///   on CI while passing locally**, which is the only reason the real
+    ///   defect was found. Measured by running this suite on four runtimes:
+    ///
+    ///       input          iOS 17.5   iOS 18.6   iOS 26.1   macOS 26   macOS 15
+    ///       "AAAA===="     4 bytes    4 bytes    3 bytes    3 bytes    4 bytes
+    ///       "AAAAAAAA====" 7 bytes    7 bytes    6 bytes    6 bytes    —
+    ///
+    ///   "Parity with Foundation" is not one behaviour here. It is two, and the
+    ///   app was returning a DIFFERENT NUMBER OF BYTES for the same input
+    ///   depending on the user's OS — the "quietly wrong answer" half of
+    ///   criterion 1, and the thing `Base64Codec` already refuses `"AB=A"` over.
+    /// - Note: `"===="` itself is stable at one byte on all four runtimes. It
+    ///   is refused because the RULE is what is applied — padding completes a
+    ///   PARTIAL final quantum and has no other job, which is RFC 4648's own
+    ///   rule — and not because it is variant. A rule with an exception for one
+    ///   literal input is what the old comment rightly warned against.
     @Test
-    func aWholeQuantumOfPaddingStillDecodesToNulAndThatIsDeliberate() {
-        #expect(Base64Codec.classify("====") == nil, "the classifier accepts it, mirroring Foundation")
-        // Measured, not assumed: `"===="` yields ONE NUL and `"AAAA===="`
-        // yields THREE, the same as `"AAAA"` — Foundation drops the trailing
-        // all-padding quantum rather than decoding it to a fourth byte.
-        #expect(Base64Codec.decode("====").success == "\u{0}")
-        #expect(Base64Codec.decode("AAAA====").success == "\u{0}\u{0}\u{0}")
-        #expect(Base64Codec.decode("AAAA====").success == Base64Codec.decode("AAAA").success)
+    func aTrailingAllPaddingQuantumIsRefusedBecauseFoundationIsNotStableOnIt() {
+        #expect(Base64Codec.classify("AAAA====") == .unexpectedCharacter("=", position: 5))
+        #expect(Base64Codec.decode("AAAA====").failure == .unexpectedCharacter("=", position: 5))
+        #expect(Base64Codec.classify("====") == .unexpectedCharacter("=", position: 1))
+    }
+
+    /// **No successful Base64 decode contains a NUL that came from padding.**
+    ///
+    /// This is the claim WR-03 was actually about, and it now holds outright
+    /// rather than with a residual. Swept over the padding shapes, with a floor
+    /// on how many inputs were actually accepted so the property is not
+    /// vacuous over a population the classifier rejects entirely.
+    @Test
+    func noAcceptedPaddingShapeDecodesToANulItDidNotEarn() {
+        let alphabet = "AAAA"
+        var accepted = 0
+        for dataCount in 0 ... 12 {
+            for padCount in 0 ... 8 {
+                let input = String(repeating: "A", count: dataCount)
+                    + String(repeating: "=", count: padCount)
+                _ = alphabet
+                guard Base64Codec.classify(input) == nil else { continue }
+                accepted += 1
+                guard let text = Base64Codec.decode(input).success else {
+                    Issue.record("\(input) classified valid but did not decode")
+                    continue
+                }
+                // Every accepted shape here is all-"A" data, which decodes to
+                // zero bytes — so the honest assertion is on the COUNT, which
+                // is what diverged across runtimes, not on the byte value.
+                #expect(text.utf8.count == dataCount / 4 * 3 + [0: 0, 2: 1, 3: 2][dataCount % 4, default: -1],
+                        "\(input) decoded to \(text.utf8.count) bytes")
+            }
+        }
+        #expect(accepted >= 10, "the sweep must actually accept shapes; it accepted \(accepted)")
     }
 }

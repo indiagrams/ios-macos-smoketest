@@ -99,10 +99,18 @@
 #     FAIL allowlist <domain>: duplicate row for local part <lp>
 #     FAIL vars <path>:<line>: reads vars.* outside the allowlist
 #     FAIL vars <path>: expected <N> vars.* line(s), found <M>
+#     FAIL prose <path>:<line>: <term> — <reason>
+#     FAIL prose <source>: strict source matched no tracked file — the population went empty
 #
 #   Summary: contamination: <F> files scanned, <A> allowlisted, <U> unallowed,
 #            <S> allowlist failures, <B> skipped-binary
 #            pii: <P> addresses seen, <U> unallowed; vars: <V> reads, <U> unallowed
+#
+#   Prose summary (D-91) — ONE LINE PER STRICT SOURCE, never a union, because a union
+#   that has stopped drawing from one source looks identical to one that never did:
+#            prose_strict: <source> <F> files, <H> hits        (one line for each of 4)
+#            prose_narrow: <F> files, <H> hits
+#            prose_excluded=<N>                                (files outside strict scope)
 #
 # ─── PERSONAL INFORMATION, FAIL-CLOSED BY DOMAIN (D-67) ──────────────────────────────
 # The second rule this file carries. Any address-shaped string in any tracked file FAILS
@@ -200,6 +208,125 @@ VARS                      = /vars\./
 VARS_ALLOW                = { ".github/workflows/dependabot-automerge.yml" => 3 }.freeze
 VARS_SCOPE                = ".github/workflows/"
 
+# ─── D-91 / D-92: the TEMPLATE's identity written as PROSE, not as an identifier ──────
+# IDENT-15; ROADMAP Phase 6 criterion 7. `LITERALS` above matches CONTIGUOUS stems only,
+# so a tracked file carrying the product name with a space between its words scans clean
+# at exit 0. That is not hypothetical: it is UL-044. `fastlane/metadata/en-US/name.txt` —
+# the App Store listing name, the first string App Review reads — carried the pre-Phase-3
+# display name through THREE phases of green identity gates, because the phrase contains
+# no identifier-shaped literal for any gate keyed on one to see. The site was patched in
+# 68c489c; the class stayed open until here. Guideline 2.2 is written about prose, so a
+# gate that can only see identifiers cannot defend against it.
+#
+# ─── WHY NOT ONE OF THESE TERMS IS SPELLED HERE (D-92) ───────────────────────────────
+# THIS FILE IS ITSELF SWEPT BY THE GATE IT CONFIGURES, and it is admitted by a counted
+# row in tools/identity-allowlist.txt. A term written out below would (a) be matched by
+# the very predicate it defines, so the gate would turn itself red by existing, and (b)
+# move the count on its own row. That trap has landed FOURTEEN times in this project, by
+# as many different authors — see .planning/.continue-here.md, "A file that configures a
+# content gate is also swept by that gate", which is one of its blocking rows. So the
+# terms are ASSEMBLED AT RUN TIME from character arrays, the shape
+# test/docs_structure_test.rb:698-700 already uses deliberately and for the same reason.
+# ACCEPTED COST, stated rather than discovered: a reader cannot see the term list by
+# reading this file. Run it, or read the frozen list in this plan's evidence file.
+#
+# ─── WHY PHRASES AND NOT 2.2's BARE NOUNS ────────────────────────────────────────────
+# MEASURED, 2026-09-05, before the list was frozen — every bare noun D-91 names occurs
+# LEGITIMATELY inside the strict scope, so a bare-noun list is unusable and the answer is
+# not to soften a term or to buy a row:
+#
+#   * the 2.2 noun for a preview release      — 2 lines of app/Shared/Engine/
+#     HTMLEntityTableA.swift, which are the packed HTML entity rows for the Greek letter
+#     of that name (U+0392 and U+03B2). The app's own entity table would go red.
+#   * the 2.2 noun for a showing              — 1 line of app/Shared/Views/RootView.swift
+#     ("demonstrates it on both platforms"), and 1 line of fastlane/metadata/
+#     review_information/notes.txt, which is a sentence about what this app is NOT —
+#     precisely the legitimate use 06-RESEARCH.md predicted for the metadata tree.
+#   * the word for a form something is cast from — 15 lines of app/Shared/Engine/, where
+#     it means a date FORMAT pattern, this phase's own APP-05/06 vocabulary.
+#   * the word for text standing in for input — 16 lines of app/Shared/Views/, 3 of the
+#     string catalog: SwiftUI prompt text.
+#   * the word for a thing shown to illustrate — 35 lines of app/Shared/. The UI-SPEC
+#     ships "Use an example" and defends it as a noun describing the INPUT, not the app
+#     (06-RESEARCH.md Open Question 5, resolved to `phrases` here).
+#
+# So each qualifier is matched only when it QUALIFIES A SUBJECT — a distribution, a
+# release or an application. One further qualifier was frozen, driven red and REMOVED:
+# the word for an examination went red on app/Project.swift:225 and app/project.yml:215,
+# both of which say a fork that renamed itself would get a silently broken one of those
+# of the software. In a repository whose own name ends in that very word, it is ordinary
+# build-manifest vocabulary, and a gate flagging it would be trained away inside a phase — the same
+# reasoning VARS_SCOPE states above about `vars.` in prose. Guideline 2.2's smoke case is
+# not lost with it: PROSE_PAIRS below carries it, and that is the form that actually
+# indicates a non-shipping app.
+PROSE_QUALIFIERS = [%w[d e m o], %w[b e t a], %w[t r i a l], %w[s a m p l e],
+                    %w[e x a m p l e], %w[t e m p l a t e],
+                    %w[p l a c e h o l d e r]].map(&:join).freeze
+PROSE_SUBJECTS   = [%w[a p p], %w[v e r s i o n], %w[b u i l d]].map(&:join).freeze
+# Wording that claims the software is not finished. Nothing legitimately says these.
+PROSE_STANDALONE = [[%w[c o m i n g], %w[s o o n]],
+                    [%w[n o t], %w[i m p l e m e n t e d]],
+                    [%w[n o t], %w[y e t], %w[i m p l e m e n t e d]]]
+                   .map { |words| words.map(&:join).join(" ") }.freeze
+# The two template identities of LITERALS, written as prose. Both separators, because a
+# hyphen is as readable to App Review as a space and neither is a contiguous stem.
+PROSE_PAIRS      = [[%w[s m o k e], %w[a p p]],
+                    [%w[h e l l o], %w[a p p]],
+                    [%w[s m o k e], %w[t e s t]]].freeze
+PROSE_SEPARATORS = [" ", "-"].freeze
+
+# The NARROW population: tree-wide, and only the strings no document legitimately needs
+# unless it is describing the template on purpose. Measured 2026-09-05: 18 lines across 7
+# files, EVERY ONE of them already carrying a dated, counted, reasoned row in
+# tools/identity-allowlist.txt — so this half adds no row and softens no term. The paths
+# permitted to mention the template's identity as an IDENTIFIER are exactly the paths
+# permitted to mention it as PROSE: one list, one date, one reason, and no second
+# exemption surface to drill a hole in. fastlane/metadata/** carries no row, which is why
+# UL-044's own file would have gone red here.
+PROSE_NARROW_TERMS = PROSE_PAIRS.flat_map do |head, tail|
+  PROSE_SEPARATORS.map { |separator| head.join + separator + tail.join }
+end.freeze
+
+# The STRICT population: the full list, over the paths that reach a user or a reviewer.
+PROSE_STRICT_TERMS = (PROSE_QUALIFIERS.flat_map { |q| PROSE_SUBJECTS.map { |s| "#{q} #{s}" } } +
+                      PROSE_STANDALONE + PROSE_NARROW_TERMS).freeze
+
+# D-91's four sources, ORDERED and INDIVIDUALLY ADDRESSABLE — [name, exact paths, prefix].
+# Order is load-bearing: the string catalog lives under app/Shared/ and is listed FIRST so
+# every file is attributed to exactly one source and the four counts sum to the scope.
+#
+# THE THIRD ROW IS NOT WHAT THE PLAN ASKED FOR, AND THAT IS DELIBERATE. 06-15-PLAN.md's
+# interfaces table names app/iOS/Generated-Info.plist and app/macOS/Generated-Info.plist.
+# BOTH ARE GITIGNORED (.gitignore:13-14) and therefore invisible to `git ls-files`, which
+# is what defines this gate's population — so a source pointed at them would be
+# PERMANENTLY EMPTY and the emptiness rule below would hold this gate red forever. That is
+# the "correct check pointed at the wrong POPULATION" failure, and it would have shipped.
+# 06-CONTEXT.md's D-91 says "both Generated-Info.plist INPUTS"; the inputs are tracked and
+# are these three: app/project.yml:79-90,128-151 and app/Project.swift:44-53,104-115
+# declare every key of both plists, and app/Identity.xcconfig supplies the $(DISPLAY_NAME)
+# they interpolate.
+PROSE_STRICT_SOURCES = [
+  ["catalog",        ["app/Shared/Localizable.xcstrings"].freeze,                        nil],
+  ["plist-inputs",   ["app/project.yml", "app/Project.swift", "app/Identity.xcconfig"].freeze, nil],
+  ["app-shared",     [].freeze,                                                          "app/Shared/"],
+  ["store-metadata", [].freeze,                                                          "fastlane/metadata/"],
+].freeze
+
+# The emptiness rule is conditioned on this marker for the same reason `workflows_present`
+# conditions the vars.* count: a throwaway fixture repository with no application in it is
+# not a repository whose application sources went missing. A tree with any tracked file
+# under app/ must have all four sources populated.
+APP_TREE_MARKER = "app/"
+
+# Which source, if any, a tracked path belongs to. Computed ONCE PER FILE, never per line.
+def prose_source(rel)
+  PROSE_STRICT_SOURCES.each do |name, exact, prefix|
+    return name if exact.include?(rel)
+    return name if !prefix.nil? && rel.start_with?(prefix)
+  end
+  nil
+end
+
 USAGE              = "Usage: ruby tools/check-contamination.rb [--root DIR] [--allowlist PATH] " \
                      "[--domain-allowlist PATH] [--quiet]"
 
@@ -279,6 +406,16 @@ addresses         = [] # [rel, line_number, address] — every occurrence, D-67
 vars_seen         = Hash.new(0) # rel => how many lines under .github/workflows/ read vars.
 vars_lines        = [] # [rel, line_number]
 workflows_present = false
+# D-91. Per SOURCE, never summed: four numbers can say which source went quiet, one
+# cannot. prose_excluded is the deliberate remainder, printed as a count so it MOVES
+# when a file is added — the unenumerated_* idiom this repository already uses.
+prose_source_files = Hash.new(0)  # source name => tracked files scanned in it
+prose_source_hits  = Hash.new(0)  # source name => lines carrying a strict term
+prose_strict_hits  = [] # [rel, line_number, source, term]
+prose_narrow_hits  = [] # [rel, line_number, term]
+prose_narrow_files = 0
+prose_excluded     = 0
+app_tree_present   = false
 
 files.each do |rel|
   path = File.join(root, rel)
@@ -315,6 +452,14 @@ files.each do |rel|
   in_vars_scope = rel.start_with?(VARS_SCOPE)
   workflows_present ||= in_vars_scope
 
+  # Computed ONCE PER FILE, exactly as in_vars_scope is: the answer cannot change
+  # between two lines of the same file, and doing it per line would be 4 string
+  # comparisons times every line of the tree for no additional information.
+  prose_src         = prose_source(rel)
+  prose_src.nil? ? prose_excluded += 1 : prose_source_files[prose_src] += 1
+  app_tree_present ||= rel.start_with?(APP_TREE_MARKER)
+  file_narrow_hits  = 0
+
   File.read(path, encoding: "UTF-8").each_line.with_index(1) do |line, number|
     text = line.scrub("?")
     down = text.downcase
@@ -335,7 +480,27 @@ files.each do |rel|
       count += 1
       first ||= number
     end
+
+    # D-91, in the SAME pass and off the SAME already-downcased line: one more
+    # include? per term, and no extra I/O. `find` rather than `any?` so the failure
+    # line can NAME the term — a control whose only evidence is a non-zero exit
+    # cannot tell an assertion firing apart from the script crashing.
+    unless prose_src.nil?
+      strict_term = PROSE_STRICT_TERMS.find { |term| down.include?(term) }
+      unless strict_term.nil?
+        prose_source_hits[prose_src] += 1
+        prose_strict_hits << [rel, number, prose_src, strict_term]
+      end
+    end
+
+    narrow_term = PROSE_NARROW_TERMS.find { |term| down.include?(term) }
+    unless narrow_term.nil?
+      prose_narrow_hits << [rel, number, narrow_term]
+      file_narrow_hits += 1
+    end
   end
+
+  prose_narrow_files += 1 if file_narrow_hits.positive?
 
   hits[rel] = [count, first] if count.positive?
 end
@@ -512,6 +677,48 @@ if workflows_present
   end
 end
 
+# ─── the prose assertion (D-91) ──────────────────────────────────────────────────────
+# Three rules, and the third is the one most likely to be skipped.
+
+prose_failures = [] # [label, message]
+
+# 1. A strict-scope hit with no allowlist row fails. `covered` is the SAME set the
+#    identifier half uses, so a legitimate occurrence is bought with a dated, counted,
+#    reasoned row and never with a softened term. Nothing under app/ can ever buy one:
+#    test/contamination_test.rb asserts no row is under app/ (C-26), so the strict
+#    population is green on its own merits or it is red.
+prose_strict_hits.each do |rel, number, source, term|
+  next if covered.key?(rel)
+
+  prose_failures << ["#{rel}:#{number}", "#{term} — template identity as prose in the #{source} source"]
+end
+
+# 2. A narrow-list hit anywhere in the tree fails unless that path already carries a row.
+#    The paths permitted to mention the template's identity as an IDENTIFIER are exactly
+#    the paths permitted to mention it as PROSE — one list, one date, one reason, and no
+#    second exemption surface. Measured 2026-09-05: all 7 files carrying a narrow hit were
+#    already rowed, so this half added no row; fastlane/metadata/** has none, which is
+#    why UL-044's own file would have gone red here.
+prose_narrow_hits.each do |rel, number, term|
+  next if covered.key?(rel)
+
+  prose_failures << ["#{rel}:#{number}", "#{term} — the template identity as prose, and #{rel} carries no allowlist row"]
+end
+
+# 3. A SOURCE THAT WENT EMPTY IS A FAILURE, not a clean tree. This is D-91's whole reason
+#    for four counters instead of one: if a directory is renamed and a source stops
+#    matching, a union reports the same reassuring zero it reports when the tree is
+#    genuinely clean. Conditioned on APP_TREE_MARKER for the same reason
+#    workflows_present conditions the vars.* counts above — a throwaway fixture with no
+#    application in it is not an application that went missing.
+if app_tree_present
+  PROSE_STRICT_SOURCES.each do |name, _exact, _prefix|
+    next if prose_source_files[name].positive?
+
+    prose_failures << [name, "strict source matched no tracked file — the population went empty, which is not a clean tree"]
+  end
+end
+
 # ─── report ──────────────────────────────────────────────────────────────────────────
 
 unallowed.sort.each do |rel, (count, first)|
@@ -529,6 +736,9 @@ end
 vars_failures.each do |label, message|
   puts "FAIL vars #{label}: #{message}"
 end
+prose_failures.each do |label, message|
+  puts "FAIL prose #{label}: #{message}"
+end
 
 unless quiet
   puts "contamination: #{scanned} files scanned, #{allowlisted} allowlisted, " \
@@ -536,7 +746,13 @@ unless quiet
        "#{skipped_binary} skipped-binary"
   puts "pii: #{addresses.size} addresses seen, #{pii_failures.size} unallowed; " \
        "vars: #{vars_lines.size} reads, #{vars_failures.size} unallowed"
+  # One line per source. NOT a union — see the header's contract, and D-91.
+  PROSE_STRICT_SOURCES.each do |name, _exact, _prefix|
+    puts "prose_strict: #{name} #{prose_source_files[name]} files, #{prose_source_hits[name]} hits"
+  end
+  puts "prose_narrow: #{prose_narrow_files} files, #{prose_narrow_hits.size} hits"
+  puts "prose_excluded=#{prose_excluded}"
 end
 
 exit(unallowed.empty? && failures.empty? && domain_failures.empty? &&
-     pii_failures.empty? && vars_failures.empty? ? 0 : 1)
+     pii_failures.empty? && vars_failures.empty? && prose_failures.empty? ? 0 : 1)

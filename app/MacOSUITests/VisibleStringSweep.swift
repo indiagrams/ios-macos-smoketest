@@ -41,11 +41,31 @@ final class VisibleStringSweep: XCTestCase {
 
     private var app: XCUIApplication!
 
-    /// The application element's own name, read from the running app rather than from a plist.
-    private var productName = ""
+    /// The application element's own `label`. EMPTY ON macOS, and that is a measurement rather than an
+    /// expectation: run 33959451763, job `app (macOS)`, failed clause 3 with
+    /// `XCTAssertGreaterThan failed: ("0") is not greater than ("3") - the application element carries
+    /// no name`, after a full 82.8-second walk. The iOS twin reads the display name straight off this
+    /// property; on macOS it is blank and the name has to come from the menu bar instead.
+    private var applicationLabel = ""
 
-    /// The menu bar's top-level item titles, in order, which settle RESEARCH assumption A3.
+    /// The menu bar's top-level item titles, in order. Index 1 is the application menu, which is what
+    /// settles RESEARCH assumption A3 — whether AppKit resolves that title from `CFBundleDisplayName`
+    /// or `CFBundleName` was deliberately left unmeasured, and this reads it off the running app.
     private var menuBarItems: [String] = []
+
+    /// The product name as the RUNNING APP presents it, with the source it came from.
+    ///
+    /// Never spelled here. Reading it from the app rather than from a plist is what lets clause 3 hold
+    /// after a rename, and what keeps this file from naming an identity it exists to keep off screens.
+    private var productName: (value: String, source: String) {
+        if !applicationLabel.isEmpty {
+            return (applicationLabel, "application-element-label")
+        }
+        if menuBarItems.count > 1 {
+            return (menuBarItems[1], "menu-bar-application-item")
+        }
+        return ("", "none")
+    }
 
     /// The floor for `harvested_distinct`. A floor rather than an equality, so adding a string cannot
     /// break the gate but losing a surface must.
@@ -91,6 +111,7 @@ final class VisibleStringSweep: XCTestCase {
         // no number would be a green about nothing.
         XCTContext.runActivity(named: "SWEEP_COUNTERS \(counters)") { _ in }
         XCTContext.runActivity(named: "A3_MENU_BAR \(menuBarItems.prefix(8).joined(separator: " | "))") { _ in }
+        XCTContext.runActivity(named: "A3_PRODUCT_NAME source=\(productName.source) value=\(productName.value)") { _ in }
 
         // 1 — DID IT REACH ITS SUBJECT? Asserted before, and separately from, anything about prose.
         // The counters ride the MESSAGE, because that is the only way a number leaves this process.
@@ -116,8 +137,14 @@ final class VisibleStringSweep: XCTestCase {
         // 3 — PRIV-06's own clause: the product name reaches the screen ONLY through system chrome.
         // Derived from the running app rather than spelled, so this file names no identity, follows a
         // rename, and covers both the display-name and product-name spellings 06-01 saw in the tree.
-        let squashed = SweepPopulation.squash(productName)
-        XCTAssertGreaterThan(squashed.count, 3, "the application element carries no name — clause 3 cannot run")
+        let name = productName
+        let squashed = SweepPopulation.squash(name.value)
+        XCTAssertGreaterThan(
+            squashed.count,
+            3,
+            "the running app names itself nowhere the sweep can read — clause 3 cannot run. "
+                + "a3_menu_title_source=\(name.source) menu_bar=\(menuBarItems.prefix(4).joined(separator: " | "))"
+        )
         for string in distinct.sorted() where SweepPopulation.squash(string).contains(squashed) {
             XCTFail("the product name is rendered outside system chrome: it appears in \"\(string)\"")
         }
@@ -139,8 +166,11 @@ final class VisibleStringSweep: XCTestCase {
         for value in candidates where !value.isEmpty {
             out.add(value, to: own)
         }
-        if node.elementType == .menuBarItem, !node.title.isEmpty, !menuBarItems.contains(node.title) {
-            menuBarItems.append(node.title)
+        if node.elementType == .menuBarItem {
+            let name = node.title.isEmpty ? node.label : node.title
+            if !name.isEmpty, !menuBarItems.contains(name) {
+                menuBarItems.append(name)
+            }
         }
         for child in node.children {
             harvest(child, inherited: subtree, into: &out)
@@ -151,7 +181,7 @@ final class VisibleStringSweep: XCTestCase {
     private func snap(into out: inout SweepHarvest) throws {
         let root = try app.snapshot()
         if !root.label.isEmpty {
-            productName = root.label
+            applicationLabel = root.label
         }
         harvest(root, inherited: .rendered, into: &out)
     }

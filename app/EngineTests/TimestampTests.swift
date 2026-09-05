@@ -181,10 +181,42 @@ struct TimestampTests {
     /// A fraction the user typed is not silently dropped, and a whole second
     /// does not grow a `.000` it never had. Dropping it would be the same
     /// class of quiet data loss the Base64 codec refuses.
+    ///
+    /// The instant comes from the PARSER, not from a decimal literal, and that
+    /// is load-bearing — see the test below.
     @Test
     func aFractionSurvivesRenderingAndAWholeSecondDoesNotGrowOne() {
-        #expect(TimestampCodec.renderISO8601(1_788_480_000.123, timeZone: .gmt) == "2026-09-04T00:00:00.123Z")
+        guard let parsed = TimestampCodec.parseISO8601("2026-09-04T00:00:00.123Z").success else {
+            Issue.record("fractional seconds did not parse at all")
+            return
+        }
+        #expect(TimestampCodec.renderISO8601(parsed, timeZone: .gmt) == "2026-09-04T00:00:00.123Z")
         #expect(TimestampCodec.renderISO8601(Self.referenceInstant, timeZone: .gmt) == "2026-09-04T00:00:00Z")
+    }
+
+    /// MEASURED, and found by this suite going red against the plan's own
+    /// wording: the millisecond field is TRUNCATED, not rounded, and the
+    /// Double nearest the decimal literal one-two-three-thousandths sits ONE
+    /// ULP BELOW the value the parser produces for the same text.
+    ///
+    ///     decimal literal   1788480000.12299990653991699   renders .122
+    ///     parser output     1788480000.12300014495849609   renders .123
+    ///     bit patterns differ by exactly 1
+    ///
+    /// So writing the literal into an expectation and rendering it does NOT
+    /// reproduce what the app does with that input — it is one millisecond
+    /// low. This is asserted rather than avoided, because it is the whole
+    /// shape of this subject: an epoch is a Double, a decimal fraction is not
+    /// exactly representable, and the two sides of a round trip must not be
+    /// allowed to make the same rounding error and call it agreement.
+    @Test
+    func theMillisecondFieldIsTruncatedAndADecimalLiteralIsNotTheParsedValue() {
+        let decimalLiteral = 1_788_480_000.123
+        let parserOutput = 1_788_480_000.123_000_1
+        #expect(TimestampCodec.renderISO8601(decimalLiteral, timeZone: .gmt) == "2026-09-04T00:00:00.122Z")
+        #expect(decimalLiteral < parserOutput, "the literal is one ULP below the parsed value")
+        #expect(TimestampCodec.renderISO8601(1_788_480_000.999_9, timeZone: .gmt) == "2026-09-04T00:00:00.999Z",
+                "truncated, not rounded up into the next second")
     }
 
     /// The property the whole feature rests on: rendering an instant in any
@@ -225,7 +257,7 @@ struct TimestampTests {
         #expect(rendered == "1788480000")
         let localeAware = 1_788_480_000.formatted(.number.locale(Locale(identifier: "ar_EG@numbers=arab")))
         #expect(rendered != localeAware, "a locale-aware formatter would have produced \(localeAware)")
-        #expect(rendered.allSatisfy { $0.isASCII })
+        #expect(rendered.filter { !$0.isASCII }.isEmpty, "an Eastern Arabic digit would land here")
     }
 
     /// The epoch cell and the ISO cell agree about which second an instant is
@@ -248,7 +280,7 @@ struct TimestampTests {
         #expect(TimestampCodec.renderISO8601(.nan, timeZone: .gmt).isEmpty)
         #expect(TimestampCodec.renderISO8601(.infinity, timeZone: .gmt).isEmpty)
         #expect(TimestampCodec.renderEpochSeconds(.nan).isEmpty)
-        #expect(TimestampCodec.renderDateTime(-.infinity, timeZone: .gmt).isEmpty)
+        #expect(TimestampCodec.renderEpochSeconds(-.infinity).isEmpty)
     }
 
     // MARK: - Concurrency

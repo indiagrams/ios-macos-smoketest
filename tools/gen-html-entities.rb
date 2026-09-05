@@ -17,15 +17,32 @@
 #
 # THE PACKING FORMAT, AND THE MEASURED DEFECT IT EXISTS TO AVOID
 #
-# The obvious pack is "NAME=TARGET;NAME=TARGET;...". It silently loses SIX
-# records, because three entity TARGETS are the delimiter characters:
+# The obvious pack is "NAME=TARGET;NAME=TARGET;...". It silently loses records
+# with a green compile and no warning anywhere, and HOW MANY depends on the
+# language doing the reading -- which is the part that makes it dangerous.
+# Three entity TARGETS are the delimiter characters:
 #
 #     &equals;  -> U+003D            &semi;  -> U+003B
 #     &bne;     -> U+003D U+20E5
 #
-# Escaping them at generation time does not help: \u{3B} resolves to a literal
-# ';' at runtime, before the parser splits. Measured: 2125 records in, 2119 out,
-# with a green compile and no warning anywhere. So the record delimiter is
+# MEASURED on this tree by plan 06-06, both numbers, each named with the parser
+# that produced it:
+#
+#   Ruby, String#split(";") over CODEPOINTS    2125 in, 2122 out   3 lost
+#       bne, equals, semi -- the three whose target CONTAINS a delimiter.
+#   Swift, split over GRAPHEME CLUSTERS        2125 in, 2117 out   8 lost
+#       equals and semi, plus six whose target ABSORBS a delimiter: DotDot,
+#       TripleDot, tdot, DownBreve, zwj and zwnj each begin with a combining
+#       or format scalar, so "=" followed by it is ONE Character and the
+#       split does not break there. By that same rule bne comes through the
+#       broken format CORRECTLY, so spot-checking bne would report a broken
+#       table healthy.
+#
+# 06-RESEARCH.md's figure of 2119 is reproducible by neither parser and is not
+# carried forward. Regenerating this file's own header is how it was retired.
+#
+# Escaping the targets at generation time does not help: \u{3B} resolves to a
+# literal ';' at runtime, before the parser splits. So the record delimiter is
 # U+0001 and the field delimiter is U+0002. The MINIMUM target codepoint in the
 # whole table is U+0009 (&Tab;) and the minimum name character is a letter, so
 # neither delimiter can occur in the data by construction.
@@ -363,12 +380,18 @@ def file_header(enum_name, index)
     //     NAME <U+0002> TARGET-SCALARS <U+0001>
     //
     // WHY NOT ';' OR '='. Three entity targets ARE those characters: the entity
-    // named "equals" is U+003D, "semi" is U+003B, and "bne" is U+003D U+20E5. So a
-    // ';'-separated pack loses six records with a green compile and no warning.
-    // Measured: 2125 in, 2119 out. Escaping does not help, because a backslash-u
-    // escape for U+003B is a literal ';' by the time the parser runs. U+0001 and
-    // U+0002 cannot occur in the data: the minimum target scalar in the whole
-    // table is U+0009 and every name is ASCII letters and digits.
+    // named "equals" is U+003D, "semi" is U+003B, and "bne" is U+003D U+20E5, so a
+    // ';'-separated pack loses records with a green compile and no warning. HOW
+    // MANY depends on the parser, and both numbers were measured rather than
+    // assumed: Ruby splitting on CODEPOINTS reads 2122 of 2125 back, losing the
+    // three above; Swift splitting on GRAPHEME CLUSTERS reads 2117, losing eight,
+    // because DotDot, TripleDot, tdot, DownBreve, zwj and zwnj all target a
+    // combining or format scalar that ABSORBS the delimiter into one Character.
+    // By that same rule bne survives the broken format CORRECTLY, so a spot check
+    // of bne would report a broken table healthy. Escaping does not help, because
+    // a backslash-u escape for U+003B is a literal ';' by the time the parser
+    // runs. U+0001 and U+0002 cannot occur in the data: the minimum target scalar
+    // in the whole table is U+0009 and every name is ASCII letters and digits.
     //
     // WHY EVERY SCALAR IS AN ESCAPE. 17 entities target invisible or format
     // characters. Written literally they produce `invisible_character` errors under

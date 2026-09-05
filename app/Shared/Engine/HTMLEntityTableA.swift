@@ -14,12 +14,18 @@
 //     NAME <U+0002> TARGET-SCALARS <U+0001>
 //
 // WHY NOT ';' OR '='. Three entity targets ARE those characters: the entity
-// named "equals" is U+003D, "semi" is U+003B, and "bne" is U+003D U+20E5. So a
-// ';'-separated pack loses six records with a green compile and no warning.
-// Measured: 2125 in, 2119 out. Escaping does not help, because a backslash-u
-// escape for U+003B is a literal ';' by the time the parser runs. U+0001 and
-// U+0002 cannot occur in the data: the minimum target scalar in the whole
-// table is U+0009 and every name is ASCII letters and digits.
+// named "equals" is U+003D, "semi" is U+003B, and "bne" is U+003D U+20E5, so a
+// ';'-separated pack loses records with a green compile and no warning. HOW
+// MANY depends on the parser, and both numbers were measured rather than
+// assumed: Ruby splitting on CODEPOINTS reads 2122 of 2125 back, losing the
+// three above; Swift splitting on GRAPHEME CLUSTERS reads 2117, losing eight,
+// because DotDot, TripleDot, tdot, DownBreve, zwj and zwnj all target a
+// combining or format scalar that ABSORBS the delimiter into one Character.
+// By that same rule bne survives the broken format CORRECTLY, so a spot check
+// of bne would report a broken table healthy. Escaping does not help, because
+// a backslash-u escape for U+003B is a literal ';' by the time the parser
+// runs. U+0001 and U+0002 cannot occur in the data: the minimum target scalar
+// in the whole table is U+0009 and every name is ASCII letters and digits.
 //
 // WHY EVERY SCALAR IS AN ESCAPE. 17 entities target invisible or format
 // characters. Written literally they produce `invisible_character` errors under

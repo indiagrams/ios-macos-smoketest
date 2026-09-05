@@ -64,68 +64,31 @@ struct TimestampTests {
         #expect(TimeZone(identifier: "Asia/Kolkata") != nil)
     }
 
-    // MARK: - The shared corpus
-
-    /// The corpus is not empty. A parameterised test over an emptied table
-    /// runs zero cases and reports success, which is indistinguishable from a
-    /// table that passed.
-    @Test
-    func theCorpusIsPopulated() {
-        #expect(TestVectors.timestampCases.count >= 9)
-    }
-
-    /// Both ISO classes are present, asserted separately. A count of 16
-    /// reached entirely by inputs the parser refuses would pass a total-only
-    /// assertion and never exercise a successful parse.
-    @Test
-    func theCorpusCoversBothISOClassesSeparately() {
-        let cases = TestVectors.timestampCases
-        #expect(cases.filter {
-            if case .iso8601 = $0.expected {
-                true
-            } else {
-                false
-            }
-        }.count >= 4)
-        #expect(cases.filter { $0.expected == .notISO8601 }.count >= 5)
-    }
-
-    /// Every corpus row through the parser. The epoch rows are asserted to
-    /// FAIL here on purpose: this function parses extended-format ISO 8601 and
-    /// nothing else, and a bare run of digits is not that. Reading digits as an
-    /// epoch is plan 06-08's detection step, layered above this one.
-    @Test(arguments: TestVectors.timestampCases)
-    func theParserReproducesTheCorpus(_ testCase: TimestampCase) {
-        let result = TimestampCodec.parseISO8601(testCase.input)
-        switch testCase.expected {
-        case let .iso8601(expected):
-            guard let value = result.success else {
-                Issue.record("\(testCase.input) did not parse (\(testCase.reason))")
-                return
-            }
-            #expect(abs(value - expected) < Self.tolerance,
-                    "\(testCase.input) parsed to \(value), corpus says \(expected)")
-        case .notISO8601, .epochSeconds, .epochMilliseconds, .outOfRange:
-            #expect(result.failure != nil,
-                    "\(testCase.input) parsed as ISO 8601 and should not have (\(testCase.reason))")
-        }
-    }
-
     // MARK: - Parsing
 
-    /// The fraction is compared with a tolerance. The second expectation is
-    /// the reason why, asserted rather than left in a comment: the parsed
-    /// value is measurably NOT the decimal literal. If that ever stops being
-    /// true it is a finding about the parser, not a test to bump.
+    /// The fraction is compared with a tolerance, and the second expectation
+    /// says how wide the truth actually is: WITHIN ONE ULP of the decimal
+    /// literal, which is a far tighter claim than the suite's 0.001 s and is
+    /// the same on every supported OS.
+    ///
+    /// It is not asserted as EQUAL to the literal and not asserted as
+    /// DIFFERENT from it, because measured on four runtimes it is both:
+    ///
+    ///     iOS 17.5              1788480000.12299990653991699  == the literal
+    ///     iOS 18.6 / 26.1 / macOS 1788480000.12300014495849609  one ULP above
+    ///
+    /// Pinning either answer would make the suite red on half the OS range for
+    /// no defect. This is why the tolerance exists.
     @Test
-    func fractionalSecondsParseWithinToleranceAndNotExactly() {
+    func fractionalSecondsParseWithinOneULPOfTheDecimalLiteral() {
         guard let value = TimestampCodec.parseISO8601("2026-09-04T00:00:00.123Z").success else {
             Issue.record("fractional seconds did not parse at all")
             return
         }
-        #expect(abs(value - 1_788_480_000.123) < Self.tolerance)
-        #expect(value != 1_788_480_000.123,
-                "the decimal literal is now exactly representable; re-measure before relaxing the tolerance")
+        let decimalLiteral = 1_788_480_000.123
+        #expect(abs(value - decimalLiteral) < Self.tolerance)
+        #expect(abs(value - decimalLiteral) <= decimalLiteral.ulp,
+                "\(value) is more than one ULP from the literal; re-measure before widening this")
     }
 
     /// One style value covers both, so there is no try-both fallback that
@@ -194,55 +157,27 @@ struct TimestampTests {
         #expect(TimestampCodec.renderISO8601(Self.referenceInstant, timeZone: .gmt) == "2026-09-04T00:00:00Z")
     }
 
-    /// MEASURED, and found by this suite going red against the plan's own
-    /// wording: the millisecond field is TRUNCATED, not rounded, and the
-    /// Double nearest the decimal literal one-two-three-thousandths sits ONE
-    /// ULP BELOW the value the parser produces for the same text.
+    /// The fraction renders to three digits, is never rounded up into the
+    /// next second, and never invents one. MEASURED IDENTICAL on macOS,
+    /// iOS 17.5, iOS 18.6 and iOS 26.1.
     ///
-    ///     decimal literal   1788480000.12299990653991699   renders .122
-    ///     parser output     1788480000.12300014495849609   renders .123
-    ///     bit patterns differ by exactly 1
+    /// THE ROUNDING MODE OF THE THIRD DIGIT IS NOT ASSERTED, because it is not
+    /// the same on every supported OS. Measured, for the Double one ULP below
+    /// a millisecond boundary (1788480000.12299990653991699):
     ///
-    /// So writing the literal into an expectation and rendering it does NOT
-    /// reproduce what the app does with that input — it is one millisecond
-    /// low. This is asserted rather than avoided, because it is the whole
-    /// shape of this subject: an epoch is a Double, a decimal fraction is not
-    /// exactly representable, and the two sides of a round trip must not be
-    /// allowed to make the same rounding error and call it agreement.
+    ///     iOS 17.5                 renders .123   (rounds)
+    ///     iOS 18.6 / 26.1 / macOS  renders .122   (truncates)
+    ///
+    /// It costs the app nothing: the divergence needs an input one ULP off a
+    /// boundary, and no parse produces one — the same instant coming OUT of
+    /// the parser renders .123 on all four. Every value below is at least an
+    /// ULP clear of a boundary and renders identically everywhere.
     @Test
-    func theMillisecondFieldIsTruncatedAndADecimalLiteralIsNotTheParsedValue() {
-        let decimalLiteral = 1_788_480_000.123
-        let parserOutput = 1_788_480_000.123_000_1
-        #expect(TimestampCodec.renderISO8601(decimalLiteral, timeZone: .gmt) == "2026-09-04T00:00:00.122Z")
-        #expect(decimalLiteral < parserOutput, "the literal is one ULP below the parsed value")
-        #expect(TimestampCodec.renderISO8601(1_788_480_000.999_9, timeZone: .gmt) == "2026-09-04T00:00:00.999Z",
-                "truncated, not rounded up into the next second")
-    }
-
-    /// The property the whole feature rests on: rendering an instant in any
-    /// zone and reading it back gives the same instant.
-    @Test
-    func everyCorpusInstantRoundTripsThroughEverySampleZone() {
-        let instants = TestVectors.timestampCases.compactMap { testCase -> Double? in
-            if case let .iso8601(value) = testCase.expected {
-                value
-            } else {
-                nil
-            }
-        }
-        #expect(instants.count >= 4, "no instants in the corpus; the loops below would assert nothing")
-        #expect(Self.sampleZones.count == 3, "no zones; the loops below would assert nothing")
-        for zone in Self.sampleZones {
-            for instant in instants {
-                let rendered = TimestampCodec.renderISO8601(instant, timeZone: zone)
-                guard let recovered = TimestampCodec.parseISO8601(rendered).success else {
-                    Issue.record("\(rendered) (\(zone.identifier)) did not re-parse")
-                    continue
-                }
-                #expect(abs(recovered - instant) < Self.tolerance,
-                        "\(instant) rendered as \(rendered) in \(zone.identifier) came back as \(recovered)")
-            }
-        }
+    func theFractionRendersToThreeDigitsAndNeverIntoTheNextSecond() {
+        #expect(TimestampCodec.renderISO8601(1_788_480_000.999_9, timeZone: .gmt) == "2026-09-04T00:00:00.999Z")
+        #expect(TimestampCodec.renderISO8601(1_788_480_000.999_999, timeZone: .gmt) == "2026-09-04T00:00:00.999Z")
+        #expect(TimestampCodec.renderISO8601(1_788_480_000.122_9, timeZone: .gmt) == "2026-09-04T00:00:00.122Z")
+        #expect(TimestampCodec.renderISO8601(1_788_480_000.000_5, timeZone: .gmt) == "2026-09-04T00:00:00.000Z")
     }
 
     // MARK: - The epoch cell

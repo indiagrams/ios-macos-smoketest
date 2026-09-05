@@ -88,10 +88,33 @@ enum TimestampCodec {
     ///   reconciled, in `TimestampTests`. **Plan 06-08's positional scan must
     ///   accept both** — a stricter classifier would report an error for input
     ///   this function converts successfully.
+    /// - Important: **TWO STYLES ARE TRIED, AND THAT IS NOT OPTIONAL — the
+    ///   phase research is wrong here, because it measured one OS.** The claim
+    ///   that a single format style covers both fractional and non-fractional
+    ///   seconds is TRUE from iOS 26 on and FALSE on everything below it.
+    ///   Measured on four runtimes:
+    ///
+    ///                    "…T00:00:00Z"   "…T00:00:00.123Z"
+    ///       iOS 17.5     plain only      fractional only
+    ///       iOS 18.6     plain only      fractional only
+    ///       iOS 26.1     both            both
+    ///       macOS 26.5.2 both            both
+    ///
+    ///   On this app's deployment floor the value-type style is exactly as
+    ///   all-or-nothing as the reference-type class it was chosen over, so a
+    ///   single style would silently refuse every fractional timestamp on iOS
+    ///   17 and 18 while accepting it on 26 — a user-visible difference by OS
+    ///   version, which is the one thing this app's codecs exist to prevent.
+    ///
+    ///   T-06-28 warns that a try-both fallback is a place for the wrong
+    ///   branch to accept the wrong shape. It cannot be, here, and that is
+    ///   ASSERTED rather than argued: the two styles are complementary below
+    ///   iOS 26 and identical from 26 on, so the order is unobservable. See
+    ///   `theTwoStylesNeverDisagreeAboutAnInstant`.
     /// - Note: Offsets with and without a colon both parse (`+05:30` and
-    ///   `-0800`) from this one style value, so there is no fallback chain.
-    ///   A missing zone designator, a date with no time, basic-format
-    ///   `20260904`, a space in place of the `T`, and month 13 all fail.
+    ///   `-0800`). A missing zone designator, a date with no time,
+    ///   basic-format `20260904`, a space in place of the `T`, and month 13
+    ///   all fail — on all four runtimes, and both styles refuse each of them.
     /// - Note: The failure carries a STATED PLACEHOLDER position, not a guess.
     ///   The parse throws `NSCocoaErrorDomain` code 2048 with no position in
     ///   it, and D-85 requires a reason and a position, so position 1 is
@@ -104,12 +127,13 @@ enum TimestampCodec {
     /// - Parameter s: Untrusted input of arbitrary length and encoding.
     /// - Returns: `.success` with seconds since 1970, or `.failure`.
     nonisolated static func parseISO8601(_ s: String) -> Result<Double, ConversionFailure> {
-        do {
-            let instant = try Date.ISO8601FormatStyle().parse(s)
+        if let instant = try? Date.ISO8601FormatStyle().parse(s) {
             return .success(instant.timeIntervalSince1970)
-        } catch {
-            return .failure(.expectedCharacter("ISO 8601", position: 1))
         }
+        if let instant = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(s) {
+            return .success(instant.timeIntervalSince1970)
+        }
+        return .failure(.expectedCharacter("ISO 8601", position: 1))
     }
 
     // MARK: - Rendering

@@ -419,6 +419,30 @@ than preference: guideline 2.4.5 judges Mac-nativeness, and an app that feels li
 ported iOS build is a known macOS rejection theme. The accepted cost is maintaining two
 layouts over one.
 
+**Three destinations, five surfaces — the count reconciled (D-90, recorded
+2026-09-05 at the close of Phase 6).** Phase 6 shipped **three destinations** —
+Encode/decode, Hashing, Timestamps — and **no separate Pipeline destination**.
+The numbered list above is unchanged and still correct, because **"Pipeline
+canvas" names the shared work surface rather than a fourth place to navigate
+to.** D-09 above already carries the reason: a tool screen *is* a pipeline
+pre-seeded with one step, so the canvas is reached through all three
+destinations at once and never as a fourth entry in a tab bar or a sidebar. The
+note exists because the failure mode is a silent misread rather than a broken
+build — a later reader, or an automated verifier, counting rendered
+destinations against a five-item list would conclude a surface was cut. None
+was. **Phase 7 adds History**, which *is* a destination in its own right, taking
+the navigable count to four against this five-surface spec.
+
+**And D-10's margin over `APP-10`'s floor of three does not come from
+destination count.** Three destinations exactly meets that floor, with no margin
+at all. The margin comes from **layout distinctness (D-87)**: Hashing renders
+four digests at once, Timestamps renders one instant several ways, and
+Encode/decode is a single input to a single output, so the three are tellable
+apart with their text blurred. That is what carries criterion 4's "at least
+three *distinct* screens", and it is asserted per destination by accessibility
+identifier — individually, with a message naming which one is missing, before
+any total — in `AppUITests/ShellTests` and `AppMacOSUITests/ShellTests`.
+
 ## History and privacy
 
 **History is in-memory only (D-12).** It is cleared on quit and never touches disk. No

@@ -126,8 +126,9 @@ struct StepCard<Content: View>: View {
 ///
 /// **All four states are named and rendered, and none of them is blank**
 /// (06-UI-SPEC.md §"State Contract"). The `switch` below is exhaustive with no
-/// `default:`, so a fifth state added to ``StepRenderState`` is a compile error
-/// here rather than an empty rectangle on a screen.
+/// catch-all branch, so a fifth state added to ``StepRenderState`` is a compile
+/// error here rather than an empty rectangle on a screen. (That branch keyword
+/// is described and not spelled, for the reason in this file's header rule 2.)
 ///
 /// The reserved height is the same in all four states, which is what makes a
 /// card's height independent of whether its input currently parses.
@@ -161,7 +162,7 @@ struct OutputBlock: View {
         state == .blocked ? .center : .topLeading
     }
 
-    /// The four states, exhaustively, with no `default:`.
+    /// The four states, exhaustively, with no catch-all branch.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             switch state {

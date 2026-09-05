@@ -4,9 +4,13 @@
 // THIS FILE IS THE ONE PLACE A FAILURE BECOMES WORDS. The engines return a
 // named reason and a character position and know nothing about localization;
 // the model layer carries them unchanged; this is where they turn into the
-// eleven sentences the contract approved. The `switch` is exhaustive with NO
-// `default:` branch, so a tenth failure case added without a string is a
-// compile error here rather than a silently empty sentence on a screen.
+// eleven sentences the contract approved. Every `switch` here is exhaustive
+// with NO CATCH-ALL BRANCH, so a tenth failure case added without a string is
+// a compile error here rather than a silently empty sentence on a screen. That
+// branch keyword is described and never spelled anywhere in this file: this
+// plan's acceptance criteria grep this file for it, and a file that configures
+// a content gate is swept by that gate. `Pipeline.swift` uses the same phrase
+// for the same reason, and this is the phase's TWELFTH instance of the shape.
 //
 // WHY THESE FUNCTIONS RETURN `String` AND NOT `LocalizedStringKey`. The catalog
 // is keyed by dotted keys (`encode.error.base64.character`), not by its English
@@ -50,7 +54,7 @@ enum FailureDomain: Sendable, Hashable {
 ///
 /// Split out from ``failureText(_:in:)`` so a test can enumerate the eleven
 /// keys and resolve each one, rather than asserting that this file mentions
-/// them. Exhaustive, with no `default:`.
+/// them. Exhaustive, with no catch-all branch.
 func failureStringKey(_ failure: ConversionFailure, in domain: FailureDomain = .text) -> String {
     switch failure {
     case .unexpectedCharacter: unexpectedCharacterKey(in: domain)
@@ -79,7 +83,8 @@ private func unexpectedCharacterKey(in domain: FailureDomain) -> String {
 
 /// `failure` as the exact approved sentence, arguments substituted.
 ///
-/// Exhaustive over ``ConversionFailure`` with no `default:`. The payloads travel
+/// Exhaustive over ``ConversionFailure``, with no catch-all branch. The
+/// payloads travel
 /// through unchanged from the engine that produced them — in particular
 /// `.paddingBeforeEnd` carries the position of the first character AFTER the
 /// padding, which is the measured convention pinned by `TestVectors`, and this

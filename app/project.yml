@@ -221,6 +221,16 @@ targets:
       # compiles into the app and NOT into the tests, and every test that names
       # the type fails to compile. Added by 06-03.
       - path: Shared/Model
+      # The view layer, and the two files it needs to compile: Shared/Design
+      # (Spacing, Palette) and the shared selector enum. Added by 06-11 so the
+      # failure-to-sentence mapping in Shared/Views/FailureText.swift can be
+      # asserted by RENDERING all eleven sentences in a host-based unit test,
+      # and so the pasteboard write in Shared/Views/OutputAccessory.swift can be
+      # proven by an executed round trip. A copy control asserted only by a grep
+      # over its source is a file-level gate that never exercises the artefact.
+      - path: Shared/Design
+      - path: Shared/AccessibilityIdentifiers.swift
+      - path: Shared/Views
       - path: EngineTests
     settings:
       base:
@@ -276,6 +286,16 @@ targets:
       - path: Shared/Engine
       # See AppTests above — Shared/Model carries ConversionFailure.
       - path: Shared/Model
+      # The view layer, and the two files it needs to compile: Shared/Design
+      # (Spacing, Palette) and the shared selector enum. Added by 06-11 so the
+      # failure-to-sentence mapping in Shared/Views/FailureText.swift can be
+      # asserted by RENDERING all eleven sentences in a host-based unit test,
+      # and so the pasteboard write in Shared/Views/OutputAccessory.swift can be
+      # proven by an executed round trip. A copy control asserted only by a grep
+      # over its source is a file-level gate that never exercises the artefact.
+      - path: Shared/Design
+      - path: Shared/AccessibilityIdentifiers.swift
+      - path: Shared/Views
       - path: EngineTests
     settings:
       base:

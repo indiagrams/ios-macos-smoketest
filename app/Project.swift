@@ -233,7 +233,17 @@ let iosUnitTestTarget = Target.target(
     bundleId: "$(BUNDLE_ID).tests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
-    sources: ["Tests/**", "Shared/Engine/**", "Shared/Model/**", "EngineTests/**"],
+    sources: [
+        "Tests/**",
+        "Shared/Engine/**",
+        "Shared/Model/**",
+        // The view layer plus the two things it needs to compile. Kept in parity
+        // with app/project.yml; see that file for why 06-11 added them.
+        "Shared/Design/**",
+        "Shared/AccessibilityIdentifiers.swift",
+        "Shared/Views/**",
+        "EngineTests/**",
+    ],
     dependencies: [.target(name: "App-iOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "App-iOS",
@@ -247,7 +257,17 @@ let macUnitTestTarget = Target.target(
     bundleId: "$(BUNDLE_ID).mactests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
-    sources: ["MacOSTests/**", "Shared/Engine/**", "Shared/Model/**", "EngineTests/**"],
+    sources: [
+        "MacOSTests/**",
+        "Shared/Engine/**",
+        "Shared/Model/**",
+        // The view layer plus the two things it needs to compile. Kept in parity
+        // with app/project.yml; see that file for why 06-11 added them.
+        "Shared/Design/**",
+        "Shared/AccessibilityIdentifiers.swift",
+        "Shared/Views/**",
+        "EngineTests/**",
+    ],
     dependencies: [.target(name: "App-macOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "App-macOS",

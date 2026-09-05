@@ -76,6 +76,31 @@ final class AppStoreScreenshotTests: XCTestCase {
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5),
                       "App window must be visible")
 
+        // And wait for the real UI inside that window, not merely for a window.
+        // Added by plan 06-14 as an IMPROVEMENT, not a fix: this file carried
+        // zero `AccessibilityIdentifiers` references (C-22's "both harnesses"
+        // was half wrong, measured) and it did not break when the placeholder
+        // root view was deleted. A window can exist before SwiftUI has rendered
+        // anything into it, which is how a screenshot of an empty frame gets
+        // captured and uploaded. The window assertion above is KEPT rather than
+        // replaced, because `attachScreenshot` captures
+        // `app.windows.firstMatch` and a screenshot needs a window even more
+        // than it needs a sidebar row.
+        //
+        // Type-agnostic on purpose. `AppMacOSUITests/ShellTests.swift` — which
+        // DOES execute on the CI runner rather than skipping — reaches these
+        // same three constants through `descendants(matching: .any)`, so the
+        // reachability asserted here is a measured fact from an executing gate.
+        // Only the ELEMENT TYPE would have been a guess, and this shape has none.
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: AccessibilityIdentifiers.Shell.sidebarEncode)
+                .firstMatch
+                .waitForExistence(timeout: 10),
+            "the app window appeared but the Encode/decode sidebar row did not — no element carries "
+                + AccessibilityIdentifiers.Shell.sidebarEncode
+        )
+
         // Let SwiftUI settle.
         Thread.sleep(forTimeInterval: 0.5)
 

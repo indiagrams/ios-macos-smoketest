@@ -48,15 +48,6 @@ import Foundation
 /// (`VStack`, `HStack`, `ZStack`) without an explicit accessibility role do not
 /// surface independently.
 public enum AccessibilityIdentifiers {
-    /// The app title text — stable selector for UI tests across locales.
-    ///
-    /// **Retired by plan 06-14**, in the same atomic change that replaces
-    /// `app/Shared/ContentView.swift` and amends `test/identity_test.rb`'s G8
-    /// group. It is kept here because `ContentView.swift:16` and
-    /// `app/UITests/AppStoreScreenshotTests.swift:69` both reference it, so
-    /// deleting it now is a compile break in two files.
-    public static let title = "ShipkitPipes.title"
-
     /// The navigation shell: three destinations, reached through a `TabView` on
     /// iOS and a `NavigationSplitView` sidebar on macOS (D-11, D-90).
     ///

@@ -24,10 +24,13 @@ import XCTest
 /// probe_reached_subject=true`. The tree is fully populated on a headless runner without any
 /// foreground-activation call — and 110 of those 114 strings are macOS system chrome (the
 /// Apple menu, the application menu, Services), not app content. The four app strings were
-/// `Indiagram Smoke App`, `iOS + macOS template`, `Set this app's identity in
-/// app/Identity.xcconfig.` and the app name. Plan 06-17's sweep must therefore scope or
-/// exempt chrome explicitly; harvesting the whole tree is the wrong population for a
-/// criterion-6 assertion about strings the *app* renders.
+/// the placeholder root view's three lines — its title, its subtitle and its
+/// identity-config instruction — plus the app name. Those three are gone: plan 06-14
+/// deleted that view and both of its catalog rows under D-66 / PRIV-06, and this comment
+/// deliberately no longer spells them, because a file under `app/` that quotes template
+/// copy is swept by the very gates that copy exists to trip. Plan 06-17's sweep must
+/// therefore scope or exempt chrome explicitly; harvesting the whole tree is the wrong
+/// population for a criterion-6 assertion about strings the *app* renders.
 ///
 /// **And the counts cannot be surfaced with `print`.** Run 33924732161 executed this test
 /// green and not one `print` line below reached the xcodebuild log: the macOS UI-test bundle

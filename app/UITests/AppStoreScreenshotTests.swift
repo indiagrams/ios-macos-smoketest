@@ -63,15 +63,15 @@ final class AppStoreScreenshotTests: XCTestCase {
         // Wait for the first destination by accessibility identifier. Never
         // query by visible text — that's fragile to localization and copy edits.
         //
-        // REPOINTED BY PLAN 06-13 (C-22). This waited on
-        // `AccessibilityIdentifiers.title`, which the placeholder root view
-        // carried; plan 06-13 repointed `app/Shared/App.swift` at `RootView`, so
-        // that identifier stopped reaching a running app and this wait timed out
-        // in the required `app (iOS Simulator)` job. C-22 names
-        // `Shell.tab.encode` as the replacement and this is it. The `title`
-        // constant and `ContentView.swift` are BOTH still on disk — plan 06-14
-        // removes them atomically with the `test/identity_test.rb` G8
-        // amendment, which is a Ruby gate this file must not front-run.
+        // REPOINTED BY PLAN 06-13 (C-22). This waited on a title identifier
+        // that the template's placeholder root view carried; plan 06-13
+        // repointed `app/Shared/App.swift` at `RootView`, so that identifier
+        // stopped reaching a running app and this wait timed out in the
+        // required `app (iOS Simulator)` job. C-22 names `Shell.tab.encode` as
+        // the replacement and this is it. Plan 06-14 then deleted the
+        // placeholder view and that identifier outright, in the same change as
+        // the `test/identity_test.rb` G8 amendment that had asserted the view
+        // existed.
         //
         // NOT `staticTexts`: `Shell.tab.encode` is attached to the destination's
         // CONTENT container, not to a `Text`, because SwiftUI does not put an

@@ -12,17 +12,6 @@
         }
       }
     },
-    "Set this app's identity in `app/Identity.xcconfig`." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Set this app's identity in `app/Identity.xcconfig`."
-          }
-        }
-      }
-    },
     "count.characters" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -308,17 +297,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Digests appear here as you type."
-          }
-        }
-      }
-    },
-    "iOS + macOS template" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "iOS + macOS template"
           }
         }
       }

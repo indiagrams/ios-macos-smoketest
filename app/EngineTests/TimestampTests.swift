@@ -1,0 +1,274 @@
+// Tests for app/Shared/Engine/TimestampCodec.swift — ISO 8601, the Unix epoch,
+// and the timezone selection APP-07 renders through.
+//
+// Run via (macOS):
+//   xcodebuild test -project app/App.xcodeproj -scheme App-macOS \
+//     -configuration Debug -destination 'platform=macOS' \
+//     -only-testing:AppMacOSTests/TimestampTests \
+//     CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+//
+// Compiled into BOTH unit-test targets, so every number below is asserted on
+// iOS and macOS from one source. `-only-testing:` naming an ABSENT suite exits
+// 0 printing `** TEST SUCCEEDED **` having run zero tests (measured by 06-03),
+// so a green from this file is only evidence when it carries a test count.
+//
+// THREE RULES THIS FILE OBEYS, ALL THREE FOR MEASURED REASONS
+//
+// 1. FRACTIONAL INSTANTS ARE COMPARED WITH A TOLERANCE, NEVER FOR EQUALITY.
+//    "2026-09-04T00:00:00.123Z" parses to 1788480000.1230001 on this tree —
+//    binary floating point, not a parser defect. Rendering truncates the
+//    fraction to three digits, so the largest round-trip error measured over
+//    this corpus is 0.0009 s, and the tolerance below is 0.001 s.
+//
+// 2. NO TEST ASSERTS THE LITERAL TEXT OF `renderDateTime`. It is locale- and
+//    region-dependent: the UI spec's mockup and the research machine render
+//    the same instant differently. Non-emptiness, the four-digit year, and a
+//    difference between two zones are all that can honestly be asserted.
+//
+// 3. NO COUNT OF THE PLATFORM'S TIMEZONE TABLE IS ASSERTED FOR EQUALITY. The
+//    tz database ships with the OS and grows; a frozen number is a plan
+//    literal that goes stale by allocation. The count is PRINTED and asserted
+//    only as a lower bound.
+
+import Foundation
+import Testing
+
+/// See PositionTests for why there is no bare `@Suite` attribute.
+struct TimestampTests {
+    // MARK: - Shared fixtures
+
+    /// Wider than the largest measured round-trip error (0.0009 s, which comes
+    /// from the three-digit fraction the renderer emits) and far narrower than
+    /// one second, so a whole-second mistake still fails.
+    static let tolerance = 0.001
+
+    /// The instant every literal below is about: 2026-09-04T00:00:00Z.
+    static let referenceInstant = 1_788_480_000.0
+
+    /// `?? .gmt` rather than `!`: these bundles are host-based, so a force
+    /// unwrap that ever failed would kill the host instead of failing a test.
+    /// `theSampleZonesReallyExist` below is what stops the fallback hiding a
+    /// missing identifier — every literal in this file is a `-07:00` or
+    /// `+05:30` string that GMT could not produce.
+    static let losAngeles = TimeZone(identifier: "America/Los_Angeles") ?? .gmt
+    static let kolkata = TimeZone(identifier: "Asia/Kolkata") ?? .gmt
+
+    /// The three-zone sample the round trip runs over: zero offset, a negative
+    /// offset with a whole-hour value, and a positive offset with a half-hour
+    /// value, which is the one that catches an offset written as hours only.
+    static let sampleZones: [TimeZone] = [.gmt, losAngeles, kolkata]
+
+    @Test
+    func theSampleZonesReallyExist() {
+        #expect(TimeZone(identifier: "America/Los_Angeles") != nil)
+        #expect(TimeZone(identifier: "Asia/Kolkata") != nil)
+    }
+
+    // MARK: - The shared corpus
+
+    /// The corpus is not empty. A parameterised test over an emptied table
+    /// runs zero cases and reports success, which is indistinguishable from a
+    /// table that passed.
+    @Test
+    func theCorpusIsPopulated() {
+        #expect(TestVectors.timestampCases.count >= 9)
+    }
+
+    /// Both ISO classes are present, asserted separately. A count of 16
+    /// reached entirely by inputs the parser refuses would pass a total-only
+    /// assertion and never exercise a successful parse.
+    @Test
+    func theCorpusCoversBothISOClassesSeparately() {
+        let cases = TestVectors.timestampCases
+        #expect(cases.filter {
+            if case .iso8601 = $0.expected {
+                true
+            } else {
+                false
+            }
+        }.count >= 4)
+        #expect(cases.filter { $0.expected == .notISO8601 }.count >= 5)
+    }
+
+    /// Every corpus row through the parser. The epoch rows are asserted to
+    /// FAIL here on purpose: this function parses extended-format ISO 8601 and
+    /// nothing else, and a bare run of digits is not that. Reading digits as an
+    /// epoch is plan 06-08's detection step, layered above this one.
+    @Test(arguments: TestVectors.timestampCases)
+    func theParserReproducesTheCorpus(_ testCase: TimestampCase) {
+        let result = TimestampCodec.parseISO8601(testCase.input)
+        switch testCase.expected {
+        case let .iso8601(expected):
+            guard let value = result.success else {
+                Issue.record("\(testCase.input) did not parse (\(testCase.reason))")
+                return
+            }
+            #expect(abs(value - expected) < Self.tolerance,
+                    "\(testCase.input) parsed to \(value), corpus says \(expected)")
+        case .notISO8601, .epochSeconds, .epochMilliseconds, .outOfRange:
+            #expect(result.failure != nil,
+                    "\(testCase.input) parsed as ISO 8601 and should not have (\(testCase.reason))")
+        }
+    }
+
+    // MARK: - Parsing
+
+    /// The fraction is compared with a tolerance. The second expectation is
+    /// the reason why, asserted rather than left in a comment: the parsed
+    /// value is measurably NOT the decimal literal. If that ever stops being
+    /// true it is a finding about the parser, not a test to bump.
+    @Test
+    func fractionalSecondsParseWithinToleranceAndNotExactly() {
+        guard let value = TimestampCodec.parseISO8601("2026-09-04T00:00:00.123Z").success else {
+            Issue.record("fractional seconds did not parse at all")
+            return
+        }
+        #expect(abs(value - 1_788_480_000.123) < Self.tolerance)
+        #expect(value != 1_788_480_000.123,
+                "the decimal literal is now exactly representable; re-measure before relaxing the tolerance")
+    }
+
+    /// One style value covers both, so there is no try-both fallback that
+    /// could take the wrong branch (T-06-28). The colon-free offset is the one
+    /// the reference-type formatter's default options reject.
+    @Test
+    func offsetsWithAndWithoutAColonBothParse() {
+        #expect(TimestampCodec.parseISO8601("2026-09-04T00:00:00+05:30").success == 1_788_460_200)
+        #expect(TimestampCodec.parseISO8601("2026-09-04T00:00:00-0800").success == 1_788_508_800)
+    }
+
+    /// MEASURED LENIENCY, asserted as a leniency rather than repaired.
+    ///
+    /// Both of these are accepted by the parser and would be rejected by a
+    /// hand-written validator that required two seconds digits and an
+    /// uppercase designator. The classifier is the authority — the same answer
+    /// the Base64 and percent-encoding families gave — so plan 06-08's
+    /// positional scan must accept both. The lowercase `z` was found here; it
+    /// is not in the phase research table.
+    @Test
+    func theParserAcceptsTwoFormsAStricterValidatorWouldReject() {
+        #expect(TimestampCodec.parseISO8601("2026-09-04T00:00:0Z").success == Self.referenceInstant,
+                "single-digit seconds")
+        #expect(TimestampCodec.parseISO8601("2026-09-04T00:00:00z").success == Self.referenceInstant,
+                "lowercase zone designator")
+    }
+
+    /// A failure names a reason and carries a position (D-85), and never a
+    /// bare `nil`. The position is a stated placeholder, not a guess: the
+    /// parser throws without one. Plan 06-08 replaces it with a scan.
+    @Test
+    func aFailureIsAConversionFailureAndNotABareNil() {
+        #expect(TimestampCodec.parseISO8601("2026-09-04").failure == .expectedCharacter("ISO 8601", position: 1))
+        #expect(TimestampCodec.parseISO8601("").failure != nil)
+    }
+
+    // MARK: - Rendering
+
+    /// The chosen offset form is `+05:30`, asserted literally so the code and
+    /// the string inventory cannot drift. The style's default is the colon-free
+    /// `+0530`, which mixes a basic-format offset into an otherwise
+    /// extended-format string; the colon form is what RFC 3339 requires and
+    /// what the corpus inputs are written in.
+    @Test
+    func renderingPutsAColonInTheOffset() {
+        #expect(TimestampCodec.renderISO8601(Self.referenceInstant, timeZone: .gmt) == "2026-09-04T00:00:00Z")
+        #expect(TimestampCodec.renderISO8601(Self.referenceInstant, timeZone: Self.losAngeles)
+            == "2026-09-03T17:00:00-07:00")
+        #expect(TimestampCodec.renderISO8601(Self.referenceInstant, timeZone: Self.kolkata)
+            == "2026-09-04T05:30:00+05:30")
+    }
+
+    /// A fraction the user typed is not silently dropped, and a whole second
+    /// does not grow a `.000` it never had. Dropping it would be the same
+    /// class of quiet data loss the Base64 codec refuses.
+    @Test
+    func aFractionSurvivesRenderingAndAWholeSecondDoesNotGrowOne() {
+        #expect(TimestampCodec.renderISO8601(1_788_480_000.123, timeZone: .gmt) == "2026-09-04T00:00:00.123Z")
+        #expect(TimestampCodec.renderISO8601(Self.referenceInstant, timeZone: .gmt) == "2026-09-04T00:00:00Z")
+    }
+
+    /// The property the whole feature rests on: rendering an instant in any
+    /// zone and reading it back gives the same instant.
+    @Test
+    func everyCorpusInstantRoundTripsThroughEverySampleZone() {
+        let instants = TestVectors.timestampCases.compactMap { testCase -> Double? in
+            if case let .iso8601(value) = testCase.expected {
+                value
+            } else {
+                nil
+            }
+        }
+        #expect(instants.count >= 4, "no instants in the corpus; the loops below would assert nothing")
+        #expect(Self.sampleZones.count == 3, "no zones; the loops below would assert nothing")
+        for zone in Self.sampleZones {
+            for instant in instants {
+                let rendered = TimestampCodec.renderISO8601(instant, timeZone: zone)
+                guard let recovered = TimestampCodec.parseISO8601(rendered).success else {
+                    Issue.record("\(rendered) (\(zone.identifier)) did not re-parse")
+                    continue
+                }
+                #expect(abs(recovered - instant) < Self.tolerance,
+                        "\(instant) rendered as \(rendered) in \(zone.identifier) came back as \(recovered)")
+            }
+        }
+    }
+
+    // MARK: - The epoch cell
+
+    /// No decimal point, no grouping separator, no locale digits. The second
+    /// expectation is what gives the first one teeth: a locale-aware integer
+    /// formatter renders this same number in Arabic-Indic digits, so an
+    /// implementation that reached for one would break copy-paste silently.
+    @Test
+    func theEpochRendersAsPlainASCIIDigits() {
+        let rendered = TimestampCodec.renderEpochSeconds(Self.referenceInstant)
+        #expect(rendered == "1788480000")
+        let localeAware = 1_788_480_000.formatted(.number.locale(Locale(identifier: "ar_EG@numbers=arab")))
+        #expect(rendered != localeAware, "a locale-aware formatter would have produced \(localeAware)")
+        #expect(rendered.allSatisfy { $0.isASCII })
+    }
+
+    /// The epoch cell and the ISO cell agree about which second an instant is
+    /// in, including before 1970 — which is the case that discriminates.
+    /// Truncating toward zero would render this instant as second 0 while the
+    /// ISO cell showed the second before it.
+    @Test
+    func theEpochCellAndTheISOCellAgreeOnWhichSecondAnInstantIsIn() {
+        #expect(TimestampCodec.renderEpochSeconds(-0.5) == "-1")
+        #expect(TimestampCodec.renderISO8601(-0.5, timeZone: .gmt) == "1969-12-31T23:59:59.500Z")
+        #expect(TimestampCodec.renderEpochSeconds(1_788_480_000.9) == "1788480000")
+    }
+
+    /// Total by construction. A non-finite Double reaches Foundation's date
+    /// initializer as a trap site, and these bundles are host-based: a trap
+    /// kills the host and aborts the run rather than failing one test. The
+    /// guards are asserted here so nobody removes them as dead code.
+    @Test
+    func nonFiniteInputRendersEmptyInsteadOfTrapping() {
+        #expect(TimestampCodec.renderISO8601(.nan, timeZone: .gmt).isEmpty)
+        #expect(TimestampCodec.renderISO8601(.infinity, timeZone: .gmt).isEmpty)
+        #expect(TimestampCodec.renderEpochSeconds(.nan).isEmpty)
+        #expect(TimestampCodec.renderDateTime(-.infinity, timeZone: .gmt).isEmpty)
+    }
+
+    // MARK: - Concurrency
+
+    /// Nothing in the codec is cached, and the six types it names are all
+    /// value types that satisfy `Sendable`. This compiles or it does not;
+    /// there is no runtime assertion to make.
+    @Test
+    func theDateTypesTheCodecUsesAreAllSendable() {
+        requireSendable(Date.ISO8601FormatStyle.self)
+        requireSendable(Date.FormatStyle.self)
+        requireSendable(TimeZone.self)
+        requireSendable(Locale.self)
+        requireSendable(Calendar.self)
+        requireSendable(Date.self)
+    }
+}
+
+/// A compile-time probe: naming a type here at all requires it to satisfy
+/// `Sendable` under `-strict-concurrency=complete`. `private`, because
+/// ConversionFailureTests and HTMLEntityTests each declare their own and all
+/// three are compiled into one module.
+private func requireSendable(_: (some Sendable).Type) {}

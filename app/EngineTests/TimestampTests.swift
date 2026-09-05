@@ -266,10 +266,25 @@ struct TimestampTests {
     /// APP-07's default is the device zone, and it is reachable in the list
     /// the picker is populated from — a default that is not one of the options
     /// renders as an empty menu label.
+    ///
+    /// - Important: **AMENDED 2026-09-05 (plan 06-20, CR-02).** The second
+    ///   expectation used to read
+    ///   `timeZoneIdentifiers.contains(defaultTimeZone.identifier)` — against
+    ///   the RUNNER'S zone. This machine and CI are both `America/Los_Angeles`,
+    ///   which is in the platform table, so it was green here and on CI and red
+    ///   on an India-configured device: a correct check pointed at the wrong
+    ///   POPULATION. The reachability claim now lives in
+    ///   `theOptionListAlwaysContainsTheSelection` and
+    ///   `thePickerViewOffersTheZoneTheModelIsSetTo`, which INJECT a link name
+    ///   the table omits instead of reading the environment. What is left here
+    ///   is the half that is actually about the default: that it is the
+    ///   device's zone and not some other one.
     @Test
     func theDefaultZoneIsTheDeviceZone() {
         #expect(TimestampCodec.defaultTimeZone.identifier == TimeZone.current.identifier)
-        #expect(TimestampCodec.timeZoneIdentifiers.contains(TimestampCodec.defaultTimeZone.identifier))
+        let reachable = TimestampCodec.timeZoneIdentifiers(including: TimestampCodec.defaultTimeZone.identifier)
+            .contains(TimestampCodec.defaultTimeZone.identifier)
+        #expect(reachable, "whatever zone this runner is in, the picker offers it")
     }
 
     /// The assertion that proves the zone parameter is actually USED.

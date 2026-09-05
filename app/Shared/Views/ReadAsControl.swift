@@ -172,12 +172,20 @@ struct TimeZonePicker: View {
         )
     }
 
-    /// RED STEP (plan 06-20, CR-02): the options this picker offers, as they
-    /// behaved at 929ba9c — the platform table alone. Replaced in the next
-    /// commit. Lifted out of `body` so a host-based test can assert the list
-    /// that actually ships rather than the codec function behind it.
+    /// The identifiers this picker offers, which **always contain the
+    /// selection**.
+    ///
+    /// A `Picker` whose selection matches no `.tag` renders a blank closed menu
+    /// and emits a SwiftUI runtime issue on every body evaluation. The device
+    /// zone can be a tzdata LINK name that `TimeZone.knownTimeZoneIdentifiers`
+    /// omits — `Asia/Kolkata` and `UTC` are both measured examples — so the
+    /// option list is a function of the selection rather than of the platform
+    /// table alone (CR-02).
+    ///
+    /// Lifted out of `body` so a host-based test can assert the list that
+    /// actually ships rather than only the codec function behind it.
     var options: [String] {
-        TimestampCodec.timeZoneIdentifiers
+        TimestampCodec.timeZoneIdentifiers(including: identifier.wrappedValue)
     }
 
     /// A pull-down over the system's zone table, sorted and de-duplicated by

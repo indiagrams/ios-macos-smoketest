@@ -250,19 +250,46 @@ enum TimestampCodec {
 
     /// Every timezone the picker offers, in the order it offers them.
     ///
-    /// - Note: Computed on each access rather than stored. It is a few hundred
-    ///   strings and this is not on a keystroke path; a stored `static` would
-    ///   be the one piece of shared mutable state in a file whose whole point
-    ///   is not having any.
-    nonisolated static var timeZoneIdentifiers: [String] {
-        pickerOrder(TimeZone.knownTimeZoneIdentifiers)
-    }
+    /// - Important: **A `static let`, built once. The doc comment this replaces
+    ///   said "this is not on a keystroke path" and that was FACTUALLY WRONG
+    ///   about where the property is read** (WR-07): `TimeZonePicker.body`
+    ///   reads it inside a `ForEach`, and the Timestamps body is rebuilt on
+    ///   every keystroke under D-83's explicit no-debounce rule — so a computed
+    ///   `var` meant a 443-element `Set` construction plus a string sort per
+    ///   character typed. A `let` is not shared MUTABLE state, so it raises
+    ///   none of the strict-concurrency question the old comment was guarding
+    ///   against; `[String]` is `Sendable`. `HTMLEntityCodec.lookup` already
+    ///   uses exactly this shape and its doc comment makes the same argument.
+    nonisolated static let timeZoneIdentifiers: [String] = pickerOrder(TimeZone.knownTimeZoneIdentifiers)
 
-    /// RED STEP (plan 06-20, CR-02): the option list the picker is populated
-    /// from, as it behaved at 929ba9c — the selection is ignored. Replaced in
-    /// the next commit.
-    nonisolated static func timeZoneIdentifiers(including _: String) -> [String] {
-        timeZoneIdentifiers
+    /// The options a picker showing `selected` must offer — **always including
+    /// `selected` itself.**
+    ///
+    /// - Important: **`TimeZone.current.identifier` is not guaranteed to be a
+    ///   member of `TimeZone.knownTimeZoneIdentifiers`.** That table omits
+    ///   tzdata LINK names, and several of them are what Apple platforms report
+    ///   for the system zone. Measured on this tree against 443 known
+    ///   identifiers, all of `Asia/Kolkata`, `America/Buenos_Aires`,
+    ///   `Asia/Istanbul`, `US/Pacific`, `Asia/Saigon`, `Africa/Asmera`,
+    ///   `Atlantic/Faeroe` and **`UTC`** resolve through `TimeZone(identifier:)`
+    ///   and are absent from it. When the device zone is one of them the
+    ///   `Picker`'s selection matches no `.tag`: the closed menu renders with no
+    ///   label — which the UI-SPEC's State Contract forbids everywhere else in
+    ///   this phase — and SwiftUI emits a runtime issue on every evaluation of
+    ///   that body, at typing rate (CR-02).
+    /// - Important: **The guarantee is tested by INJECTING a name the table
+    ///   omits, never by reading `TimeZone.current`.** The assertion that was
+    ///   supposed to catch this read the runner's zone, so it was green here
+    ///   and on CI — both `America/Los_Angeles`, which IS in the table — and
+    ///   red on an India-configured device. A correct check pointed at the
+    ///   wrong POPULATION, the same lesson ``pickerOrder(_:)`` records one
+    ///   function down.
+    /// - Note: Ordering and de-duplication come from ``pickerOrder(_:)``, so an
+    ///   inserted name lands in its sorted place and a `selected` the table
+    ///   already has adds nothing.
+    nonisolated static func timeZoneIdentifiers(including selected: String) -> [String] {
+        guard !timeZoneIdentifiers.contains(selected) else { return timeZoneIdentifiers }
+        return pickerOrder(timeZoneIdentifiers + [selected])
     }
 
     /// `identifiers` in the order and shape a picker needs: ascending, and

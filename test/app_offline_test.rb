@@ -441,9 +441,12 @@ swift_files.each do |rel|
     comment_hits << [rel, extra] if extra.positive?
   end
 
+  # `hits` yields [slug, line, description]; the failure line names BOTH, because a
+  # control whose only evidence is a non-zero exit cannot distinguish the assertion
+  # firing from the script crashing.
   assert found.empty?, "offline", rel,
          found.empty? ? "carries neither concurrency escape hatch outside comments" :
-         "line #{found.first[1]} uses #{found.first[2]} — #{found.first[3]} — which " \
+         "line #{found.first[1]} uses #{found.first[0]} (#{found.first[2]}), which " \
          "APP-12 and ROADMAP criterion 5 forbid outright. It compiles clean under " \
          "-strict-concurrency=complete, which is why a scan and not the build is what " \
          "catches it"
@@ -587,15 +590,43 @@ else
          "codesign -d --entitlements read the bundle's embedded entitlements " \
          "(exit #{status.inspect})"
   if status == 0
+    # MEASURED 2026-09-05, and the distinction is the whole assertion. An UNSIGNED
+    # bundle makes codesign print nothing at all on stdout: there is no entitlements
+    # blob, so a key-absence check over the empty result is the "control that passes
+    # without having looked" shape and must be refused. A SIGNED bundle built from
+    # app/iOS/App.entitlements prints a real plist whose dict is EMPTY — which is not
+    # an absence of evidence, it is the strongest evidence APP-11 can have. Presence
+    # of the blob, not emptiness of the key set, is what separates them.
     embedded = plist_keys(out)
-    present  = NETWORK_KEYS & embedded
-    assert present.empty?, "offline", built_app.to_s,
-           "the BUILT bundle's embedded entitlements carry none of the " \
-           "#{NETWORK_KEYS.length} network-capability keys APP-11 forbids; found " \
-           "#{present.join(', ')}. This is the artefact, not the input"
-    builtapp_checked = true
-    builtapp_reason  = "embedded entitlements read from #{File.basename(built_app)}, " \
-                       "#{embedded.length} key(s)"
+    if !out.include?("<plist")
+      builtapp_reason = "the bundle carries NO embedded entitlements blob — it was " \
+                        "built unsigned, so a key-absence assertion over it would be " \
+                        "vacuous. Re-build with signing (CODE_SIGN_IDENTITY=-) for this " \
+                        "half to mean anything"
+    else
+      present = NETWORK_KEYS & embedded
+      assert present.empty?, "offline", built_app.to_s,
+             "the BUILT bundle's embedded entitlements carry none of the " \
+             "#{NETWORK_KEYS.length} network-capability keys APP-11 forbids; found " \
+             "#{present.join(', ')}. This is the artefact, not the input — the class " \
+             "that already produced two escapes in this repository"
+      # WHICH source file the bundle was built from, decided by bundle SHAPE rather
+      # than by a name: a macOS bundle nests its executable under Contents/.
+      platform_rel = File.directory?(File.join(built_app, "Contents")) ?
+                     MACOS_ENTITLEMENTS : IOS_ENTITLEMENTS
+      expected = EXPECTED_KEYS.fetch(platform_rel)
+      assert (expected - embedded).empty?, "offline", built_app.to_s,
+             "every key the source #{platform_rel} declares actually REACHED the built " \
+             "bundle (missing #{(expected - embedded).join(', ')}). A capability declared " \
+             "in a file the build never applied is a file-level gate passing over an " \
+             "artefact that does not match it"
+      builtapp_checked = true
+      builtapp_reason  = "embedded entitlements blob read from " \
+                         "#{File.basename(built_app)} against #{platform_rel}, " \
+                         "#{embedded.length} key(s)#{embedded.empty? ? ' — an EMPTY ' \
+                         'dict, which is what this platform declares and is the ' \
+                         'strongest form APP-11 evidence takes' : ": #{embedded.join(', ')}"}"
+    end
   end
 end
 

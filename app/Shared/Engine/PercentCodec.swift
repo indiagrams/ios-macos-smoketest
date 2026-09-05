@@ -78,9 +78,14 @@ enum PercentCodec {
     ///
     /// - Note: A `static let` inside the namespace rather than a `private let`
     ///   at file scope. `Set<UInt8>` is `Sendable`, so this compiles clean
-    ///   under `-swift-version 6 -strict-concurrency=complete` with no
-    ///   `nonisolated(unsafe)` — which APP-12 and ROADMAP criterion 5 forbid
-    ///   by name.
+    ///   under `-swift-version 6 -strict-concurrency=complete` with neither of
+    ///   the two concurrency escape hatches APP-12 and ROADMAP criterion 5
+    ///   forbid by name — the unsafe-isolation attribute and the unchecked
+    ///   conformance. Their spellings are deliberately NOT written here: 06-09
+    ///   measured that this comment was the ONLY match in `app/Shared/` for the
+    ///   grep that counts them, so the file explaining the ban was the sole
+    ///   thing keeping that count off zero. A file that configures a content
+    ///   gate is swept by that gate.
     static let unreserved: Set<UInt8> = Set(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~".utf8
     )

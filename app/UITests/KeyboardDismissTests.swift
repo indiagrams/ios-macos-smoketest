@@ -81,6 +81,24 @@ final class KeyboardDismissTests: XCTestCase {
                 + "is up and there is no control on it to put it away"
         )
 
+        // THE OBSTRUCTION, RECORDED AND DELIBERATELY NOT ASSERTED — and the reason is a measurement
+        // that cost this file an assertion. The first version of this test asserted `bar.isHittable`
+        // AFTER the dismissal, on the reasoning that the covered tab bar is the user-visible harm
+        // GAP-06-01 names. It was then measured on all three runtimes and `isHittable` reported
+        // **true while the keyboard was still up** on 17.5, 18.6 and 26.1 alike — so that assertion
+        // was true before the fix and after it, and would have passed against an app with no
+        // dismissal at all. That is "a control that cannot fire", the shape this phase has now met
+        // seven times, and it was deleted rather than kept for the look of it.
+        //
+        // What is left is the GEOMETRY, which is a fact about the platform's layout rather than
+        // about this app, so it is carried out as a number on every run and asserted nowhere. Both
+        // readings are emitted, the frame overlap and the hittability, so a later reader can see
+        // that the two disagree and does not have to rediscover it.
+        let bar = app.tabBars.firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 15), "the app presents no tab bar at all")
+        let overlap = app.keyboards.element.frame.intersects(bar.frame)
+        XCTContext.runActivity(named: "tab_bar_covered_while_keyboard_up=\(overlap) hittable=\(bar.isHittable)") { _ in }
+
         // 3 — and using it puts the keyboard away. NO SCROLL GESTURE IS MADE ANYWHERE IN THIS TEST:
         // whatever dismisses the keyboard here, it is not the scroll route.
         done.tap()
@@ -98,17 +116,17 @@ final class KeyboardDismissTests: XCTestCase {
             "keyboard_dismissed=lossy — the Encode input no longer holds what was typed into it"
         )
 
-        // 5 — and the thing the keyboard was COVERING is reachable again. This is the user-visible
-        // harm GAP-06-01 named: the raised keyboard sits over the tab bar and over the outputs, so
-        // "the keyboard went away" is only half the claim. `isHittable` is what XCUITest itself uses
-        // to refuse a tap on a covered element, so it is the same predicate the obstruction breaks.
-        let bar = app.tabBars.firstMatch
-        XCTAssertTrue(bar.waitForExistence(timeout: 15), "the app presents no tab bar at all")
+        // 5 — and the shell still works afterwards. Not a restatement of step 3: this drives the tab
+        // bar that was under the keyboard and requires the tap to actually ARRIVE somewhere, so a
+        // dismissal that left the app with a stale responder or an invisible overlay fails here
+        // rather than passing on the keyboard's absence alone.
+        bar.buttons.element(boundBy: 1).tap()
         XCTAssertTrue(
-            bar.isHittable,
-            "keyboard_dismissed=covered — the tab bar the keyboard sat over is still not hittable"
+            element(Ident.Shell.tabHashing).waitForExistence(timeout: 15),
+            "keyboard_dismissed=stuck — the keyboard is gone but tab item 1 no longer reaches "
+                + Ident.Shell.tabHashing
         )
-        XCTContext.runActivity(named: "tab_bar_reachable=yes") { _ in }
+        XCTContext.runActivity(named: "shell_usable_after_dismiss=yes") { _ in }
     }
 
     // MARK: - Driving, all of it by identifier

@@ -281,6 +281,88 @@ struct TimestampTests {
         #expect(TimestampCodec.renderISO8601(.infinity, timeZone: .gmt).isEmpty)
         #expect(TimestampCodec.renderEpochSeconds(.nan).isEmpty)
         #expect(TimestampCodec.renderEpochSeconds(-.infinity).isEmpty)
+        #expect(TimestampCodec.renderDateTime(.nan, timeZone: .gmt).isEmpty)
+        #expect(TimestampCodec.renderDateTime(-.infinity, timeZone: Self.kolkata).isEmpty)
+    }
+
+    // MARK: - Timezone selection (APP-07)
+
+    /// A RE-MEASUREMENT OF THE PLATFORM, not a test of this codec. The count
+    /// is PRINTED and asserted only as a lower bound, because the tz database
+    /// ships with the OS and grows: an equality assertion on it is a plan
+    /// literal that goes stale by allocation.
+    ///
+    /// The sortedness expectation here is deliberately WEAK EVIDENCE and is
+    /// labelled as such — measured, the platform's own array already arrives
+    /// sorted and duplicate-free, so this assertion passes whether or not the
+    /// implementation orders anything. The test below is where the guarantee
+    /// is actually asserted.
+    @Test
+    func thePlatformTimeZoneTableIsUsableAsAPickerPopulation() {
+        let identifiers = TimestampCodec.timeZoneIdentifiers
+        print("timezone_count=\(identifiers.count)")
+        print("timezone_contains_current=\(identifiers.contains(TimeZone.current.identifier))")
+        #expect(identifiers.count > 300)
+        #expect(identifiers.contains(TimeZone.current.identifier))
+        #expect(identifiers.count == Set(identifiers).count, "a repeated identifier collides in a ForEach")
+        #expect(identifiers.filter { TimeZone(identifier: $0) == nil }.isEmpty)
+        #expect(identifiers == identifiers.sorted())
+    }
+
+    /// The ordering guarantee, asserted somewhere it CAN fail.
+    ///
+    /// MEASURED on this tree: the platform's identifier array is already in
+    /// ascending order and already free of duplicates, so an assertion made
+    /// only against the live list is a control that cannot fire — dropping the
+    /// sort from the implementation leaves it green. `pickerOrder` exists so
+    /// the guarantee has an input that discriminates; the second expectation
+    /// is what ties the live property to it, so the two cannot drift apart.
+    @Test
+    func theOrderingIsAppliedAndNotInheritedFromThePlatform() {
+        let scrambled = ["Zulu", "Africa/Abidjan", "Zulu", "America/Los_Angeles", "Africa/Accra"]
+        #expect(TimestampCodec.pickerOrder(scrambled)
+            == ["Africa/Abidjan", "Africa/Accra", "America/Los_Angeles", "Zulu"])
+        #expect(TimestampCodec.timeZoneIdentifiers
+            == TimestampCodec.pickerOrder(TimeZone.knownTimeZoneIdentifiers))
+    }
+
+    /// APP-07's default is the device zone, and it is reachable in the list
+    /// the picker is populated from — a default that is not one of the options
+    /// renders as an empty menu label.
+    @Test
+    func theDefaultZoneIsTheDeviceZone() {
+        #expect(TimestampCodec.defaultTimeZone.identifier == TimeZone.current.identifier)
+        #expect(TimestampCodec.timeZoneIdentifiers.contains(TimestampCodec.defaultTimeZone.identifier))
+    }
+
+    /// The assertion that proves the zone parameter is actually USED.
+    ///
+    /// No literal text is asserted anywhere in this test. `renderDateTime` is
+    /// locale- and region-dependent — the UI spec's mockup and the machine the
+    /// phase research ran on render this very instant differently — so
+    /// non-emptiness, the four-digit year, and a difference between two zones
+    /// are all that can honestly be claimed. A UI test reaches this cell by
+    /// the `Timestamps.cell.dateTime` accessibility identifier, never by text.
+    @Test
+    func theDateAndTimeCellDiffersBetweenTwoZonesForTheSameInstant() {
+        let west = TimestampCodec.renderDateTime(Self.referenceInstant, timeZone: Self.losAngeles)
+        let east = TimestampCodec.renderDateTime(Self.referenceInstant, timeZone: Self.kolkata)
+        #expect(!west.isEmpty)
+        #expect(!east.isEmpty)
+        #expect(west != east, "the zone argument changed nothing")
+        #expect(west.contains("2026"))
+        #expect(east.contains("2026"))
+    }
+
+    /// What makes the picker meaningful: the same instant reads differently in
+    /// two zones without becoming a different instant.
+    @Test
+    func theSameInstantRendersDifferentlyInTwoZonesAndStillParsesBack() {
+        let west = TimestampCodec.renderISO8601(Self.referenceInstant, timeZone: Self.losAngeles)
+        let east = TimestampCodec.renderISO8601(Self.referenceInstant, timeZone: Self.kolkata)
+        #expect(west != east)
+        #expect(TimestampCodec.parseISO8601(west).success == Self.referenceInstant)
+        #expect(TimestampCodec.parseISO8601(east).success == Self.referenceInstant)
     }
 
     // MARK: - Concurrency

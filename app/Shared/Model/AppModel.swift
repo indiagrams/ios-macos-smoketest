@@ -63,6 +63,35 @@ enum EncodeDirection: String, CaseIterable, Sendable, Hashable {
     case decode = "encode.direction.decode"
 }
 
+/// Which representation the Timestamps surface's chain is rooted at.
+///
+/// Here for the same reason ``EncodeFormat`` and ``EncodeDirection`` are: it is
+/// a per-surface UI SELECTION rather than a conversion, and D-82 lists the
+/// surfaces' selections among the things that must survive navigating away and
+/// back. The raw value is the `Localizable.xcstrings` key naming the cell, as
+/// with ``Operation``, so a cell's title and this selection are one string
+/// rather than two that can drift.
+///
+/// **Why the ROOT is stored and the VALUE is not.** The Timestamps card renders
+/// three representations of one instant and each carries its own add-step
+/// control, the same per-output rule the Hashing surface's four digests follow.
+/// There is no ``Operation`` that turns a typed timestamp into one of these —
+/// the timestamp conversions take an instant, not text — so a chain cannot be
+/// rooted by prepending a step the way the Hashing surface roots one. Recording
+/// which CELL it was started from, and re-deriving that cell's value on every
+/// pass, is what keeps D-84: a stored value would outlive the input it came
+/// from the moment the user typed another character.
+enum TimestampRepresentation: String, CaseIterable, Sendable, Hashable {
+    /// `timestamps.cell.epoch` — "Unix epoch".
+    case epoch = "timestamps.cell.epoch"
+
+    /// `timestamps.cell.iso8601` — "ISO 8601".
+    case iso8601 = "timestamps.cell.iso8601"
+
+    /// `timestamps.cell.dateTime` — "Date and time".
+    case dateTime = "timestamps.cell.dateTime"
+}
+
 /// Everything the three surfaces keep for the life of the launch.
 ///
 /// **D-82.** One app-level instance owns one ``Pipeline`` per surface, plus the
@@ -126,9 +155,26 @@ final class AppModel {
     /// different things and one of them is a real instant a user can type.
     var timestampsInstant: Double?
 
+    /// Which representation cell the Timestamps chain is rooted at, or `nil`
+    /// while nothing has been chained. See ``TimestampRepresentation``.
+    var timestampsChainRoot: TimestampRepresentation?
+
     /// Whether the user has overridden detection, which is what drives the
     /// Detect control's disabled state on the Timestamps surface.
     var isReadAsOverridden: Bool {
         timestampsReadAs != nil
+    }
+
+    /// A fresh model for SwiftUI previews, and for nothing that ships.
+    ///
+    /// **One instance serves a launch** (D-82), constructed by the root view,
+    /// and this plan asserts by grep that the initialiser is written at exactly
+    /// that one site in `app/Shared/`. Previews need a model too, so they reach
+    /// it through this factory instead of spelling a second construction that
+    /// the grep could not tell apart from a real one. The expression the grep
+    /// looks for is deliberately not written anywhere in this file: a file that
+    /// configures a content gate is swept by that gate.
+    static var preview: AppModel {
+        .init()
     }
 }

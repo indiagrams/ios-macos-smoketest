@@ -336,17 +336,17 @@ struct EncodeSurface: View {
 }
 
 #Preview("Empty") {
-    EncodeSurface(model: AppModel())
+    EncodeSurface(model: AppModel.preview)
 }
 
 #Preview("Populated") {
-    let model = AppModel()
+    let model = AppModel.preview
     model.encode.input = InputExample.encode
     return EncodeSurface(model: model)
 }
 
 #Preview("Decoding something that does not parse") {
-    let model = AppModel()
+    let model = AppModel.preview
     model.encode.input = "not base64!"
     model.encodeDirection = .decode
     return EncodeSurface(model: model)

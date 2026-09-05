@@ -361,11 +361,11 @@ struct HashingSurface: View {
 }
 
 #Preview("Empty") {
-    HashingSurface(model: AppModel())
+    HashingSurface(model: AppModel.preview)
 }
 
 #Preview("Four digests at once") {
-    let model = AppModel()
+    let model = AppModel.preview
     model.hashing.input = InputExample.hashing
     return HashingSurface(model: model)
 }

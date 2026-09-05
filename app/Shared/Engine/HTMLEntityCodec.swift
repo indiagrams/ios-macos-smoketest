@@ -311,8 +311,8 @@ enum HTMLEntityCodec {
     ///   reason: `Unicode.Scalar(_:)` returns `nil` for them and a
     ///   force-unwrap would trap the host.
     /// - Returns: `nil` for an empty digit run, a non-digit, a value above
-    ///   U+10FFFF, or a surrogate. The platform decoder returns U+FFFD with no
-    ///   error for these; this app names them (T-06-25).
+    ///   U+10FFFF, a surrogate, or **zero**. The platform decoder returns
+    ///   U+FFFD with no error for these; this app names them (T-06-25).
     private nonisolated static func numericReference(_ name: String) -> String? {
         var scalars = Substring(name).unicodeScalars.dropFirst()
         let radix: UInt32
@@ -333,7 +333,20 @@ enum HTMLEntityCodec {
             guard value <= 0x10FFFF else { return nil }
             value = value * radix + digit
         }
-        guard let resolved = Unicode.Scalar(value) else { return nil }
+        // WR-03: the NULL reference is refused BY NAME, next to the surrogate
+        // refusal it belongs with. `Unicode.Scalar(0)` is perfectly valid, so
+        // without this guard `&#0;` resolved to U+0000 and `decode("a&#0;b")`
+        // returned `.success("a\0b")`. That is not cosmetic: `OutputPasteboard`
+        // writes the string to the general pasteboard verbatim, and any
+        // C-string consumer on the receiving side truncates at the NUL — so a
+        // tool whose whole premise is "the value you get back is the value you
+        // can paste elsewhere" handed back a value that silently truncates on
+        // paste. WHATWG calls a null character reference a parse error and
+        // substitutes U+FFFD; this app reports parse errors rather than
+        // substituting, so it is named as an unknown entity instead. That
+        // divergence is the app's own choice and it is now made deliberately
+        // rather than by omission.
+        guard value != 0, let resolved = Unicode.Scalar(value) else { return nil }
         return String(Character(resolved))
     }
 

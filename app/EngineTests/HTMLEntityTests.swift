@@ -303,7 +303,9 @@ struct HTMLEntityTests {
         #expect(HTMLEntityCodec.decode("&#X41;").success == "A")
         #expect(HTMLEntityCodec.decode("&#233;").success == "é")
         #expect(HTMLEntityCodec.decode("&#x1F600;").success == "\u{1F600}")
-        #expect(HTMLEntityCodec.decode("&#0;").success == "\u{0}")
+        // AMENDED 2026-09-05 (plan 06-20, WR-03): asserted `.success("\u{0}")`
+        // until the null reference was refused. See `WarningTriageTests`.
+        #expect(HTMLEntityCodec.decode("&#0;").failure != nil)
     }
 
     /// **The measurement this codec exists to not reproduce.** The platform

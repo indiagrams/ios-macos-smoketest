@@ -66,6 +66,15 @@ public enum Spacing {
     public static let outputRadius: CGFloat = 8
 
     /// 8 pt — the corner radius of an icon button's hit shape.
+    ///
+    /// - Note: **RESERVED, and unused in Phase 6** (IN-01, 2026-09-05). Phase 6
+    ///   ships no icon button with a visible hit shape: `OutputAccessory`'s
+    ///   copy control and the add-step control are borderless. It is declared,
+    ///   with the same value as ``outputRadius``, so Phase 7's remove-step and
+    ///   reorder affordances have a token to reach for instead of a number —
+    ///   and it is NAMED separately so a later change to one radius does not
+    ///   silently move the other. Reaching for ``outputRadius`` here because
+    ///   the two happen to be 8 is exactly the mistake this token prevents.
     public static let iconButtonRadius: CGFloat = 8
 
     /// 44 pt — the iOS icon-button minimum hit target.

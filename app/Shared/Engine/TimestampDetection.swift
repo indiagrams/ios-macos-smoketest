@@ -227,7 +227,23 @@ enum TimestampDetection {
             }
             offset += 1
         }
-        guard sawDigit else { return .failure(.outOfRange(trimmed)) }
+        // WR-02. This used to be `.outOfRange(trimmed)`, which rendered "Out of
+        // range: + is outside the dates this app can show." for `"+"` and left
+        // the `%@` slot EMPTY for `""`. Neither sentence was true: those are
+        // not numbers out of range, they are not numbers. The loop above can
+        // only end here when `trimmed` is empty or is a lone sign — every other
+        // path returns inside it — so the offending character is the first one,
+        // and reporting it positionally is what D-85 asks for and what every
+        // other classifier in this engine does. `.outOfRange` is also the one
+        // case carrying no position, so this was the single place in the
+        // subject where D-85's promise was absent.
+        //
+        // For the empty string `characterAt` is documented to yield U+FFFD;
+        // that input never reaches here from the UI, because UI-SPEC §State
+        // Contract 1 intercepts it with the Empty state before any parse runs.
+        guard sawDigit else {
+            return .failure(.unexpectedCharacter(characterAt(utf8Offset: 0, in: trimmed), position: 1))
+        }
 
         // Clause 6. Measured: `Int("99999999999999999999")` is nil, so the
         // overflow is a value to handle, bound with `guard let` and never

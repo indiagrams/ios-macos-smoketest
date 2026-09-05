@@ -112,6 +112,14 @@ public enum Palette {
     }
 
     /// Hairline separators, where `Divider()` is not what the layout wants.
+    ///
+    /// - Note: **RESERVED, and unused in Phase 6** (IN-01, 2026-09-05). Every
+    ///   Phase 6 surface separates content with spacing and card edges, so
+    ///   `Divider()` is never wanted and neither is this. It lands with Phase
+    ///   7's History list, where rows need a hairline between them. Declared
+    ///   rather than left to be invented, because the alternative the next
+    ///   author reaches for is a hex literal, which the design rule forbids by
+    ///   name.
     public static var separator: Color {
         #if os(iOS)
             Color(uiColor: .separator)

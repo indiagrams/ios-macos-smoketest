@@ -78,7 +78,21 @@ final class VisibleStringSweep: XCTestCase {
     private static let distinctFloor = 50
 
     override func setUpWithError() throws {
-        continueAfterFailure = false
+        continueAfterFailure = true // CONTROL RUN ONLY
+    }
+
+    /// CONTROL MUTATION sweep-reached-subject-macos: the walk points at a surface that does not exist.
+    func testControlNearEmptyHarvest() {
+        let seen = SweepHarvest()
+        app = XCUIApplication()
+        app.launch()
+        _ = element("Shell.sidebar.doesNotExist").waitForExistence(timeout: 2)
+        XCTAssertGreaterThan(
+            seen.rendered.count,
+            20,
+            "the sweep saw almost nothing — it did not reach the app. harvested_strings=\(seen.rendered.count)"
+        )
+        app.terminate()
     }
 
     override func tearDownWithError() throws {
@@ -148,6 +162,22 @@ final class VisibleStringSweep: XCTestCase {
         for string in distinct.sorted() where SweepPopulation.squash(string).contains(squashed) {
             XCTFail("the product name is rendered outside system chrome: it appears in \"\(string)\"")
         }
+
+        // CONTROL RUN ONLY — carries the counters out over XCTest's IPC, which is the only channel a
+        // number can leave this bundle by (06-01). Placed last on purpose: reaching it proves every
+        // assertion above it ran.
+        XCTFail("SWEEP_COUNTERS \(counters) a3_menu_title_source=\(name.source) "
+            + "a3_menu_title_value=\(name.value) menu_bar=\(menuBarItems.prefix(9).joined(separator: " | ")) "
+            + "chrome_distinct=\(Set(seen.chrome).sorted().joined(separator: " | "))")
+
+        // CONTROL RUN ONLY — is typing viable on a headless runner at all? Unmeasured until now.
+        app = XCUIApplication()
+        app.launch()
+        let field = element(Ident.Encode.input)
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "TYPING_PROBE could not reach the input")
+        field.click()
+        field.typeText("zz")
+        XCTFail("TYPING_PROBE typed=zz observed=\((field.value as? String) ?? "<nil>")")
     }
 
     // MARK: - The harvest

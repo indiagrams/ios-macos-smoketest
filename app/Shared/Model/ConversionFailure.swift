@@ -66,19 +66,20 @@ enum ConversionFailure: Error, Equatable, Sendable {
 
     /// Base64 padding appears somewhere other than the end.
     ///
-    /// Renders as `encode.error.base64.padding` ("Not valid Base64: padding
-    /// '=' appears at position %lld, before the end.").
+    /// Renders as `encode.error.base64.padding` ("Not valid Base64: a
+    /// character appears at position %lld, after the padding.").
     ///
     /// - Important: The payload is the position of the first NON-padding
     ///   character that follows a `=`, not the position of the `=` itself.
     ///   That is the measured convention in 06-RESEARCH.md's differential
     ///   table and in `TestVectors.base64Corpus`: `"a=GVsbG8="` reports 3 (the
     ///   `G`) while its `=` is at 2, and `"aGVsbG8=x"` reports 9 (the `x`).
-    ///   The English string above reads as though it names the `=`. Plan 06-11
-    ///   owns that string and must either reword it ("… a character appears at
-    ///   position %lld, after the padding") or accept the offset; the engine
-    ///   keeps the measured value, because changing a measured number to suit
-    ///   prose is how a corpus stops being evidence.
+    ///   The string as originally approved read as though it named the `=`.
+    ///   Plan 06-11 owned that string and REWORDED it, to the text quoted
+    ///   above, rather than moving the value: the engine keeps the measured
+    ///   number, because changing a measured number to suit prose is how a
+    ///   corpus stops being evidence. `06-UI-SPEC.md`'s inventory carries the
+    ///   same amendment, dated, so the contract and the catalog agree.
     case paddingBeforeEnd(position: Int)
 
     /// A `%` that is not followed by two hexadecimal digits.

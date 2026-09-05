@@ -202,3 +202,83 @@ struct OutputBlock: View {
         )
     }
 }
+
+/// The body every APPENDED card uses — one output, one accessory.
+///
+/// The three seeded first cards have specialised bodies (`EncodeBody`,
+/// `HashBody`, `TimestampBody`, built by plans 06-12 and 06-13). Every card the
+/// add-step control appends uses this one, which is what lets Phase 7 grow the
+/// stack without touching either the chrome or the surfaces.
+///
+/// The accessory is enabled ONLY in the `.value` state: you cannot copy or
+/// chain a value that does not exist. In the other three states both controls
+/// stay in the tree and are disabled, never removed.
+struct SingleOutputBody: View {
+    /// What this step is showing. `.blocked` is reachable here and only here —
+    /// the seeded first card of a surface is never blocked.
+    let state: StepRenderState
+
+    /// Appends a step seeded with THIS output. The surface wires it to
+    /// `Pipeline.appending(_:)` through the app-level model.
+    let onAddStep: (Operation) -> Void
+
+    /// The per-surface placeholder for the empty state.
+    var placeholder: LocalizedStringKey = "encode.output.placeholder"
+
+    /// Which family of failure sentences this step renders.
+    var domain: FailureDomain = .text
+
+    /// The value, when there is one. `nil` in the empty, error and blocked
+    /// states — which is exactly when both controls are disabled and when the
+    /// macOS copy command has nothing to yield.
+    private var copyableValue: String? {
+        if case let .value(value) = state {
+            return value
+        }
+        return nil
+    }
+
+    /// Output block on the leading side, accessory on the trailing side.
+    var body: some View {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            OutputBlock(state: state, placeholder: placeholder, domain: domain)
+            OutputAccessory(
+                value: copyableValue ?? "",
+                isEnabled: copyableValue != nil,
+                onAddStep: onAddStep
+            )
+        }
+        .copyableOutput(copyableValue)
+    }
+}
+
+#Preview("Empty") {
+    StepCard(title: "op.base64.encode", diagnostic: .neutral("Enter text above to see the result.")) {
+        SingleOutputBody(state: .empty, onAddStep: { _ in })
+    }
+    .padding()
+}
+
+#Preview("Valid") {
+    StepCard(title: "op.base64.encode", diagnostic: .neutral("8 characters")) {
+        SingleOutputBody(state: .value("aGVsbG8="), onAddStep: { _ in })
+    }
+    .padding()
+}
+
+#Preview("Error") {
+    StepCard(
+        title: "op.base64.decode",
+        diagnostic: .problem(failureText(.unexpectedCharacter("!", position: 12)))
+    ) {
+        SingleOutputBody(state: .failure(.unexpectedCharacter("!", position: 12)), onAddStep: { _ in })
+    }
+    .padding()
+}
+
+#Preview("Blocked") {
+    StepCard(title: "op.hash.sha256", diagnostic: .neutral(blockedStepText())) {
+        SingleOutputBody(state: .blocked, onAddStep: { _ in })
+    }
+    .padding()
+}

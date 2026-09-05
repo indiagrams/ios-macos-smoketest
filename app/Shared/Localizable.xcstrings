@@ -130,7 +130,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Not valid Base64: padding '=' appears at position %lld, before the end."
+            "value" : "Not valid Base64: a character appears at position %lld, after the padding."
           }
         }
       }

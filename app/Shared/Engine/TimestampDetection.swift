@@ -275,13 +275,61 @@ enum TimestampDetection {
     /// `"2026-09-04"`. The same complementary-styles finding `TimestampCodec`
     /// records for fractional seconds, in a second place.
     ///
+    /// - Important: **AN EXPLICIT OFFSET IS HONOURED, NOT DISCARDED, AND IT IS
+    ///   HONOURED BY CALLING THE ISO 8601 PATH RATHER THAN BY A FOURTH STYLE.**
+    ///   The local scan accepts `Z`, `z` and `±HH:MM`; until 2026-09-05 the
+    ///   styles below carried no zone field, so Foundation dropped the
+    ///   designator and returned the wall clock in the picker's zone. Measured
+    ///   with the picker on Asia/Tokyo: `"…+05:30"`, `"…-08:00"`, `"…Z"` and
+    ///   the bare `"…"` all returned 1788447600, three of them wrong by hours
+    ///   and every one of them a `.success`. That is the "quietly wrong answer"
+    ///   half of ROADMAP criterion 1, produced by the validator accepting input
+    ///   the parser could not honour.
+    ///
+    ///   Adding a zoned style here would have made the two paths agree by
+    ///   coincidence — two implementations that have to be kept in step. So the
+    ///   zoned branch DELEGATES: `TimestampCodec.parseISO8601` is the answer,
+    ///   already measured across all four runtimes, and the two paths cannot
+    ///   disagree because on this input there is only one of them. The scan is
+    ///   also the sole authority on whether a designator is present, through
+    ///   ``readLocalTime(_:)`` — two independent answers to that question is
+    ///   exactly what went wrong.
     /// - Note: Failures are reported by the same positional scan, run with the
     ///   time and the zone optional — so a bare calendar date is valid here
     ///   and `"2026-09-04X00:00:00"` still names the `T` at position 11.
     private nonisolated static func parseLocalTime(_ trimmed: String, timeZone: TimeZone) -> Result<Double, ConversionFailure> {
-        if let failure = classifyLocalTime(trimmed) {
-            return .failure(failure)
+        switch readLocalTime(trimmed) {
+        case let .invalid(failure):
+            .failure(failure)
+        case .explicitOffset:
+            // `withinWindow(trimmed)` and not `withinWindow(isoSpelling(...))`,
+            // so an out-of-range message still quotes what the user typed.
+            TimestampCodec.parseISO8601(isoSpelling(trimmed)).flatMap(withinWindow(trimmed))
+        case .wallClock:
+            parseWallClock(trimmed, timeZone: timeZone)
         }
+    }
+
+    /// `trimmed` with its date-time separator written the one way extended
+    /// format accepts.
+    ///
+    /// The local shape allows a SPACE where ISO 8601 requires a `T` — measured,
+    /// `classifyISO8601("2026-09-04 00:00:00Z")` reports `expected 'T' at
+    /// position 11`. That is the ONLY spelling difference between the two
+    /// shapes once a zone is present, which is what makes the delegation above
+    /// total rather than merely usual, and
+    /// `everyZonedLocalInputIsAlsoWellFormedISO8601OnceTheSeparatorIsNormalised`
+    /// is where it is asserted rather than argued. Only the separator moves; no
+    /// field is reinterpreted. The scan has already accepted the string by the
+    /// time this runs, so the one space it can contain is that separator.
+    private nonisolated static func isoSpelling(_ trimmed: String) -> String {
+        guard let space = trimmed.firstIndex(of: " ") else { return trimmed }
+        return trimmed.replacingCharacters(in: space ... space, with: "T")
+    }
+
+    /// A date, and optionally a time, that named no zone of its own — read in
+    /// `timeZone`, which is what "Local time" means when the input is silent.
+    private nonisolated static func parseWallClock(_ trimmed: String, timeZone: TimeZone) -> Result<Double, ConversionFailure> {
         let base = Date.ISO8601FormatStyle(timeZone: timeZone).year().month().day().dateSeparator(.dash)
         let styles = [
             base.dateTimeSeparator(.standard).time(includingFractionalSeconds: false),

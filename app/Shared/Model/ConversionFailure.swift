@@ -91,10 +91,35 @@ enum ConversionFailure: Error, Equatable, Sendable {
     /// The escapes were well formed but the bytes they produced are not UTF-8.
     ///
     /// Renders as `encode.error.url.utf8` ("Not valid percent-encoding: the
-    /// bytes at position %lld are not valid UTF-8."). Also used by Base64
-    /// decode, where valid Base64 can decode to bytes that are not text — the
-    /// alternative would be mojibake or a crash, and criterion 1 forbids both.
+    /// bytes at position %lld are not valid UTF-8.").
+    ///
+    /// - Important: **Percent-encoding only.** Until 2026-09-05 this case was
+    ///   shared with Base64 decode, and the sharing was not free: the string
+    ///   NAMES ITS FAMILY, so a Base64 card rendered a percent-encoding
+    ///   sentence (CR-03). The position derivations differ too — this one comes
+    ///   back through `PercentCodec`'s `scan.origins`, and Base64's comes from
+    ///   the 4:3 quantum arithmetic — and one case carrying two derivations is
+    ///   how they came to disagree. See ``decodedBytesAreNotUTF8(position:)``.
     case invalidUTF8(position: Int)
+
+    /// Valid Base64 whose decoded bytes are not text.
+    ///
+    /// Renders as `encode.error.base64.utf8` ("Valid Base64, but the characters
+    /// at position %lld decode to bytes that are not valid UTF-8."). The
+    /// sentence does not begin "Not valid Base64" because the input IS valid
+    /// Base64 — the classifier accepted it and Foundation decoded it. What
+    /// failed is that the bytes are not text, and returning them as mojibake or
+    /// trapping are the two things criterion 1 forbids.
+    ///
+    /// - Important: The position is a 1-based CHARACTER offset into the INPUT,
+    ///   the one unit `Shared/Engine/Position.swift` defines. It names the
+    ///   first character of the four-character quantum that produced the
+    ///   offending byte, so it is always one of 1, 5, 9, … The case it replaced
+    ///   carried `invalidOffset + 1`, a byte offset into the decoded OUTPUT:
+    ///   measured, `decode("YWJj/w==")` reported 4 while character 4 of that
+    ///   input is `j`, a perfectly valid Base64 character in the quantum before
+    ///   the one at fault.
+    case decodedBytesAreNotUTF8(position: Int)
 
     /// An HTML entity whose name is not in the table.
     ///

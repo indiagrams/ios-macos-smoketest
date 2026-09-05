@@ -64,12 +64,18 @@ private func requireSendable(_: (some Sendable).Type) {}
 
 /// See PositionTests for why there is no bare `@Suite` attribute.
 struct ConversionFailureTests {
-    /// The ten error strings in 06-UI-SPEC.md, spelled out by hand so a typo
-    /// in the mapping is visible rather than tautological.
+    /// The eleven error strings in 06-UI-SPEC.md, spelled out by hand so a
+    /// typo in the mapping is visible rather than tautological.
+    ///
+    /// `encode.error.base64.utf8` was added 2026-09-05 by plan 06-20 (CR-03),
+    /// which split Base64's not-text failure out of the percent-encoding case
+    /// it had been sharing — that sharing rendered a percent-encoding sentence
+    /// on a Base64 card.
     private static let base64Keys: Set<String> = [
         "encode.error.base64.character",
         "encode.error.base64.length",
-        "encode.error.base64.padding"
+        "encode.error.base64.padding",
+        "encode.error.base64.utf8"
     ]
 
     private static let urlKeys: Set<String> = [
@@ -97,7 +103,7 @@ struct ConversionFailureTests {
     /// NO `default:` BRANCH, on purpose — see the file header. A case can map
     /// to more than one key: `.unexpectedCharacter` is the Base64 alphabet
     /// error AND the epoch non-digit error, which is why this returns a Set
-    /// and why the two counts (9 cases, 10 keys) legitimately differ.
+    /// and why the two counts (10 cases, 11 keys) legitimately differ.
     ///
     /// The mapping itself lives in the VIEW layer (plan 06-11). This copy
     /// exists only to make the case set's exhaustiveness assertable from the
@@ -114,6 +120,8 @@ struct ConversionFailureTests {
             ["encode.error.url.escape"]
         case .invalidUTF8:
             ["encode.error.url.utf8"]
+        case .decodedBytesAreNotUTF8:
+            ["encode.error.base64.utf8"]
         case .unknownEntity:
             ["encode.error.html.unknown"]
         case .unterminatedEntity:
@@ -135,6 +143,7 @@ struct ConversionFailureTests {
         case let .paddingBeforeEnd(position): position
         case let .invalidEscape(position): position
         case let .invalidUTF8(position): position
+        case let .decodedBytesAreNotUTF8(position): position
         case let .unknownEntity(_, position): position
         case let .unterminatedEntity(position): position
         case let .expectedCharacter(_, position): position
@@ -152,6 +161,7 @@ struct ConversionFailureTests {
         .paddingBeforeEnd(position: 3),
         .invalidEscape(position: 2),
         .invalidUTF8(position: 4),
+        .decodedBytesAreNotUTF8(position: 5),
         .unknownEntity("&nope;", position: 3),
         .unterminatedEntity(position: 1),
         .expectedCharacter("-", position: 5),
@@ -183,13 +193,13 @@ struct ConversionFailureTests {
         #expect(echoed == failure)
     }
 
-    /// Nine cases, one sample each. A tenth case added without a sample here
-    /// fails this, and a tenth case added without a string fails to compile.
+    /// Ten cases, one sample each. An eleventh case added without a sample
+    /// here fails this, and one added without a string fails to compile.
     @Test
     func everyCaseIsRepresented() {
-        #expect(Self.oneOfEachCase.count == 9)
+        #expect(Self.oneOfEachCase.count == 10)
         let keySets = Self.oneOfEachCase.map { Self.localizationKeys(for: $0) }
-        #expect(keySets.count == 9, "sample list is short; the loops below would assert less")
+        #expect(keySets.count == 10, "sample list is short; the loops below would assert less")
         var union: Set<String> = []
         for keys in keySets {
             #expect(!keys.isEmpty, "a case maps to no user-facing string")
@@ -200,7 +210,7 @@ struct ConversionFailureTests {
 
     /// Each family's contribution is asserted on its own BEFORE the total.
     ///
-    /// A total of 10 reached by four Base64 keys and two timestamp keys is a
+    /// A total of 11 reached by five Base64 keys and two timestamp keys is a
     /// different inventory with the same total; a total-only assertion cannot
     /// tell the two apart. `.continue-here.md`: a correct check pointed at the
     /// wrong population.
@@ -211,14 +221,14 @@ struct ConversionFailureTests {
         #expect(union.intersection(Self.urlKeys) == Self.urlKeys, "a percent-encoding error string has no case")
         #expect(union.intersection(Self.htmlKeys) == Self.htmlKeys, "an HTML entity error string has no case")
         #expect(union.intersection(Self.timestampKeys) == Self.timestampKeys, "a timestamp error string has no case")
-        #expect(Self.base64Keys.count == 3)
+        #expect(Self.base64Keys.count == 4)
         #expect(Self.urlKeys.count == 2)
         #expect(Self.htmlKeys.count == 2)
         #expect(Self.timestampKeys.count == 3)
-        #expect(union.count == 10, "06-UI-SPEC.md has TEN error strings, not the twelve 06-03-PLAN.md cites")
+        #expect(union.count == 11, "06-UI-SPEC.md has ELEVEN error strings since the 2026-09-05 amendment")
     }
 
-    /// Seven of the nine cases carry a position; the two that do not carry
+    /// Eight of the ten cases carry a position; the two that do not carry
     /// the payload the UI-SPEC's string actually interpolates.
     ///
     /// `badLength(Int)` renders "the length must be a multiple of 4, and it
@@ -226,23 +236,23 @@ struct ConversionFailureTests {
     /// "%@ is outside the dates this app can show" — the value.
     @Test
     func everyCaseCarriesAPositionExceptTheTwoThatCarryAValue() {
-        #expect(Self.oneOfEachCase.count == 9, "sample list is short; the loop below would assert less")
+        #expect(Self.oneOfEachCase.count == 10, "sample list is short; the loop below would assert less")
         var withPosition = 0
         for failure in Self.oneOfEachCase {
             // No `default:` here either. The two value-carrying cases are named
-            // and the seven position-carrying ones are named; a tenth case
+            // and the eight position-carrying ones are named; an eleventh case
             // cannot slip into a catch-all and be silently counted as one or
             // the other.
             switch failure {
             case .badLength, .outOfRange:
                 #expect(Self.position(of: failure) == nil, "\(failure) should carry a value, not a position")
             case .unexpectedCharacter, .paddingBeforeEnd, .invalidEscape, .invalidUTF8,
-                 .unknownEntity, .unterminatedEntity, .expectedCharacter:
+                 .decodedBytesAreNotUTF8, .unknownEntity, .unterminatedEntity, .expectedCharacter:
                 #expect(Self.position(of: failure) != nil, "\(failure) carries no position")
                 withPosition += 1
             }
         }
-        #expect(withPosition == 7, "7 of 9 cases carry a position, not \(withPosition)")
+        #expect(withPosition == 8, "8 of 10 cases carry a position, not \(withPosition)")
     }
 
     /// `Equatable` means a test can assert the EXACT expected failure —

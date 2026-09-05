@@ -172,12 +172,20 @@ struct TimeZonePicker: View {
         )
     }
 
+    /// RED STEP (plan 06-20, CR-02): the options this picker offers, as they
+    /// behaved at 929ba9c — the platform table alone. Replaced in the next
+    /// commit. Lifted out of `body` so a host-based test can assert the list
+    /// that actually ships rather than the codec function behind it.
+    var options: [String] {
+        TimestampCodec.timeZoneIdentifiers
+    }
+
     /// A pull-down over the system's zone table, sorted and de-duplicated by
     /// `TimestampCodec.pickerOrder` — a repeated identifier would collide as a
     /// `ForEach` id.
     var body: some View {
         Picker("timestamps.picker.timeZone", selection: identifier) {
-            ForEach(TimestampCodec.timeZoneIdentifiers, id: \.self) { zone in
+            ForEach(options, id: \.self) { zone in
                 Text(verbatim: zone).tag(zone)
             }
         }

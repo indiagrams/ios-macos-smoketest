@@ -258,6 +258,13 @@ enum TimestampCodec {
         pickerOrder(TimeZone.knownTimeZoneIdentifiers)
     }
 
+    /// RED STEP (plan 06-20, CR-02): the option list the picker is populated
+    /// from, as it behaved at 929ba9c — the selection is ignored. Replaced in
+    /// the next commit.
+    nonisolated static func timeZoneIdentifiers(including _: String) -> [String] {
+        timeZoneIdentifiers
+    }
+
     /// `identifiers` in the order and shape a picker needs: ascending, and
     /// with no identifier appearing twice.
     ///

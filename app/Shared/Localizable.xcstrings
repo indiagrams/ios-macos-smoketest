@@ -124,6 +124,17 @@
         }
       }
     },
+    "encode.error.base64.utf8" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Valid Base64, but the characters at position %lld decode to bytes that are not valid UTF-8."
+          }
+        }
+      }
+    },
     "encode.error.html.unknown" : {
       "extractionState" : "manual",
       "localizations" : {

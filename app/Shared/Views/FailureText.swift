@@ -4,8 +4,8 @@
 // THIS FILE IS THE ONE PLACE A FAILURE BECOMES WORDS. The engines return a
 // named reason and a character position and know nothing about localization;
 // the model layer carries them unchanged; this is where they turn into the
-// eleven sentences the contract approved. Every `switch` here is exhaustive
-// with NO CATCH-ALL BRANCH, so a tenth failure case added without a string is
+// twelve sentences the contract approved. Every `switch` here is exhaustive
+// with NO CATCH-ALL BRANCH, so an eleventh failure case added without a string is
 // a compile error here rather than a silently empty sentence on a screen. That
 // branch keyword is described and never spelled anywhere in this file: this
 // plan's acceptance criteria grep this file for it, and a file that configures
@@ -20,7 +20,7 @@
 // dotted key entirely and render the English sentence only by falling back to
 // the key it failed to find. Resolving the format string and substituting the
 // arguments is the mechanism that actually works — and it is also what lets
-// this plan's evidence compare all eleven RENDERED sentences against the
+// this plan's evidence compare all twelve RENDERED sentences against the
 // UI-SPEC at runtime, which reading the catalog cannot do. Callers pass the
 // result to `Text(verbatim:)`, so nothing is looked up twice.
 //
@@ -40,8 +40,15 @@ import Foundation
 ///
 /// Exactly one ``ConversionFailure`` case renders differently between the two:
 /// `.unexpectedCharacter` is the Base64 alphabet error on the text surfaces and
-/// the epoch non-digit error on Timestamps. That is why nine cases map to ten
-/// error strings, and it is why this parameter exists rather than a tenth case.
+/// the epoch non-digit error on Timestamps. That is why ten cases map to eleven
+/// error strings, and it is why this parameter exists rather than an eleventh
+/// case.
+///
+/// - Note: It is NOT what distinguishes `.invalidUTF8` from
+///   ``ConversionFailure/decodedBytesAreNotUTF8(position:)``. Those are two
+///   cases, not one case in two domains, because they differ in where their
+///   position comes from as well as in wording — see CR-03 and the 2026-09-05
+///   amendment in 06-UI-SPEC.md.
 enum FailureDomain: Sendable, Hashable {
     /// The Encode/decode and Hashing surfaces, and every appended step.
     case text
@@ -52,7 +59,7 @@ enum FailureDomain: Sendable, Hashable {
 
 /// The `Localizable.xcstrings` key `failure` renders from.
 ///
-/// Split out from ``failureText(_:in:)`` so a test can enumerate the eleven
+/// Split out from ``failureText(_:in:)`` so a test can enumerate the twelve
 /// keys and resolve each one, rather than asserting that this file mentions
 /// them. Exhaustive, with no catch-all branch.
 func failureStringKey(_ failure: ConversionFailure, in domain: FailureDomain = .text) -> String {
@@ -62,6 +69,7 @@ func failureStringKey(_ failure: ConversionFailure, in domain: FailureDomain = .
     case .paddingBeforeEnd: "encode.error.base64.padding"
     case .invalidEscape: "encode.error.url.escape"
     case .invalidUTF8: "encode.error.url.utf8"
+    case .decodedBytesAreNotUTF8: "encode.error.base64.utf8"
     case .unknownEntity: "encode.error.html.unknown"
     case .unterminatedEntity: "encode.error.html.unterminated"
     case .expectedCharacter: "timestamps.error.iso8601"
@@ -103,6 +111,8 @@ func failureText(_ failure: ConversionFailure, in domain: FailureDomain = .text)
         return localizedSentence(key, position)
     case let .invalidUTF8(position):
         return localizedSentence(key, position)
+    case let .decodedBytesAreNotUTF8(position):
+        return localizedSentence(key, position)
     case let .unknownEntity(entity, position):
         return localizedSentence(key, entity, position)
     case let .unterminatedEntity(position):
@@ -129,7 +139,7 @@ func blockedStepText() -> String {
 /// `NSLocalizedString` returns the KEY on a miss rather than throwing, so a
 /// catalog that stopped reaching the bundle would render `encode.error.url.utf8`
 /// on screen and nothing would fail. That is exactly what
-/// `StringCatalogTests` and this plan's eleven-sentence check are for.
+/// `StringCatalogTests` and this plan's twelve-sentence check are for.
 private func localizedSentence(_ key: String, _ arguments: CVarArg...) -> String {
     String(format: NSLocalizedString(key, comment: ""), locale: .current, arguments: arguments)
 }

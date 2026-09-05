@@ -1,4 +1,4 @@
-// FailureTextTests — the eleven approved sentences, RESOLVED AND RENDERED.
+// FailureTextTests — the twelve approved sentences, RESOLVED AND RENDERED.
 //
 // READING THE CATALOG IS NOT THE SAME AS RENDERING IT. A wrong format specifier
 // compiles fine and renders as a mangled sentence; `%%` is a literal percent
@@ -18,7 +18,7 @@ import Testing
 @Suite("Failure text")
 struct FailureTextTests {
     /// One representative of every case, in both domains where the case has
-    /// two. Nine cases, ten key/domain pairs.
+    /// two. Ten cases, eleven key/domain pairs.
     private static let samples: [(failure: ConversionFailure, domain: FailureDomain)] = [
         (.unexpectedCharacter("!", position: 12), .text),
         (.unexpectedCharacter("x", position: 3), .timestamps),
@@ -26,6 +26,7 @@ struct FailureTextTests {
         (.paddingBeforeEnd(position: 3), .text),
         (.invalidEscape(position: 5), .text),
         (.invalidUTF8(position: 2), .text),
+        (.decodedBytesAreNotUTF8(position: 5), .text),
         (.unknownEntity("&nope;", position: 4), .text),
         (.unterminatedEntity(position: 1), .text),
         (.expectedCharacter("T", position: 11), .timestamps),
@@ -43,6 +44,10 @@ struct FailureTextTests {
             "Not valid percent-encoding: '%%' at position %lld is not followed by two hexadecimal digits."
         ),
         ("encode.error.url.utf8", "Not valid percent-encoding: the bytes at position %lld are not valid UTF-8."),
+        (
+            "encode.error.base64.utf8",
+            "Valid Base64, but the characters at position %lld decode to bytes that are not valid UTF-8."
+        ),
         ("encode.error.html.unknown", "Not a known HTML entity: '%@' at position %lld."),
         ("encode.error.html.unterminated", "Unterminated HTML entity: the '&' at position %lld has no ';'."),
         ("timestamps.error.notDigit", "Not a Unix epoch: '%@' at position %lld is not a digit."),
@@ -51,10 +56,10 @@ struct FailureTextTests {
         ("step.blocked", "Blocked by an error in an earlier step.")
     ]
 
-    /// All eleven keys resolve to the exact approved format string.
-    @Test("all eleven approved strings resolve from the catalog, character for character")
-    func allElevenApprovedStringsResolve() {
-        #expect(Self.approved.count == 11)
+    /// All twelve keys resolve to the exact approved format string.
+    @Test("all twelve approved strings resolve from the catalog, character for character")
+    func allTwelveApprovedStringsResolve() {
+        #expect(Self.approved.count == 12)
         for (key, format) in Self.approved {
             let resolved = String(localized: String.LocalizationValue(key))
             #expect(resolved == format, "\(key) resolved to \(resolved)")
@@ -62,10 +67,10 @@ struct FailureTextTests {
     }
 
     /// The mapping reaches every approved key and invents none.
-    @Test("the mapping covers exactly the eleven approved keys")
-    func theMappingCoversExactlyTheElevenApprovedKeys() {
+    @Test("the mapping covers exactly the twelve approved keys")
+    func theMappingCoversExactlyTheTwelveApprovedKeys() {
         var reached = Set(Self.samples.map { failureStringKey($0.failure, in: $0.domain) })
-        #expect(reached.count == 10)
+        #expect(reached.count == 11)
         reached.insert("step.blocked")
         #expect(reached == Set(Self.approved.map(\.key)))
     }
@@ -89,6 +94,8 @@ struct FailureTextTests {
             == "Not valid percent-encoding: '%' at position 5 is not followed by two hexadecimal digits.")
         #expect(failureText(.invalidUTF8(position: 2))
             == "Not valid percent-encoding: the bytes at position 2 are not valid UTF-8.")
+        #expect(failureText(.decodedBytesAreNotUTF8(position: 5))
+            == "Valid Base64, but the characters at position 5 decode to bytes that are not valid UTF-8.")
         #expect(failureText(.unknownEntity("&nope;", position: 4))
             == "Not a known HTML entity: '&nope;' at position 4.")
         #expect(failureText(.unterminatedEntity(position: 1))

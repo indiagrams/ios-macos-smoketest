@@ -79,7 +79,47 @@ extension TimestampDetection {
     /// - Note: Total. `""` returns a failure at position 1, never `nil` and
     ///   never a trap.
     nonisolated static func classifyISO8601(_ s: String) -> ConversionFailure? {
-        classify(s, shape: .iso8601Extended)
+        scan(s, shape: .iso8601Extended).failure
+    }
+
+    /// What the local-time scan concluded about a string.
+    ///
+    /// Three answers rather than two, because "well formed" is not enough for
+    /// the caller to parse it correctly: a local date and time either NAMES ITS
+    /// OWN INSTANT with a zone designator or is a WALL CLOCK to be read in the
+    /// picker's zone, and those are different questions with different answers.
+    enum LocalTimeReading: Equatable, Sendable {
+        /// A date, and optionally a time, with no zone designator. Read it in
+        /// whichever zone the picker is on.
+        case wallClock
+
+        /// A date and time carrying `Z`, `z` or a `±HH:MM` offset. The input
+        /// has already said which instant it means; the picker's zone is a
+        /// rendering choice from here on and must not change the answer.
+        case explicitOffset
+
+        /// Why it is neither, with the token expected and its position.
+        case invalid(ConversionFailure)
+    }
+
+    /// Why `s` is not a local date and time — or, when it is one, whether it
+    /// named its own instant.
+    ///
+    /// - Important: **This exists because the scan is the AUTHORITY on the
+    ///   presence of a designator and the parser must not decide it a second
+    ///   time.** Until 2026-09-05 the scan accepted `Z`, `+05:30` and `-08:00`
+    ///   while `parseLocalTime` built format styles with no zone field, so
+    ///   Foundation dropped the designator and returned the picker-zone wall
+    ///   clock: four distinct instants collapsed onto one, three of them wrong
+    ///   by hours, every one reported as a success (CR-03's sibling, CR-01).
+    ///   Two independent answers to "does this carry a zone?" is what made that
+    ///   possible, so there is now one.
+    nonisolated static func readLocalTime(_ s: String) -> LocalTimeReading {
+        let result = scan(s, shape: .localTime)
+        if let failure = result.failure {
+            return .invalid(failure)
+        }
+        return result.hasZoneDesignator ? .explicitOffset : .wallClock
     }
 
     /// Why `s` is not a local date, optionally with a time, or `nil` when it
@@ -91,7 +131,7 @@ extension TimestampDetection {
     /// is clause 5's payload, and without this it would be the one branch of
     /// the engine whose failures carried no position.
     nonisolated static func classifyLocalTime(_ s: String) -> ConversionFailure? {
-        classify(s, shape: .localTime)
+        scan(s, shape: .localTime).failure
     }
 
     // MARK: - The positional template scan
@@ -169,30 +209,40 @@ extension TimestampDetection {
     }
 
     /// The whole scan: date, separator, time, fraction, zone, end.
-    private nonisolated static func classify(_ s: String, shape: TemplateShape) -> ConversionFailure? {
+    ///
+    /// - Returns: The failure, or `nil` when there is none, together with
+    ///   whether a zone designator was CONSUMED. The second value is only
+    ///   meaningful when the first is `nil`; ``readLocalTime(_:)`` is what
+    ///   enforces that, and it is the only caller that reads it.
+    private nonisolated static func scan(
+        _ s: String, shape: TemplateShape
+    ) -> (failure: ConversionFailure?, hasZoneDesignator: Bool) {
         var scanner = TemplateScanner(s)
+        var hasZone = false
         if let failure = classifyDate(&scanner, in: s) {
-            return failure
+            return (failure, hasZone)
         }
 
         // The date-time separator. A bare calendar date is a complete local
         // time and is not a complete extended-format ISO 8601 date and time.
         if shape == .localTime, scanner.isAtEnd {
-            return nil
+            return (nil, hasZone)
         }
         let separated = shape == .localTime
             ? scanner.take(UInt8(ascii: "T")) || scanner.take(UInt8(ascii: " "))
             : scanner.take(UInt8(ascii: "T"))
-        guard separated else { return expected("T", at: scanner.index, in: s) }
+        guard separated else { return (expected("T", at: scanner.index, in: s), hasZone) }
 
         if let failure = classifyTime(&scanner, in: s) {
-            return failure
+            return (failure, hasZone)
         }
-        if let failure = classifyZone(&scanner, in: s, shape: shape) {
-            return failure
+        if let failure = classifyZone(&scanner, in: s, shape: shape, sawDesignator: &hasZone) {
+            return (failure, hasZone)
         }
-        guard scanner.isAtEnd else { return expected("the end of the input", at: scanner.index, in: s) }
-        return nil
+        guard scanner.isAtEnd else {
+            return (expected("the end of the input", at: scanner.index, in: s), hasZone)
+        }
+        return (nil, hasZone)
     }
 
     /// `YYYY-MM-DD`, with the widths and ranges measured across ALL FOUR
@@ -283,11 +333,16 @@ extension TimestampDetection {
     /// - Note: `-18:00` parses on all four and `-18:01` on iOS 18.6 alone, so
     ///   the magnitude bound is 18:00. A named zone such as `GMT` or `UTC`
     ///   parses on all four and is refused here: it is not ISO 8601.
+    /// - Parameter sawDesignator: Set to `true` exactly when a designator was
+    ///   CONSUMED, which is the fact ``readLocalTime(_:)`` needs and the fact
+    ///   the parser must not re-derive. Left untouched on every failure path
+    ///   and on the local-time path where the zone is simply absent.
     private nonisolated static func classifyZone(
-        _ scanner: inout TemplateScanner, in s: String, shape: TemplateShape
+        _ scanner: inout TemplateScanner, in s: String, shape: TemplateShape, sawDesignator: inout Bool
     ) -> ConversionFailure? {
         let start = scanner.index
         if scanner.take(UInt8(ascii: "Z")) || scanner.take(UInt8(ascii: "z")) {
+            sawDesignator = true
             return nil
         }
         guard scanner.take(UInt8(ascii: "+")) || scanner.take(UInt8(ascii: "-")) else {
@@ -309,6 +364,7 @@ extension TimestampDetection {
         guard hours * 60 + minutes <= 18 * 60 else {
             return expected("an offset from -18:00 to +18:00", at: start, in: s)
         }
+        sawDesignator = true
         return nil
     }
 

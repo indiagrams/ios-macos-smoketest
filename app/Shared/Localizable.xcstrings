@@ -1,13 +1,13 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "iOS + macOS template" : {
+    "Add step" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "iOS + macOS template"
+            "value" : "Add step"
           }
         }
       }
@@ -19,6 +19,735 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Set this app's identity in `app/Identity.xcconfig`."
+          }
+        }
+      }
+    },
+    "count.characters" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld character"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld characters"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "encode.diagnostic.empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter text above to see the result."
+          }
+        }
+      }
+    },
+    "encode.diagnostic.valid" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld character"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld characters"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "encode.direction.decode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decode"
+          }
+        }
+      }
+    },
+    "encode.direction.encode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encode"
+          }
+        }
+      }
+    },
+    "encode.error.base64.character" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not valid Base64: unexpected character '%@' at position %lld."
+          }
+        }
+      }
+    },
+    "encode.error.base64.length" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not valid Base64: the length must be a multiple of 4, and it is %lld."
+          }
+        }
+      }
+    },
+    "encode.error.base64.padding" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not valid Base64: padding '=' appears at position %lld, before the end."
+          }
+        }
+      }
+    },
+    "encode.error.html.unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not a known HTML entity: '%@' at position %lld."
+          }
+        }
+      }
+    },
+    "encode.error.html.unterminated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterminated HTML entity: the '&' at position %lld has no ';'."
+          }
+        }
+      }
+    },
+    "encode.error.url.escape" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not valid percent-encoding: '%%' at position %lld is not followed by two hexadecimal digits."
+          }
+        }
+      }
+    },
+    "encode.error.url.utf8" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not valid percent-encoding: the bytes at position %lld are not valid UTF-8."
+          }
+        }
+      }
+    },
+    "encode.format.base64" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Base64"
+          }
+        }
+      }
+    },
+    "encode.format.html" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTML"
+          }
+        }
+      }
+    },
+    "encode.format.url" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "URL"
+          }
+        }
+      }
+    },
+    "encode.input.prompt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text to convert"
+          }
+        }
+      }
+    },
+    "encode.output.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Output appears here as you type."
+          }
+        }
+      }
+    },
+    "encode.picker.direction" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Direction"
+          }
+        }
+      }
+    },
+    "encode.picker.format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        }
+      }
+    },
+    "hashing.diagnostic.empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter text above to see its digests."
+          }
+        }
+      }
+    },
+    "hashing.diagnostic.valid" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld byte hashed."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld bytes hashed."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "hashing.input.prompt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text to hash"
+          }
+        }
+      }
+    },
+    "hashing.output.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Digests appear here as you type."
+          }
+        }
+      }
+    },
+    "iOS + macOS template" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS + macOS template"
+          }
+        }
+      }
+    },
+    "input.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Input"
+          }
+        }
+      }
+    },
+    "input.useExample" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use an example"
+          }
+        }
+      }
+    },
+    "menu.section.encodeDecode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encode/decode"
+          }
+        }
+      }
+    },
+    "menu.section.hashing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hashing"
+          }
+        }
+      }
+    },
+    "op.base64.decode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Base64 decode"
+          }
+        }
+      }
+    },
+    "op.base64.encode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Base64 encode"
+          }
+        }
+      }
+    },
+    "op.hash.md5" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MD5"
+          }
+        }
+      }
+    },
+    "op.hash.sha1" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SHA-1"
+          }
+        }
+      }
+    },
+    "op.hash.sha256" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SHA-256"
+          }
+        }
+      }
+    },
+    "op.hash.sha512" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SHA-512"
+          }
+        }
+      }
+    },
+    "op.html.decode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTML decode"
+          }
+        }
+      }
+    },
+    "op.html.encode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTML encode"
+          }
+        }
+      }
+    },
+    "op.url.decode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "URL decode"
+          }
+        }
+      }
+    },
+    "op.url.encode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "URL encode"
+          }
+        }
+      }
+    },
+    "shell.destination.encode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encode/decode"
+          }
+        }
+      }
+    },
+    "shell.destination.hashing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hashing"
+          }
+        }
+      }
+    },
+    "shell.destination.timestamps" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timestamps"
+          }
+        }
+      }
+    },
+    "shell.tab.encode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encode"
+          }
+        }
+      }
+    },
+    "step.blocked" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blocked by an error in an earlier step."
+          }
+        }
+      }
+    },
+    "step.copied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
+          }
+        }
+      }
+    },
+    "step.copy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy"
+          }
+        }
+      }
+    },
+    "step.output.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Output"
+          }
+        }
+      }
+    },
+    "timestamps.cell.dateTime" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date and time"
+          }
+        }
+      }
+    },
+    "timestamps.cell.epoch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unix epoch"
+          }
+        }
+      }
+    },
+    "timestamps.cell.iso8601" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ISO 8601"
+          }
+        }
+      }
+    },
+    "timestamps.detect" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detect"
+          }
+        }
+      }
+    },
+    "timestamps.diagnostic.empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a timestamp or a date above."
+          }
+        }
+      }
+    },
+    "timestamps.diagnostic.valid" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read as %@."
+          }
+        }
+      }
+    },
+    "timestamps.error.iso8601" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not valid ISO 8601: expected '%@' at position %lld."
+          }
+        }
+      }
+    },
+    "timestamps.error.notDigit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not a Unix epoch: '%@' at position %lld is not a digit."
+          }
+        }
+      }
+    },
+    "timestamps.error.range" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Out of range: %@ is outside the dates this app can show."
+          }
+        }
+      }
+    },
+    "timestamps.input.prompt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timestamp or date"
+          }
+        }
+      }
+    },
+    "timestamps.output.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Representations appear here as you type."
+          }
+        }
+      }
+    },
+    "timestamps.picker.readAs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read as"
+          }
+        }
+      }
+    },
+    "timestamps.picker.timeZone" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time zone"
+          }
+        }
+      }
+    },
+    "timestamps.readAs.caption" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set automatically from the input. Change it if the detection is wrong."
+          }
+        }
+      }
+    },
+    "timestamps.readAs.epoch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unix epoch"
+          }
+        }
+      }
+    },
+    "timestamps.readAs.iso8601" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ISO 8601"
+          }
+        }
+      }
+    },
+    "timestamps.readAs.localTime" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local time"
           }
         }
       }

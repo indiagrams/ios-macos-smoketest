@@ -275,6 +275,10 @@ jobs:
           # with its reason). That half is exercised on a developer machine against
           # ad-hoc-signed iOS and macOS bundles, and was driven red by re-signing a copy of
           # the built app with a network entitlement while the source file stayed green.
+          # AS OF 2026-09-05 IT ALSO RUNS IN CI: the `built app entitlements` job at the
+          # bottom of this file builds both platforms ad-hoc-signed on macos-15 and asserts
+          # builtapp_checked=true for each. That job is what closes AR-06; this step's
+          # builtapp_checked=false is expected here and is not the residual any more.
           # One require line (digest, a default gem), so bundler-cache: false still holds.
           ruby test/app_offline_test.rb
           # UL-048's gate, and the merge-blocking half of a two-gate pair. Ruby takes the
@@ -427,3 +431,112 @@ jobs:
       # is the remedy.
       - name: Secret scan — pinned gitleaks 8.30.1, full history
         run: ruby tools/gitleaks.rb
+
+  # ---------------------------------------------------------------------------
+  # AR-06's closure. The `review notes` job above runs `test/app_offline_test.rb`
+  # on ubuntu-latest, where there is no Xcode and no `codesign`, so its
+  # BUILT-artefact half reports `builtapp_checked=false` and says why. That
+  # residual was accepted as AR-06 in 06-SECURITY.md rather than closed silently.
+  # This job closes it: same gate, same script, on a runner that can build and
+  # inspect a real bundle.
+  #
+  # WHY IT IS A SEPARATE JOB AND NOT A STEP ABOVE. `review notes` is a REQUIRED
+  # status check and its context is this file's `name:` field, spaces included
+  # (see the comment on that job). Adding a second job adds a NEW, non-required
+  # context; it does not touch the required one. Making this one required too is
+  # a branch-protection decision, taken deliberately or not at all.
+  #
+  # WHY NOT IN pr.yml, which already builds on macos-15. pr.yml is TEMPLATE-owned
+  # and editing it is threat T-06-90; fork-authored gates live in this file. The
+  # cost of that boundary is one extra macOS build, and it is the right trade.
+  built-app-entitlements:
+    name: built app entitlements
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # app/App.xcodeproj is generated and gitignored, so it has to be produced
+      # before anything can build. XcodeGen only: this gate is about the BUILT
+      # bundle's embedded entitlements, which both generators resolve from the
+      # same app/*/App.entitlements files, so running it twice would buy nothing.
+      - name: install generator
+        run: brew install xcodegen
+
+      - name: regenerate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      # AD-HOC SIGNED, AND THAT IS THE WHOLE POINT. pr.yml builds with
+      # CODE_SIGNING_ALLOWED=NO, and an unsigned bundle carries NO embedded
+      # entitlements blob at all -- measured, both here and during the phase --
+      # so the gate correctly refuses to look at one and reports
+      # builtapp_checked=false. `CODE_SIGN_IDENTITY=-` is what the gate's own
+      # failure reason tells you to use. Debug configuration, which is what the
+      # recipe was verified against; it embeds an extra get-task-allow on macOS,
+      # and the gate asserts expected-keys-are-a-SUBSET plus a network denylist,
+      # so the extra key is tolerated by design.
+      - name: build both platforms, ad-hoc signed
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project app/App.xcodeproj \
+            -scheme App-macOS \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd-macos" \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+          xcodebuild build \
+            -project app/App.xcodeproj \
+            -scheme App-iOS \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd-ios" \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+
+      # THE ASSERTION THIS JOB EXISTS FOR, and the trap it is written around:
+      # app_offline_test.rb exits 0 when builtapp_checked is FALSE. That is
+      # correct for the ubuntu job -- a host that cannot look should not fail --
+      # but it means a green exit code here would prove nothing if the bundle
+      # went missing, the path changed, or a future build stopped signing. A gate
+      # that passes without having looked is the exact shape 06-17 drove red on
+      # purpose. So the checked flag is asserted explicitly, per platform.
+      - name: APP-11 built-artefact gate — embedded entitlements, both platforms
+        run: |
+          set -euo pipefail
+          status=0
+          for platform in macos ios; do
+            case "$platform" in
+              macos) app=$(find "$RUNNER_TEMP/dd-macos/Build/Products" -maxdepth 2 -name '*.app' | head -1) ;;
+              ios)   app=$(find "$RUNNER_TEMP/dd-ios/Build/Products"   -maxdepth 2 -name '*.app' | head -1) ;;
+            esac
+            if [ -z "$app" ]; then
+              echo "::error::$platform — no .app was produced; nothing to inspect"
+              status=1
+              continue
+            fi
+            echo "=== $platform: $app ==="
+            out="$RUNNER_TEMP/offline-$platform.txt"
+            # NOT a bare call. Under `set -e -o pipefail` a non-zero exit from the
+            # gate would abort the step here -- skipping the OTHER platform and the
+            # per-platform diagnosis below. An `if !` condition is exempt from
+            # `set -e`, so both platforms always get a verdict and the step still
+            # ends red. Measured: a bundle whose signature cannot be read exits 1,
+            # while a bundle built unsigned exits 0 with builtapp_checked=false --
+            # two different failures that must both be caught, and only one of them
+            # shows up in an exit code.
+            if ! ruby test/app_offline_test.rb --built-app "$app" 2>&1 | tee "$out"; then
+              echo "::error::$platform — the offline gate exited non-zero; see its FAIL lines above"
+              status=1
+            fi
+            grep -E '^builtapp_(checked|reason)=' "$out" || true
+            if ! grep -qx 'builtapp_checked=true' "$out"; then
+              echo "::error::$platform — builtapp_checked was not true; the built-artefact half did NOT run, so this gate proved nothing about $platform"
+              status=1
+            fi
+          done
+          exit "$status"

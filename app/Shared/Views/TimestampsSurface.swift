@@ -159,6 +159,10 @@ struct TimestampsSurface: View {
             .padding(.bottom, Spacing.xxl)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // GAP-06-01's scroll half. The toolbar half is on the field itself, in
+        // InputArea; both live in Views/KeyboardDismiss.swift, which is where
+        // the reason for having two is written down. No-op on macOS.
+        .dismissesKeyboardOnScroll()
     }
 
     /// The eager step stack: the three-cell card, then anything chained below.

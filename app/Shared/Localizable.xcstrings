@@ -301,6 +301,17 @@
         }
       }
     },
+    "input.done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        }
+      }
+    },
     "input.label" : {
       "extractionState" : "manual",
       "localizations" : {

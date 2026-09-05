@@ -28,6 +28,25 @@
 // stable identifier is far more robust in an XCUITest walk than typing into a
 // text field. The button is visible ONLY while the input is empty.
 //
+// THE KEYBOARD CAN BE PUT AWAY, AND THAT IS THIS BLOCK'S JOB RATHER THAN EACH
+// SURFACE'S (GAP-06-01, plan 06-19). The field below is `axis: .vertical`, which
+// is what makes it grow to the line limit — and which also means Return inserts
+// a newline rather than resigning first responder. That is correct for a
+// multiline field and it left the iOS keyboard with no way out: until this
+// change nothing in `app/Shared/` carried a focus binding, a submit label, a
+// scroll-dismissal or a keyboard toolbar, so once the keyboard was up it stayed
+// up over the outputs and over the tab bar. The user found it by hand at the
+// end-of-phase check; plan 06-16's sweep had walked straight past it, relaunching
+// the app whenever it needed the keyboard gone.
+//
+// The fix is TWO affordances and deliberately not one, because each covers the
+// other's hole. `.scrollDismissesKeyboard(.interactively)` on each surface's
+// `ScrollView` needs content that actually scrolls; on a short screen with
+// nothing to scroll there is no gesture to make. The Done control below hangs
+// off the keyboard itself, so it is there whatever the content height. It lives
+// here, once, for the same reason everything else in this file does: a second
+// copy is a second place to drift.
+//
 // THE DYNAMIC TYPE CONTRACT, KEPT STRUCTURALLY RATHER THAN BY PROMISE. There
 // is no size clamp anywhere in this phase and no literal point size on any
 // text: sizes are the system's, and only spacing and colour are ours. Nothing
@@ -48,8 +67,11 @@ import SwiftUI
 ///
 /// A value rather than three parameters, so a surface cannot pass Hashing's
 /// input identifier beside Encode's worked-value button by accident. The three
-/// members below are the only three that exist; `AccessibilityIdentifiers`
-/// mints no others for this block.
+/// members below are the only three that exist, because they are the only three
+/// things in this block that are PER SURFACE. The keyboard's Done control is
+/// not: there is one software keyboard and only the focused field can have
+/// raised it, so it carries `AccessibilityIdentifiers.Input.done` directly and
+/// takes no member here.
 struct InputAreaIdentifiers: Equatable, Sendable {
     /// The text field itself.
     let input: String
@@ -212,6 +234,14 @@ struct InputArea: View {
         #endif
     }
 
+    /// Whether the field holds the keyboard. Written by SwiftUI when the user
+    /// taps in, and written back to `false` by the Done control — which is the
+    /// whole mechanism: resigning first responder is what puts the keyboard
+    /// away, and a `@FocusState` binding is the only supported way to ask for
+    /// it from SwiftUI. Private to one ``InputArea``, so the three surfaces
+    /// never share a focus flag.
+    @FocusState private var isFocused: Bool
+
     /// Label, field, then the count-and-button row.
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -236,6 +266,8 @@ struct InputArea: View {
                 in: RoundedRectangle(cornerRadius: Spacing.outputRadius, style: .continuous)
             )
             .accessibilityIdentifier(identifiers.input)
+            .focused($isFocused)
+            .keyboardDismissToolbar(focus: $isFocused)
     }
 
     /// The count on the leading side, the worked-value button on the trailing

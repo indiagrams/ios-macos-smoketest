@@ -1,9 +1,14 @@
 // AppModel — the one app-level observable model (D-82, D-12, APP-12).
 //
 // NOT A VIEW, and it imports no UI framework. Foundation for `TimeZone`, and
-// Observation for the macro. The root view constructs exactly one of these as
-// `@State private var model = AppModel()` and hands surfaces the properties
-// they own; nothing here is static, shared or global.
+// Observation for the macro. The root view constructs exactly one of these, as
+// a single `@State`-owned property, and hands surfaces the properties they own;
+// nothing here is static, shared or global. Plan 06-13 asserts that "exactly
+// one" by grepping `app/Shared/` for the initialiser expression, so this
+// paragraph DESCRIBES it and no longer spells it — the fifteenth time this
+// phase has met a file that configures a content gate being swept by it, and
+// the second time the offending text was prose that had been correct until the
+// gate existed.
 //
 // WHY THE SELECTION ENUMS LIVE HERE. `EncodeFormat` and `EncodeDirection` are
 // per-surface UI selections, not conversions, so they are not ``Operation``
@@ -153,6 +158,16 @@ final class AppModel {
     /// the interval costs nothing and leaves Phase 7 with nothing to convert.
     /// `nil` rather than `0`, because "nothing parsed yet" and "the epoch" are
     /// different things and one of them is a real instant a user can type.
+    ///
+    /// - Important: **Plan 06-13 built the Timestamps surface and deliberately
+    ///   does not write to this property.** The instant is a function of the
+    ///   input, the "Read as" selection and the zone — all three of which are
+    ///   already here — so storing it would store something DERIVED, which is
+    ///   the one thing this type's own "D-84's premise" paragraph forbids: a
+    ///   stored instant outlives the input it came from the moment the user
+    ///   types another character. It is left in place for Phase 7, which
+    ///   persists an instant rather than deriving one, and it must not be
+    ///   turned into a cache in the meantime.
     var timestampsInstant: Double?
 
     /// Which representation cell the Timestamps chain is rooted at, or `nil`

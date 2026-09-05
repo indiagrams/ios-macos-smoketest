@@ -151,17 +151,27 @@ struct OutputAccessory: View {
     /// contiguous slices `allCases.prefix(6)` and `allCases.suffix(4)` — 06-09
     /// asserts both slices, so a reordering there fails a test rather than
     /// being noticed in a screenshot.
+    ///
+    /// Every item carries ``AccessibilityIdentifiers/Step/addStepMenu``, which
+    /// is a REPEATED identifier resolved by index — the same shape as the copy
+    /// and add-step controls, and for the same reason: a per-instance scheme
+    /// would break the moment the item list changed.
     private var addStepMenu: some View {
         Menu {
-            Group {
-                Section("menu.section.encodeDecode") {
-                    operationButtons(Array(Operation.allCases.prefix(6)))
-                }
-                Section("menu.section.hashing") {
-                    operationButtons(Array(Operation.allCases.suffix(4)))
-                }
+            // The selector is attached to each ITEM rather than to this
+            // container, and that is a measurement rather than a preference:
+            // plan 06-13 dumped the presented tree on iOS 17.5 and the items a
+            // `Menu` presents carry NO identifier when one is applied to the
+            // container around them, while an identifier applied to each button
+            // does reach the presented cell. A menu whose items can only be
+            // reached by their visible text is a menu the selector convention
+            // cannot address at all.
+            Section("menu.section.encodeDecode") {
+                operationButtons(Array(Operation.allCases.prefix(6)))
             }
-            .accessibilityIdentifier(AccessibilityIdentifiers.Step.addStepMenu)
+            Section("menu.section.hashing") {
+                operationButtons(Array(Operation.allCases.suffix(4)))
+            }
         } label: {
             Image(systemName: "plus.circle")
                 .foregroundStyle(Color.accentColor)
@@ -184,6 +194,7 @@ struct OutputAccessory: View {
             Button(LocalizedStringKey(operation.rawValue)) {
                 onAddStep(operation)
             }
+            .accessibilityIdentifier(AccessibilityIdentifiers.Step.addStepMenu)
         }
     }
 }

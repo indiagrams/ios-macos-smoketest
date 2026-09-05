@@ -190,7 +190,11 @@ public enum AccessibilityIdentifiers {
         /// a surface that renders four outputs.
         public static let addStep = "Step.addStep"
 
-        /// The menu the add-step control presents.
+        /// Each ITEM the add-step control's menu presents, resolved by index
+        /// like the other repeated constants here. Attached to the items rather
+        /// than to the menu because plan 06-13 measured that a `Menu` presents
+        /// items carrying no identifier when one is applied to the container
+        /// around them.
         public static let addStepMenu = "Step.addStepMenu"
 
         /// The sentence a step shows when an earlier step in its pipeline

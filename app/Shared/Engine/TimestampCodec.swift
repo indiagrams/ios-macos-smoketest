@@ -167,4 +167,62 @@ enum TimestampCodec {
         guard epochSeconds.isFinite else { return "" }
         return String(format: "%.0f", epochSeconds.rounded(.down))
     }
+
+    /// `epochSeconds` written as a human date and time in `timeZone`.
+    ///
+    /// - Warning: **LOCALE- AND REGION-DEPENDENT OUTPUT. No test and no UI
+    ///   test may assert its literal text.** The UI spec's mockup shows this
+    ///   instant one way and the machine the phase research ran on renders it
+    ///   another; both are correct for their region. What can honestly be
+    ///   asserted is that the string is non-empty, that it carries the
+    ///   four-digit year, and that it DIFFERS between two zones — which is the
+    ///   assertion that proves the zone argument is used at all. A UI test
+    ///   reaches this cell by the `Timestamps.cell.dateTime` accessibility
+    ///   identifier, never by matching its text.
+    /// - Note: The D-93 prose sweep is unaffected by this string. That sweep
+    ///   fails on PROSE TERMS, and a formatted date contains none.
+    /// - Note: The zone goes in the INITIALIZER. `Date.FormatStyle.timeZone(_:)`
+    ///   takes a `Symbol.TimeZone` and will not accept a `TimeZone`.
+    /// - Note: Total. Non-finite returns the empty string, before any `Date`
+    ///   is constructed.
+    nonisolated static func renderDateTime(_ epochSeconds: Double, timeZone: TimeZone) -> String {
+        guard epochSeconds.isFinite else { return "" }
+        return Date(timeIntervalSince1970: epochSeconds)
+            .formatted(Date.FormatStyle(date: .long, time: .shortened, timeZone: timeZone))
+    }
+
+    // MARK: - Timezone selection (APP-07)
+
+    /// Every timezone the picker offers, in the order it offers them.
+    ///
+    /// - Note: Computed on each access rather than stored. It is a few hundred
+    ///   strings and this is not on a keystroke path; a stored `static` would
+    ///   be the one piece of shared mutable state in a file whose whole point
+    ///   is not having any.
+    nonisolated static var timeZoneIdentifiers: [String] {
+        pickerOrder(TimeZone.knownTimeZoneIdentifiers)
+    }
+
+    /// `identifiers` in the order and shape a picker needs: ascending, and
+    /// with no identifier appearing twice.
+    ///
+    /// - Important: This is a separate function TAKING ITS INPUT so that the
+    ///   ordering guarantee has an assertion that can fail. Measured on this
+    ///   tree, `TimeZone.knownTimeZoneIdentifiers` ALREADY arrives sorted and
+    ///   already free of duplicates, so a test written only against the live
+    ///   array passes whether or not this function sorts anything — a control
+    ///   that cannot fire, which this phase has now shipped once and caught
+    ///   twice. `TimestampTests` drives a scrambled, duplicated input through
+    ///   here instead, and separately asserts that ``timeZoneIdentifiers`` is
+    ///   this function applied to the live array.
+    /// - Note: The duplicate removal is a correctness requirement, not tidying:
+    ///   a repeated identifier collides as a `ForEach` id.
+    nonisolated static func pickerOrder(_ identifiers: [String]) -> [String] {
+        Array(Set(identifiers)).sorted()
+    }
+
+    /// The zone the picker starts on: the device's own (APP-07).
+    nonisolated static var defaultTimeZone: TimeZone {
+        .current
+    }
 }

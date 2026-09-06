@@ -61,11 +61,11 @@
 #   P4  all four required keys are present AND correctly typed                       per key
 #   P5  the collected-data-types array is present and EMPTY                          once
 #   P6  where plutil exists, Apple's parse and this file's parse agree exactly       once
+#   P7  FORWARD: every category the Swift uses is declared, naming file/line/symbol   per category
+#   P8  REVERSE: every declared category is used, naming the category                per entry
+#   P9  every declared category is one of Apple's five                               per entry
+#   P10 every declared reason is non-empty and valid FOR THAT CATEGORY               per entry
 #   P11 when --archive is supplied, the bundle's EMBEDDED manifest is the source one  per bundle
-#
-#   P7 through P10 — the FORWARD and REVERSE comparison of the two sets — are added
-#   in the next step. Until then this file enumerates, parses and counts; it renders
-#   no verdict about matching.
 #
 #   P1 is asserted BEFORE anything iterates. A population that has stopped being
 #   enumerated looks exactly like a population with nothing wrong in it, and `.each`
@@ -637,10 +637,7 @@ assert collected.is_a?(Array) && collected.empty?, "privacy", MANIFEST_REL,
        "a claim worth failing on rather than a default worth assuming; found " \
        "#{collected.inspect}"
 
-# ─── the scan: symbol hits over COMMENT-STRIPPED Swift ───────────────────────
-# What the two sets are BUILT from. The comparison between them — the forward and
-# reverse directions, P7 through P10 — arrives in the next step; this step's job is
-# to know what it is looking at and to say so in labelled numbers.
+# ─── P7–P10: the two directions ──────────────────────────────────────────────
 
 used          = {}
 stripped_hits = 0
@@ -657,6 +654,75 @@ population.each do |rel|
   raw_hits      += symbol_hits(raw).length
   found.each { |slug, line, symbol| (used[slug] ||= []) << [rel, line, symbol] }
 end
+
+declared_entries = plist.fetch(TYPES_KEY, [])
+declared_entries = [] unless declared_entries.is_a?(Array)
+declared_slugs   = []
+declared_labels  = []
+
+# FORWARD. Runs to completion.
+used.keys.sort.each do |slug|
+  sites = used[slug]
+  assert declared_entries.any? { |e| e.is_a?(Hash) && e[TYPE_KEY] == CATEGORY[slug] },
+         "privacy", MANIFEST_REL,
+         "the app targets' Swift uses the #{slug} category at " \
+         "#{sites.map { |f, l, s| "#{f}:#{l} #{s}" }.join(', ')} but the manifest declares " \
+         "no entry for it. Apple rejects that at upload (ITMS-91053), and this is the " \
+         "direction a manifest goes stale in — the code moves, the manifest does not"
+end
+
+# REVERSE. Also runs to completion. Apple permits the DECLARED reasons only, so an
+# unused declaration is a false statement, not a harmless extra.
+declared_entries.each_with_index do |entry, index|
+  where = "#{MANIFEST_REL}[#{index}]"
+  unless entry.is_a?(Hash)
+    assert false, "privacy", where,
+           "the entry in #{TYPES_KEY} is a dictionary; found #{entry.class}"
+    next
+  end
+  constant = entry[TYPE_KEY]
+  slug     = SLUG_FOR[constant]
+  declared_labels << (slug || constant.to_s)
+  assert !slug.nil?, "privacy", where,
+         "the declared category is one of Apple's #{CATEGORY.length}, measured " \
+         "#{MEASURED_ON} against #{MEASURED_AGAINST}; found #{constant.inspect}. An " \
+         "unrecognised constant is not a category Apple validates — it is a typo that " \
+         "declares nothing"
+  next if slug.nil?
+  declared_slugs << slug
+
+  assert used.key?(slug), "privacy", where,
+         "the manifest declares the #{slug} category but no comment-stripped Swift in " \
+         "the two application targets uses it. Apple's own words: you may use these APIs " \
+         "and the data derived from their use for the declared reasons ONLY, which makes " \
+         "an unused declaration a false statement rather than a harmless extra"
+
+  reasons = entry[REASONS_KEY]
+  assert reasons.is_a?(Array) && !reasons.empty?, "privacy", where,
+         "#{REASONS_KEY} is a NON-EMPTY array for the #{slug} category; found " \
+         "#{reasons.inspect}. A declared category with no reason is exactly what " \
+         "ITMS-91055 rejects"
+  next unless reasons.is_a?(Array)
+
+  valid = REASONS.fetch(slug)
+  bad   = reasons.reject { |r| valid.include?(r) }
+  assert bad.empty?, "privacy", where,
+         "every reason declared for the #{slug} category is valid FOR THAT CATEGORY " \
+         "(#{valid.join(', ')}, measured #{MEASURED_ON}); found #{bad.join(', ')}. A " \
+         "reason valid for another category is an invalid reason here, which is the " \
+         "specific ITMS-91055 rejection"
+end
+
+# The both-empty case, stated as a labelled FACT rather than by silence. On this
+# tree today both sides are empty and that is CORRECT — which is why the three red
+# controls in evidence/07-04-privacy-gate.txt, not this line, are what make the
+# gate worth anything.
+used_slugs = used.keys.sort
+assert used_slugs.sort == declared_slugs.uniq.sort, "privacy", MANIFEST_REL,
+       "the used set and the declared set match exactly in BOTH directions " \
+       "(used: [#{used_slugs.join(', ')}] / declared: [#{declared_slugs.uniq.sort.join(', ')}])" \
+       "#{used_slugs.empty? && declared_slugs.empty? ? ' — both are EMPTY, which is this ' \
+       'tree\'s correct state and is asserted here rather than left as an absence' : ''}"
 
 # ─── P11: the archive half (declared here, driven by plan 07-13) ─────────────
 
@@ -717,6 +783,11 @@ puts "privacy_hits_in_comments=#{raw_hits - stripped_hits}"
 puts "manifest_parse_route=#{parse_route}"
 puts "privacy_manifest_format=#{manifest_format}"
 puts "privacy_manifest_sha256=#{manifest_sha}"
+puts "privacy_categories_used=#{used_slugs.join(',')}"
+puts "privacy_categories_declared=#{declared_labels.sort.uniq.join(',')}"
+used_slugs.each do |slug|
+  used[slug].each { |rel, line, symbol| puts "privacy_use #{slug} #{rel}:#{line}=#{symbol}" }
+end
 puts "privacy_archive_checked=#{archive_checked}"
 puts "privacy_archive_reason=#{archive_reason}"
 puts "privacy_measured_on=#{MEASURED_ON}"

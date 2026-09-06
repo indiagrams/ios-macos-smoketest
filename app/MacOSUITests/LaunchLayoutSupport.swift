@@ -87,7 +87,7 @@ extension LaunchLayoutTests {
     }
 
     /// What a control reports as its selection, in the four shapes the platforms use: a title, a
-    /// selected-segment index, its one selected segment's label, or — for a `.menu` `Picker` — the
+    /// selected-segment index, its one chosen segment's label, or — for a `.menu` `Picker` — the
     /// trailing comma-separated component of its LABEL. **Empty means a control rendering WITHOUT a
     /// selection**, D-98's exact failure, so each shape is narrowed to exclude a non-answer: a
     /// NEGATIVE index is rejected rather than returned as `segment-1`, and the label is read only
@@ -95,6 +95,18 @@ extension LaunchLayoutTests {
     /// the time-zone picker reports `value=""` and `label="Time zone, GMT"`, so returning the WHOLE
     /// label would answer "Time zone" for a picker with NOTHING selected — the exact false pass
     /// this function is here to prevent.
+    ///
+    /// **BRANCH 3 IS macOS's, AND UNTIL 2026-09-06 IT ASKED THE WRONG QUESTION.** It filtered on
+    /// `isSelected`, which XCUITest answers from `AXSelected`, and macOS never sets that attribute
+    /// on a segmented picker — so branch 3 returned nothing for a control WITH a selection and
+    /// nothing for one without, and this whole function was a constant `""` on this platform. That
+    /// is what failed CI run 34050504430 on the Encode Format control, and it is why the corrupted
+    /// key (`settings.selection`) and the reported control (`Format`, bound to
+    /// `settings.encodeFormat`) had nothing to do with each other: the read never consulted the
+    /// corruption, and `continueAfterFailure = false` stopped the case at the first control it
+    /// looked at. ``isChosen(_:)`` asks the question the platform actually answers, and the
+    /// negative control in `evidence/07-11-D98-selection-shape.swift` is what keeps this branch
+    /// falsifiable rather than merely green.
     func selectionShown(_ identifier: String) -> String {
         let control = element(identifier)
         guard control.exists else { return "" }
@@ -104,12 +116,39 @@ extension LaunchLayoutTests {
         if let index = control.value as? NSNumber, index.intValue >= 0 {
             return "segment\(index.intValue)"
         }
-        let selected = segments(of: control).filter(\.isSelected)
-        if selected.count == 1 {
-            return selected[0].label
+        let options = segments(of: control)
+        let chosen = (0 ..< options.count).filter { isChosen(options[$0]) }
+        if chosen.count == 1 {
+            let label = options[chosen[0]].label
+            return label.isEmpty ? "segment\(chosen[0])" : label
         }
         let parts = control.label.components(separatedBy: ", ")
         return parts.count > 1 ? parts[parts.count - 1] : ""
+    }
+
+    /// Whether one segment of a segmented control is the CHOSEN one, in the shape macOS publishes.
+    ///
+    /// MEASURED 2026-09-06 out of process, against the same accessibility API XCUITest reads, with
+    /// a picker whose selection matches a `.tag` and one whose selection matches NONE
+    /// (`evidence/07-11-D98-selection-shape.swift`, macOS 26.5.2):
+    ///
+    ///     WITH a selection     AXRadioGroup AXValue=<an AX ELEMENT>  segments AXValue=[1,0,0]
+    ///     WITHOUT one          AXRadioGroup AXValue=nil              segments AXValue=[0,0,0]
+    ///     either way           AXSelected=nil on the group AND on every segment
+    ///
+    /// So the segment's OWN `AXValue` is the only attribute that distinguishes the two, and it goes
+    /// to all-zero exactly when the control genuinely renders blank — which is what keeps every
+    /// caller of this able to FAIL. `isSelected` is still asked first and deliberately: it is what
+    /// iOS answers, and if a future macOS starts setting `AXSelected` this reads it rather than
+    /// going stale.
+    func isChosen(_ segment: XCUIElement) -> Bool {
+        if segment.isSelected {
+            return true
+        }
+        if let value = segment.value as? NSNumber {
+            return value.intValue == 1
+        }
+        return (segment.value as? String) == "1"
     }
 
     /// The selectable segments of a segmented control, queried by SUBTREE and by whichever element
@@ -127,8 +166,12 @@ extension LaunchLayoutTests {
         XCTAssertTrue(picker.waitForExistence(timeout: 20), "the Read as picker is missing")
         let options = segments(of: picker)
         XCTAssertEqual(options.count, 3, "the Read as picker offers \(options.count) segments, expected one per ReadAs case")
+        // ``isChosen(_:)`` AND NOT `isSelected`, for the reason that function records: macOS sets
+        // no `AXSelected` on a segment, so `!option.isSelected` is TRUE of all three and this loop
+        // would click segment 0 — which is usually the one already chosen, leaving the caller's
+        // `XCTAssertNotEqual(changed, before)` to fail on a correct app.
         var moved = false
-        for option in options where !moved && !option.isSelected {
+        for option in options where !moved && !isChosen(option) {
             option.click()
             moved = true
         }

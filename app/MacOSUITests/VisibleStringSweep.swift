@@ -93,7 +93,7 @@ final class VisibleStringSweep: XCTestCase {
         for scheme in ["light", "dark"] {
             app = XCUIApplication()
             app.launchArguments = ["-UITestColorScheme", scheme]
-            app.launch()
+            app.launchPinned(onlySurface: LaunchState.encodeDestination) // 07-07, and only the surface
             try walk(into: &seen)
             app.terminate()
         }

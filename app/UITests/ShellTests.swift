@@ -71,7 +71,11 @@ final class ShellTests: XCTestCase {
     /// The three destinations exist, each asserted by its own constant, and each
     /// one reached by its own tab item.
     func testThreeDestinationsExist() {
-        app.launch()
+        // PINNED (07-07). The walk below indexes the tab bar from 0 and asserts that tab item N
+        // shows destination N AND NO OTHER. That second clause is about which tab content is in the
+        // tree, so it depends on where the app opened: a launch restored onto Timestamps would have
+        // that destination's content already built when tab 0 is tapped.
+        app.launchPinned(showing: LaunchState.encodeDestination)
 
         let bar = app.tabBars.firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 30), "the app presents no tab bar at all")
@@ -124,7 +128,10 @@ final class ShellTests: XCTestCase {
 
     /// Work in progress survives switching destination and coming back.
     func testPipelineSurvivesDestinationSwitch() {
-        app.launch()
+        // PINNED (07-07). This queries the Encode worked-value button with no navigation first, so
+        // an unpinned launch onto Hashing would spend 30 s waiting for an element that is not in the
+        // tree and then fail — as a statement about test ORDER, not about D-82.
+        app.launchPinned(showing: LaunchState.encodeDestination)
 
         let useExample = element(AccessibilityIdentifiers.Encode.useExample)
         XCTAssertTrue(

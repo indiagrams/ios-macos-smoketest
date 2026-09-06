@@ -65,7 +65,7 @@ final class VisibleStringSweep: XCTestCase {
         for scheme in ["light", "dark"] {
             app = XCUIApplication()
             app.launchArguments = ["-UITestColorScheme", scheme]
-            app.launch()
+            app.launchPinned(onlySurface: LaunchState.encodeDestination) // 07-07, and only the surface
             try walk(into: &seen)
             app.terminate()
         }
@@ -370,13 +370,13 @@ final class VisibleStringSweep: XCTestCase {
     /// A relaunch rather than a gesture, and that is a MEASURED choice: the interactive
     /// scroll-to-dismiss this used first worked on 17.5 and 18.6 and failed on 26.1, where
     /// `scrollViews.firstMatch` resolves to an offscreen scroll view ("visible frame is empty").
-    /// Nothing in the walk depends on state surviving this: the appended card and the blocked sentence
-    /// are harvested on the surface that created them, before it is ever called.
+    /// Nothing in the walk depends on state surviving this — but the wait below has always required the
+    /// relaunch to come back on Encode, which stopped being free once `selection` persisted (07-07).
     private func dismissKeyboard() {
         guard app.keyboards.element.exists else { return }
         print("keyboard_dismissed_by=relaunch")
         app.terminate()
-        app.launch()
+        app.launchPinned(onlySurface: LaunchState.encodeDestination) // 07-07: must land on Encode
         XCTAssertTrue(
             element(Ident.Shell.tabEncode).waitForExistence(timeout: 30),
             "the relaunch that puts the keyboard away did not bring the app back"

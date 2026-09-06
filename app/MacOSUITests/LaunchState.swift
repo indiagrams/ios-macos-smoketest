@@ -89,10 +89,14 @@ enum LaunchState {
 
     /// All five settings pinned at once, with the destination chosen by the caller.
     ///
-    /// **All five, never a subset.** Pinning only the key a test happens to assert on leaves the
-    /// other four reading whatever the previous case persisted, which is the same order-dependence
-    /// in a smaller box. The population this pins is `SettingsKey.allCases`, and the gate that
-    /// guards it counts the keys rather than trusting this sentence.
+    /// **All five, and a subset needs a reason.** Pinning only the key a test happens to assert on
+    /// leaves the other four reading whatever the previous case persisted, which is the same
+    /// order-dependence in a smaller box. The population this pins is `SettingsKey.allCases`, and
+    /// the gate that guards it counts the keys rather than trusting this sentence.
+    ///
+    /// The one admissible reason for a subset is a test that DRIVES the unpinned keys itself, which
+    /// is a stronger guarantee than pinning them; ``onlySurface(_:)`` exists for exactly that case
+    /// and states the reason at its own call sites.
     static func showing(_ destination: String) -> [String] {
         [
             selectionKey, destination,
@@ -101,6 +105,20 @@ enum LaunchState {
             timestampsReadAsKey, epochReadAs,
             timestampsTimeZoneKey, fixedTimeZone
         ]
+    }
+
+    /// The launch SURFACE alone, and deliberately none of the other four keys.
+    ///
+    /// **Only for a test whose population must stay maximal.** The visible-string sweep harvests
+    /// every string the app renders and asserts a FLOOR on the distinct count; pinning a setting
+    /// can only ever REMOVE renderings from that population, so the sweep pins the minimum it
+    /// needs to reach its subject — which surface opens — and nothing else. It then drives the
+    /// other four itself: both directions, all three encode formats, all three read-as segments
+    /// and the detect control, harvesting after each, which covers those keys more completely than
+    /// a pin would. `timestampsTimeZone` is the one key nothing drives, and it is left exactly as
+    /// 06-16 measured the floor against.
+    static func onlySurface(_ destination: String) -> [String] {
+        [selectionKey, destination]
     }
 
     // MARK: - D-98's four corruption cases, each one launch argument
@@ -142,6 +160,13 @@ extension XCUIApplication {
     /// Arguments are APPENDED, so a caller that has already set `-UITestColorScheme` keeps it.
     func launchPinned(showing destination: String) {
         launchArguments += LaunchState.showing(destination)
+        launch()
+    }
+
+    /// Pin the launch surface only, then launch. See ``LaunchState/onlySurface(_:)`` for when this
+    /// is the right call and when it is not.
+    func launchPinned(onlySurface destination: String) {
+        launchArguments += LaunchState.onlySurface(destination)
         launch()
     }
 }

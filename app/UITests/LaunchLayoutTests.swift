@@ -178,20 +178,21 @@ final class LaunchLayoutTests: XCTestCase {
         // to make the assertion NON-VACUOUS: `Destination`'s declared default is `.encode`, so an
         // app that persisted nothing at all would reopen there and fail the restore assertion
         // rather than pass it by coincidence.
+        // THE PIPELINE IS BUILT ON **ENCODE** AND THE SETTING IS CHANGED ON **TIMESTAMPS**, which is
+        // the stronger arrangement and also the only one that runs: on Timestamps this plan's own
+        // clause-2 finding puts the add-step control below the fold, and on iOS 26.1 six scroll-view
+        // swipes did not bring it back — so a Timestamps append is not something this method can
+        // rely on. Building the chain on the surface that is NOT restored proves more anyway: the
+        // pipeline dies with the launch wherever it was built, not only on the surface reopened.
         navigateToEncode()
+        tapUseExample(AccessibilityIdentifiers.Encode.useExample)
+        addOneStep()
+        XCTAssertEqual(count(AccessibilityIdentifiers.Step.card), 2, "the add-step control appended nothing to carry across")
+
         navigateToTimestamps()
         record("criterion3_navigated=encode->timestamps")
         let before = selectionShown(AccessibilityIdentifiers.Timestamps.readAs)
         XCTAssertFalse(before.isEmpty, "the Read as picker shows no selection at all, so the comparison below is vacuous")
-
-        // THE PIPELINE IS BUILT BEFORE THE SETTING IS CHANGED, AND THE ORDER IS MEASURED RATHER
-        // THAN STYLISTIC: moving "Read as" off the detected format makes the worked example
-        // unparseable, every cell renders a failure, and `OutputAccessory`'s `isEnabled` goes false
-        // — so an add-step tap after the change finds a disabled control and the menu never opens.
-        tapUseExample(AccessibilityIdentifiers.Timestamps.useExample)
-        addOneStep()
-        XCTAssertEqual(count(AccessibilityIdentifiers.Step.card), 2, "the add-step control appended nothing to carry across")
-
         let changed = changeTheReadAsSegment()
         XCTAssertNotEqual(changed, before, "the Read as segment did not change, so nothing was persisted to survive")
 
@@ -204,8 +205,9 @@ final class LaunchLayoutTests: XCTestCase {
         let surface = surfaceShowing()
         navigateToTimestamps()
         let restored = selectionShown(AccessibilityIdentifiers.Timestamps.readAs)
+        navigateToEncode()
         let cards = count(AccessibilityIdentifiers.Step.card)
-        let emptied = element(AccessibilityIdentifiers.Timestamps.useExample).waitForExistence(timeout: 20)
+        let emptied = element(AccessibilityIdentifiers.Encode.useExample).waitForExistence(timeout: 20)
         record("criterion3_surface_restored=\(surface)")
         record("criterion3_settings_restored=\(restored == changed) shown=\(restored) expected=\(changed)")
         record("criterion3_cards_restored=\(cards > 1)")

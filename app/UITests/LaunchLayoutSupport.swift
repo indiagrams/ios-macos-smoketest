@@ -144,9 +144,18 @@ extension LaunchLayoutTests {
     func addOneStep() {
         var control = all(AccessibilityIdentifiers.Step.addStep).element(boundBy: 0)
         XCTAssertTrue(control.waitForExistence(timeout: 20), "no add-step control on the surface")
+        // The SCROLL VIEW is swiped, not the application: on iOS 26.1 three `app.swipeUp()` calls
+        // left the control exactly where it started, and the same swipes on the scroller move it.
+        // Bounded at six, because an unbounded retry against a control that will never arrive is
+        // the doomed wait D-107 route 1 exists to keep out of this suite.
+        let scroller = app.scrollViews.firstMatch
         var scrolls = 0
-        while !control.isHittable, scrolls < 3 {
-            app.swipeUp()
+        while !control.isHittable, scrolls < 6 {
+            if scroller.exists {
+                scroller.swipeUp()
+            } else {
+                app.swipeUp()
+            }
             scrolls += 1
             control = all(AccessibilityIdentifiers.Step.addStep).element(boundBy: 0)
         }

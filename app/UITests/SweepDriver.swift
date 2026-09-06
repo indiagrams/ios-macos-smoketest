@@ -180,6 +180,14 @@ extension VisibleStringSweep {
     /// assertion would pass while the population had stopped covering its subject. That is the exact
     /// failure plan 07-12 exists to close, so the eight are named rather than counted.
     ///
+    /// WHAT IT DOES NOT DO, measured on 2026-09-06 rather than assumed: it does not detect the loss
+    /// of walk steps 11-14. All six harvestable strings still match under the ten-step walk, because
+    /// 07-08 wired the footer into all three surfaces and that walk already appends a card on each —
+    /// so the plan's premise that none of the eight was inside the ten-step walk holds for the two
+    /// announcements and is FALSE for the other six. What steps 11-14 add is DEPTH inside those keys
+    /// (`step.position` 2 -> 3 instances, `step.card.label` 13 -> 20) and thirteen distinct strings
+    /// the shorter walk never renders. The aggregate loss is what `distinctFloor` catches.
+    ///
     /// THE TWO UNREACHABLE ONES ARE PRINTED, NOT DROPPED. An exemption here is a labelled count, the
     /// same discipline `SweepPopulation`'s four buckets already follow, so the number moves the day a
     /// runtime starts surfacing announcements or somebody adds a ninth string.

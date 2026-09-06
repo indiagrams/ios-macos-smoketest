@@ -61,10 +61,19 @@ final class VisibleStringSweep: XCTestCase {
     /// 140 - 20 = 120 both fall below 136 — where the old 85 would have let the loss of Hashing pass
     /// unnoticed, since 106 - 11 = 95 is still above it.
     ///
-    /// WHAT THIS FLOOR DOES NOT GUARD, measured rather than hoped: removing ONE of walk steps 11-14
-    /// costs about five distinct strings (142 -> 137 with step 13 taken out), which is inside any
-    /// runtime-safe margin. The four steps are guarded by name instead, in
-    /// ``assertPhase7StringsAreRendered(in:)``; this number guards against losing a SURFACE.
+    /// WHAT THIS NUMBER GUARDS, AND WHAT IT DOES NOT — measured on 2026-09-06, not reasoned:
+    ///
+    ///     the ten-step walk on this same build        harvested_distinct=129   -> RED, 129 < 136
+    ///     the fourteen-step walk minus step 13 alone  harvested_distinct=137   -> green, 137 >= 136
+    ///     the fourteen-step walk minus Timestamps     harvested_distinct=128   -> RED, 128 < 136
+    ///
+    /// So this floor catches losing a SURFACE and it catches losing all four appended steps. It does
+    /// NOT catch losing ONE of them: a single step is worth about five distinct strings, which is
+    /// inside any margin wide enough to survive the runtime spread. Stated as a residual rather than
+    /// closed, because closing it would mean a floor tight enough to flake — the same defect wearing
+    /// the opposite sign. ``assertPhase7StringsAreRendered(in:)`` does not close it either: measured,
+    /// all six harvestable strings still match under the ten-step walk, because 07-08 wired the
+    /// footer into all three surfaces and that walk already appends a card on each.
     ///
     /// iOS 26.1 is absent from that table BY MEASUREMENT and not by omission: the walk does not reach
     /// its assertions on that runtime, and a pristine-tree control at 1e08537 fails identically, so

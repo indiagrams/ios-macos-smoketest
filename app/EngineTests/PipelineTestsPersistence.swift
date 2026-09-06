@@ -252,6 +252,34 @@ extension PipelineTests {
         }
     }
 
+    /// **ONE key corrupted, and all FIVE settings asserted** — the cross-key
+    /// clause D-98's other cases leave open.
+    ///
+    /// The four fixtures are ``CorruptSetting``'s, which are `LaunchState`'s
+    /// four UI corruption cases spelled at the model level, so the MODEL half
+    /// of `LaunchLayoutTests.testCorruptPersistedValuesNeverRenderAControlWithoutASelection`
+    /// is answerable without a UI runner on either platform. The existing D-98
+    /// cases each corrupt a key and assert THAT key; the array case corrupts
+    /// all five at once. Neither asks whether corrupting ONE key can disturb
+    /// the other four — which is exactly the question the macOS failure of
+    /// 2026-09-06 posed, where a corrupt `settings.selection` was reported
+    /// against a blank `Format` control bound to `settings.encodeFormat`.
+    @MainActor
+    @Test(arguments: CorruptSetting.allCases)
+    func corruptingOneKeyLeavesTheOtherFourAtTheirDeclaredDefaults(_ fixture: CorruptSetting) {
+        Self.withSettingsStore { store, _, reference in
+            fixture.seed(into: store)
+            let model = AppModel(defaults: store)
+            let clean = AppModel(defaults: reference)
+            let name = fixture.rawValue
+            #expect(model.selection == clean.selection, "\(name): selection is \(model.selection), not the declared default")
+            #expect(model.encodeFormat == clean.encodeFormat, "\(name): encodeFormat is \(model.encodeFormat), not the declared default")
+            #expect(model.encodeDirection == clean.encodeDirection, "\(name): encodeDirection is \(model.encodeDirection), not the default")
+            #expect(model.timestampsReadAs == clean.timestampsReadAs, "\(name): timestampsReadAs is not the declared default")
+            #expect(model.timestampsTimeZone == clean.timestampsTimeZone, "\(name): timestampsTimeZone is not the declared default")
+        }
+    }
+
     // MARK: - D-95 / D-12 / AR-03 — and nothing it does not
 
     /// After every surface has been given a pipeline, an input and an
@@ -291,6 +319,41 @@ extension PipelineTests {
             for (key, value) in domain {
                 #expect(String(describing: value).contains(secret) == false, "the pasted input reached the store under \(key)")
             }
+        }
+    }
+}
+
+/// The four corruptions `LaunchState` pins through `NSArgumentDomain`, seeded
+/// into a store instead.
+///
+/// A named enum rather than a tuple of `Any`, because `@Test(arguments:)`
+/// requires its elements to be `Sendable` and `Any` is not — the case names
+/// are the UI suite's own case labels verbatim, so a failure here and a
+/// failure there name the same fixture.
+enum CorruptSetting: String, CaseIterable, Sendable {
+    /// `LaunchState.destinationThatDoesNotResolve`.
+    case unresolvableDestination = "unresolvable-destination"
+
+    /// `LaunchState.integerWhereAStringBelongs`.
+    case integerWhereAStringBelongs = "integer-where-a-string-belongs"
+
+    /// `LaunchState.plistArrayWhereAStringBelongs`.
+    case arrayWhereAStringBelongs = "array-where-a-string-belongs"
+
+    /// `LaunchState.timeZoneTheSystemRejects`.
+    case rejectedTimeZone = "rejected-time-zone"
+
+    /// Writes this corruption, and only this corruption, into `store`.
+    func seed(into store: UserDefaults) {
+        switch self {
+        case .unresolvableDestination:
+            store.set("shell.destination.nope", forKey: SettingsKey.selection.rawValue)
+        case .integerWhereAStringBelongs:
+            store.set(42, forKey: SettingsKey.selection.rawValue)
+        case .arrayWhereAStringBelongs:
+            store.set(["a", "b"], forKey: SettingsKey.selection.rawValue)
+        case .rejectedTimeZone:
+            store.set("Mars/Olympus", forKey: SettingsKey.timestampsTimeZone.rawValue)
         }
     }
 }

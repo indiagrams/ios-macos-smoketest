@@ -1,43 +1,36 @@
 import XCTest
 
-// APP-09'S EVIDENCE, ON A RUNNING APP. Nine plans built the capability to edit a chained
-// pipeline; nothing had executed the claim. This file and its macOS twin are that execution.
+// THE macOS TWIN OF `app/UITests/StepEditTests.swift`, DELIBERATELY THE SAME CLASS NAME so it is
+// selectable as `-only-testing:AppMacOSUITests/StepEditTests` beside the iOS suite's
+// `-only-testing:AppUITests/StepEditTests`. Two files rather than one shared one, matching the
+// shipped `ShellTests` pair. The two are kept honest by a gate that extracts the class name, the
+// test method names and the referenced `Step.*` identifiers from BOTH files and compares them —
+// twins that quietly drift are worse than one shared file, because each looks complete on its own.
 //
-// THE ONE THAT MATTERS IS THE DOWNSTREAM VALUE. ROADMAP criterion 2 says "downstream results
-// updating to match". A reorder test that only checks ordinals proves RENUMBERING, not
-// RECOMPUTATION — so every value assertion compares against a string this PROCESS computed, never
-// against one the app also produced. A UI-test process cannot link the app module, which is a
-// feature here: it forces the second computation to be independent. The source is asserted
-// NON-EMPTY first, so no comparison can pass by comparing nothing with nothing
-// (`ShellTests.swift:136..150` is the precedent).
+// `07-UI-SPEC.md` §"Platform Divergence — delta" says the three controls are IDENTICAL on both
+// platforms, as an assertion rather than an aspiration. The only divergence in the driving code
+// below is `.click()` where the iOS twin taps, plus the two platform facts named next.
 //
-// THE OFF-BY-ONE, WRITTEN INTO THE NAMING RATHER THAN INTO A COMMENT. `Step.remove` at
-// `element(boundBy: 0)` is the FIRST APPENDED card, which the header numbers **Step 2** — the root
-// step is synthesised at render time and is not in the array. Every accessor takes an
-// `appendedIndex` and every message spells `Step \(appendedIndex + 2)`. The correction is NOT
-// uniform across surfaces and `07-UI-SPEC.md`'s table was FALSE on Hashing until it was amended:
-// the mapping lives in `StepStackPosition.modelOffset` (`app/Shared/Views/StepStack.swift:68`) and
-// is `stepOffset: 1` on Hashing alone, because `model.hashing.steps.first` IS the chain root.
+// WHERE THIS RUNS, AND WHY NOT HERE. Measured 2026-09-06 with the user present: the macOS runner IS
+// signed (`TeamIdentifier=G5H628C6WR`) and carries no quarantine attribute, and `spctl -a -t exec`
+// still answers `rejected, origin=Apple Development` — Gatekeeper's EXECUTION POLICY refuses a
+// Development-signed bundle that is neither Developer ID nor notarised. A local run dies at `Early
+// unexpected exit` and puts a "damaged" dialog on the developer's own desktop. CI is the arbiter,
+// and a MEASURED one: `pr.yml`'s `test macOS (unsigned)` step runs a full-scheme `xcodebuild test`
+// with `CODE_SIGNING_ALLOWED=NO` and `AppMacOSUITests.xctest` passed there.
 //
-// D-107 ROUTE 1 IS MANDATORY AND THIS FILE IS ITS FIRST REAL STRESS. Every query is
-// identifier-scoped, bounded and COUNT-based; there is no whole-tree walk and no wait on anything
-// that should be ABSENT. D-100's "the root has no remove control" is asserted as
-// `count(Step.remove) == count(Step.card) - 1`, never as a wait for an element that will never
-// arrive: such a wait polls the whole tree for its entire timeout and was 4.5 % of the log volume
-// in both 2026-09-05 simulator crashes (`06-SIMULATOR-CRASH-FINDINGS.md`). Every population is
-// asserted before an index is taken into it, and every element is RE-QUERIED after every mutation.
-//
-// EVERY TEST PINS ITS LAUNCH STATE (07-07). `selection` persists since 07-05, so a case that left
-// the app on Hashing decides the NEXT case's launch surface. `launch(_:)` builds a fresh
-// `XCUIApplication` each time, so a test that visits three surfaces pins three launches.
+// THE FLOOR IS THE PLATFORM'S, NOT A COPIED LITERAL. A macOS hit target is 28 pt against iOS's 44
+// (divergence row 4), so AA-3's two-hit-target floor here is 56 pt and not 88, and the number is
+// stated in the failure message beside the observed distance. And the frames are taken at a KNOWN
+// window size: a frame assertion at whatever size the runner happened to give is a correct check
+// pointed at an unknown population, so the window is resolved and asserted against the 720 x 480
+// minimum before any of rule AA is read.
 //
 // C-25 BOUNDS WHAT THIS PROVES. Both UI-test targets are pinned to `SWIFT_VERSION: "5.9"` /
-// `SWIFT_STRICT_CONCURRENCY: minimal` because fastlane's `SnapshotHelper.swift` predates Swift 6.
-// This suite is APP-09 evidence and never evidence for APP-12. Everything here is Swift 5.9.
-//
-// `print` FROM A UI-TEST BUNDLE DOES NOT REACH xcodebuild's PIPE — 06-16 measured that on both
-// platforms. Every labelled evidence line is therefore emitted TWICE: with `print`, for a local
-// run, and as an `XCTContext` activity, which lands in the `.xcresult` the transcript is read from.
+// `SWIFT_STRICT_CONCURRENCY: minimal`. This suite is APP-09 evidence and never evidence for
+// APP-12. Everything here is Swift 5.9. `print` from this bundle does not reach xcodebuild's pipe
+// on this platform (06-16), so every labelled evidence line is also an `XCTContext` activity, which
+// lands in the `.xcresult` the transcript is read from.
 
 /// Editing a chained pipeline on a running app: the six structural invariants, the ends rule, the
 /// State-Contract-4 narrowing, the downstream values after a remove and after a move, the blocked
@@ -52,8 +45,11 @@ final class StepEditTests: XCTestCase {
     private static let base64EncodeItem = 0
     private static let base64DecodeItem = 1
 
-    /// AA-3's floor: two iOS hit targets, centre to centre, at Dynamic Type `.large`.
-    private static let twoHitTargets: CGFloat = 88
+    /// AA-3's floor: two macOS hit targets (2 x 28 pt), centre to centre. The iOS twin's is 88.
+    private static let twoHitTargets: CGFloat = 56
+
+    /// The window size the frame assertions are taken at, asserted rather than inherited.
+    private static let minimumWindow = CGSize(width: 720, height: 480)
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -104,7 +100,7 @@ final class StepEditTests: XCTestCase {
         let before = appendedOutput(1, expecting: 2)
         XCTAssertEqual(before, base64(base64(once)), "Step 3 shows \(before), expected this process's triple base64")
 
-        appendedControl(AccessibilityIdentifiers.Step.remove, 0).tap()
+        appendedControl(AccessibilityIdentifiers.Step.remove, 0).click()
         XCTAssertEqual(count(AccessibilityIdentifiers.Step.card), 2, "the removal did not take exactly one card")
         let after = appendedOutput(0, expecting: 1)
         XCTAssertEqual(after, base64(once), "the surviving card shows \(after), expected this process's double base64")
@@ -124,7 +120,7 @@ final class StepEditTests: XCTestCase {
         let before = appendedOutput(0, expecting: 2)
         XCTAssertEqual(before, base64(once), "Step 2 shows \(before), expected this process's double base64")
 
-        appendedControl(AccessibilityIdentifiers.Step.moveUp, 1).tap()
+        appendedControl(AccessibilityIdentifiers.Step.moveUp, 1).click()
         let after = appendedOutput(0, expecting: 2)
         XCTAssertEqual(after, source, "after the swap Step 2 shows \(after), expected the input this process read back")
         XCTAssertEqual(appendedOutput(1, expecting: 2), once, "after the swap Step 3 is not this process's single base64")
@@ -145,7 +141,7 @@ final class StepEditTests: XCTestCase {
         print("step_blocked_before=\(before)")
         XCTContext.runActivity(named: "step_blocked_before=\(before)") { _ in }
 
-        appendedControl(AccessibilityIdentifiers.Step.remove, 1).tap()
+        appendedControl(AccessibilityIdentifiers.Step.remove, 1).click()
         let after = count(AccessibilityIdentifiers.Step.blocked)
         XCTAssertEqual(after, 0, "step_blocked_after=\(after) — a card is still blocked after the failing step was removed")
         print("step_blocked_after=\(after)")
@@ -168,7 +164,7 @@ final class StepEditTests: XCTestCase {
         XCTAssertFalse(firstAppended.isEmpty, "Step 2 on Hashing renders nothing, so the comparison below would be vacuous")
         XCTAssertEqual(appendedOutput(1, expecting: 2), base64(firstAppended), "Step 3 is not this process's base64 of Step 2")
 
-        appendedControl(AccessibilityIdentifiers.Step.remove, 0).tap()
+        appendedControl(AccessibilityIdentifiers.Step.remove, 0).click()
         XCTAssertEqual(count(AccessibilityIdentifiers.Step.card), 2, "the removal did not take exactly one card")
         XCTAssertEqual(count(AccessibilityIdentifiers.Hashing.digestMD5), 1, "the chain root's digest row is no longer rendered")
         let surviving = appendedOutput(0, expecting: 1)
@@ -178,12 +174,13 @@ final class StepEditTests: XCTestCase {
     }
 
     /// AA-2 as a column comparison and AA-3 as a centre-to-centre distance, both from the frames a
-    /// running app reports rather than computed from the tokens the code attaches.
+    /// running app reports, at a window size this test asserts rather than inherits.
     func testTheRemoveControlIsNeverAdjacentToAnAddStepControl() {
         launch(LaunchState.encodeDestination)
         tapUseExample(AccessibilityIdentifiers.Encode.useExample)
         addStep(from: 0, choosing: Self.base64EncodeItem)
         addStep(from: 0, choosing: Self.base64EncodeItem)
+        assertWindowIsBigEnoughToMeasure()
 
         let removes = frames(AccessibilityIdentifiers.Step.remove)
         let adds = frames(AccessibilityIdentifiers.Step.addStep)
@@ -202,9 +199,21 @@ final class StepEditTests: XCTestCase {
         XCTAssertGreaterThan(gap, 0, "AA-2: a remove hit rect overlaps an add-step's in x by \(-gap) pt. \(seen)")
         XCTAssertGreaterThanOrEqual(distance, Self.twoHitTargets,
                                     "AA-3: nearest centre-to-centre distance is \(distance) pt, below the "
-                                        + "\(Self.twoHitTargets) pt two-hit-target floor. \(seen)")
+                                        + "\(Self.twoHitTargets) pt macOS two-hit-target floor (2 x 28 pt). \(seen)")
         print("aa2_min_gap_pt=\(gap) aa3_min_distance_pt=\(distance)")
         XCTContext.runActivity(named: "aa2_min_gap_pt=\(gap) aa3_min_distance_pt=\(distance)") { _ in }
+    }
+
+    /// The window the frames are read from, resolved and measured before rule AA is read, and
+    /// recorded on every run so a later reader knows the population the numbers came from.
+    private func assertWindowIsBigEnoughToMeasure() {
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 20), "no window resolved, so any frame below is at an unknown size")
+        let seen = describe(window.frame)
+        print("stepedit_macos_window=\(seen)")
+        XCTContext.runActivity(named: "stepedit_macos_window=\(seen)") { _ in }
+        let big = window.frame.width >= Self.minimumWindow.width && window.frame.height >= Self.minimumWindow.height
+        XCTAssertTrue(big, "the window is \(seen), below the \(Self.minimumWindow) minimum these frames are read at")
     }
 
     /// Build a two-appended-card stack on `destination` and assert all six invariants over it.
@@ -313,7 +322,7 @@ final class StepEditTests: XCTestCase {
         let button = element(identifier)
         XCTAssertTrue(button.waitForExistence(timeout: 30),
                       "the worked-value button is missing — no element carries \(identifier)")
-        button.tap()
+        button.click()
     }
 
     /// Fill the Encode input and hand back what it holds, read from the tree rather than spelled
@@ -329,13 +338,13 @@ final class StepEditTests: XCTestCase {
         let accessories = all(AccessibilityIdentifiers.Step.addStep)
         let control = accessories.element(boundBy: accessoryIndex)
         XCTAssertTrue(control.waitForExistence(timeout: 20), "no add-step control at index \(accessoryIndex)")
-        control.tap()
+        control.click()
         let items = all(AccessibilityIdentifiers.Step.addStepMenu)
         XCTAssertTrue(items.element(boundBy: menuIndex).waitForExistence(timeout: 20),
                       "the add-step menu presented no item at index \(menuIndex)")
         let population = items.count
         XCTAssertEqual(population, Self.operationCount, "the menu presented \(population) items, expected \(Self.operationCount)")
-        items.element(boundBy: menuIndex).tap()
+        items.element(boundBy: menuIndex).click()
     }
 
     /// Base64 decode, decode, encode — Step 2 holds a value, Step 3 fails on text that is not
@@ -346,21 +355,15 @@ final class StepEditTests: XCTestCase {
         addStep(from: 0, choosing: Self.base64EncodeItem)
     }
 
-    /// Empty the Encode input, then put the keyboard away. Emptiness is asserted through the
-    /// worked-value button, rendered only on an empty input — the field's own `value` reports its
-    /// PLACEHOLDER when empty and would answer the wrong question.
+    /// Empty the Encode input — no software keyboard here and no Done control compiled in, so a
+    /// click and a run of deletions. Emptiness is asserted through the worked-value button,
+    /// rendered only on an empty input; the field's own `value` reports its PLACEHOLDER when empty.
     private func clearTheEncodeInput() {
         let field = element(AccessibilityIdentifiers.Encode.input)
         let existing = (field.value as? String) ?? ""
         XCTAssertFalse(existing.isEmpty, "there is nothing to clear — the Encode input is already empty")
-        for _ in 0 ..< 3 {
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            if app.keyboards.element.exists || app.keyboards.element.waitForExistence(timeout: 5) {
-                break
-            }
-        }
+        field.click()
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count + 2))
-        element(AccessibilityIdentifiers.Input.done).tap()
         XCTAssertTrue(element(AccessibilityIdentifiers.Encode.useExample).waitForExistence(timeout: 15),
                       "the Encode input still holds text after \(existing.count + 2) deletions")
     }

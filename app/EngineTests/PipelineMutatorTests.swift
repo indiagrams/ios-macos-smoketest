@@ -27,6 +27,27 @@
 // EVERY EXPECTED VALUE BELOW IS COMPUTED HERE from the operations involved,
 // never copied off a run: a literal lifted out of a transcript records what
 // the code did rather than what it should do.
+//
+// MEASURED, 2026-09-05 — evidence/07-02-pipeline-mutators.txt. A green is a
+// claim until somebody has seen it go red, so both halves of the totality
+// guarantee were driven red and watched:
+//
+//   control=pipeline-out-of-range-trap    exit=133 (SIGTRAP)
+//       The range guard deleted from `Pipeline.removing(at:)`, the same file
+//       recompiled under the project's own `-swift-version 6
+//       -strict-concurrency=complete` flags, `removing(at: 5)` on a two-step
+//       pipeline: `Swift/Array.swift:1350: Fatal error: Index out of range`.
+//       Run OUT of the test host, in a command-line binary, so that proving it
+//       cost no crash dialog. Guard restored, same binary, exit 0.
+//   control=pipeline-out-of-range-unchanged  exit=65, 6 issues
+//       The guard kept but returning an emptied pipeline instead of `self`,
+//       recompiled INTO this bundle: the sweep below failed and named the case
+//       — "removing past the end: the receiver came back changed". So the
+//       assertion is live and its message identifies which request broke.
+//
+// Both mutations were confirmed applied by a sha256 that moved, and both were
+// confirmed restored by a sha256 that came back. Executed counts for the
+// restored tree: 42 under AppMacOSTests, 42 under AppTests (iOS 18.6 sim).
 
 import Foundation
 import Testing

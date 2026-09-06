@@ -179,6 +179,17 @@ extension Pipeline {
     ///   host-based and a trap takes the whole run with it."* A UI race that
     ///   removes index 2 from a two-element array must fall on the floor, not
     ///   kill the test host and post a crash dialog on someone's desktop.
+    ///
+    ///   **Measured, not assumed** (2026-09-05, evidence/07-02-pipeline-mutators.txt).
+    ///   With that one `guard` line deleted, this same file compiled under the
+    ///   project's own `-swift-version 6 -strict-concurrency=complete` flags and
+    ///   asked to remove index 5 from a two-step pipeline dies at
+    ///   `Swift/Array.swift:1350: Fatal error: Index out of range`, exit 133 —
+    ///   SIGTRAP. With it restored, exit 0. The guard is therefore load-bearing
+    ///   rather than decorative, and that was established by driving it red and
+    ///   watching, not by reading it. The control runs OUT of the test host, in a
+    ///   command-line binary, precisely so that proving this does not cost a
+    ///   crash-reporter dialog on a desktop.
     nonisolated func removing(at index: Int) -> Pipeline {
         guard steps.indices.contains(index) else { return self }
         var remaining = steps
@@ -208,8 +219,9 @@ extension Pipeline {
     /// - Returns: The pipeline with the two steps swapped, or `self` unchanged
     ///   when either index is out of range or the two are not neighbours.
     /// - Note: Guards rather than preconditions, for ``removing(at:)``'s
-    ///   reason: these bundles are host-based and a trap takes the whole run
-    ///   with it.
+    ///   reason, and with the same measurement behind them: these bundles are
+    ///   host-based and a trap takes the whole run with it. `swapAt` traps on a
+    ///   bad index exactly as `remove(at:)` does.
     nonisolated func moving(from source: Int, to destination: Int) -> Pipeline {
         guard steps.indices.contains(source), steps.indices.contains(destination) else { return self }
         guard abs(source - destination) == 1 else { return self }

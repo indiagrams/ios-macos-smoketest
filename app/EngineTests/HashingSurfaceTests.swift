@@ -154,4 +154,115 @@ struct HashingSurfaceTests {
         let chained = Base64Codec.encode(sha256?.value ?? "")
         #expect(states.last == .value(chained))
     }
+
+    // MARK: - The chain root is not an appended card (plan 07-08)
+
+    /// A surface whose chain is rooted at SHA-256, with `count` cards appended
+    /// below it — the shape `chain(from:to:)` actually writes.
+    private func chainedSurface(appending operations: [Operation]) -> HashingSurface {
+        let model = AppModel.isolated()
+        model.hashing = Pipeline(
+            input: InputExample.hashing,
+            steps: [Step(operation: .sha256)] + operations.map { Step(operation: $0) }
+        )
+        return HashingSurface(model: model)
+    }
+
+    @Test("the chain root is rendered by the root card and is never an appended card")
+    func theChainRootIsNeverAnAppendedCard() {
+        let surface = chainedSurface(appending: [.base64Encode, .md5])
+        let cards = surface.appendedCards
+        // Three steps, TWO appended cards. 07-UI-SPEC's index mapping says
+        // `steps` holds "only the appended steps"; on this surface it does not.
+        #expect(surface.model.hashing.steps.count == 3)
+        #expect(cards.count == 2)
+        #expect(!cards.isEmpty)
+        #expect(cards.first?.step.operation == .base64Encode)
+        #expect(cards.last?.step.operation == .md5)
+
+        // The offset, stated as the two numbers it separates: the first
+        // appended card is appended index 0 and MODEL index 1.
+        #expect(cards.first?.position.appendedIndex == 0)
+        #expect(cards.first?.position.modelIndex == 1)
+        #expect(cards.first?.position.modelOffset == 1)
+        // The ordinal is unaffected by the offset — the root card is Step 1
+        // here exactly as it is on the other two surfaces.
+        #expect(cards.first?.position.visibleOrdinal == 2)
+        #expect(cards.last?.position.visibleOrdinal == 3)
+        #expect(cards.first?.position.totalCards == 3)
+    }
+
+    @Test("removing the first appended card leaves the chain root exactly where it was")
+    func removingTheFirstAppendedCardLeavesTheChainRootIntact() {
+        let surface = chainedSurface(appending: [.base64Encode, .md5])
+
+        // EXISTENCE BEFORE ABSENCE: the root is there, and it is SHA-256.
+        #expect(surface.model.hashing.steps.first?.operation == .sha256)
+        let rootID = surface.model.hashing.steps.first?.id
+        #expect(rootID != nil)
+        let target = surface.appendedCards.first
+        #expect(target != nil)
+
+        // Driven through the surface's OWN remove, which is the call site a
+        // wrong index would live at. With `stepOffset: 0` this deletes the
+        // chain root instead — every card below then reads a different value
+        // under an unchanged header, with no confirmation and no undo (D-101).
+        if let target {
+            surface.remove(target.position)
+        }
+
+        #expect(surface.model.hashing.steps.count == 2)
+        #expect(surface.model.hashing.steps.first?.operation == .sha256,
+                "the removal deleted the chain root instead of the first appended card")
+        #expect(surface.model.hashing.steps.first?.id == rootID)
+        let after = surface.appendedCards
+        #expect(after.count == 1)
+        #expect(after.first?.step.operation == .md5)
+        #expect(after.first?.position.visibleOrdinal == 2)
+    }
+
+    @Test("the topmost appended card cannot rise above the chain root")
+    func theTopmostAppendedCardCannotRiseAboveTheChainRoot() {
+        let surface = chainedSurface(appending: [.base64Encode, .md5])
+        let top = surface.appendedCards.first
+        #expect(top != nil)
+        #expect(top?.position.canMoveUp == false)
+        // Its model index is 1, so `modelIndex - 1` is a REAL index holding the
+        // chain root. destinationIndex answers its own index instead, and the
+        // pipeline rejects the swap as non-adjacent — the boundary is safe by
+        // construction and not only by the disabled modifier.
+        #expect(top?.position.destinationIndex(.up) == 1)
+        let before = surface.model.hashing.steps.map(\.operation)
+        if let top {
+            surface.move(top.position, .up)
+        }
+        #expect(surface.model.hashing.steps.map(\.operation) == before)
+        #expect(surface.model.hashing.steps.first?.operation == .sha256)
+
+        // A move that IS allowed still works, so the guard above is not simply
+        // breaking every move.
+        if let top {
+            surface.move(top.position, .down)
+        }
+        #expect(surface.model.hashing.steps.map(\.operation) == [.sha256, .md5, .base64Encode])
+    }
+
+    @Test("footer enablement on this surface depends on position only")
+    func footerEnablementDependsOnPositionOnly() {
+        // A failing card and the card blocked beneath it: base64 decoding a
+        // hex digest fails, which blocks everything below it.
+        let surface = chainedSurface(appending: [.base64Decode, .md5])
+        let cards = surface.appendedCards
+        #expect(cards.count == 2)
+        #expect(!cards.isEmpty)
+        let blocked = cards.filter { $0.state == .blocked }.count
+        #expect(blocked > 0, "nothing was blocked, so the independence claim below proves nothing")
+
+        // Both cards answer the ends rule and nothing else, in a stack where
+        // one has failed and one is blocked.
+        #expect(cards.first?.position.canMoveUp == false)
+        #expect(cards.first?.position.canMoveDown == true)
+        #expect(cards.last?.position.canMoveUp == true)
+        #expect(cards.last?.position.canMoveDown == false)
+    }
 }

@@ -222,20 +222,33 @@ struct TimestampCellView: View {
     /// Chains a new step from THIS cell's value.
     let onAddStep: (Operation) -> Void
 
-    /// Title, value block, accessory — in that order, in every state.
+    /// Title with the accessory on its trailing side, then the value block —
+    /// in that order, in every state.
+    ///
+    /// **The accessory shares the TITLE ROW rather than owning a row beneath
+    /// the value block, and that is criterion 5 rather than a preference**
+    /// (amended 2026-09-06; the original arrangement, and 06-UI-SPEC's mockup
+    /// of it, drew the accessory below the value block). Measured on iPhone SE
+    /// (3rd generation), 375 × 667, portrait, Dynamic Type `.large`, at launch:
+    /// with the accessory on its own row the first cell's add-step control sat
+    /// at `(299, 626, 44, 44)` — under a tab bar whose top edge is y ≈ 618 and
+    /// past the bottom of a 667 pt screen — so D-102 clause 2 was FALSE on this
+    /// surface and `docs/REVIEW-ARGUMENTS.md`'s 4.3(b) "primary work surface"
+    /// argument was false with it. Timestamps was the app's only output that
+    /// let its accessory own a row: ``DigestRowView`` puts the accessory beside
+    /// the value in BOTH of its branches, and `EncodeBody.outputSection` puts
+    /// it on the "Output" label's row. This is that same house arrangement, and
+    /// it reclaims the accessory's row plus one `Spacing.sm` per cell.
+    ///
+    /// **Still one accessory per CELL** (D-80, D-86, D-81/APP-08). Three cells,
+    /// three add-step controls; nothing here consolidates them onto the card,
+    /// which is the arrangement `OutputAccessory`'s own header rules out.
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text(verbatim: cell.title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            OutputBlock(
-                state: cell.state,
-                placeholder: "timestamps.output.placeholder",
-                domain: .timestamps,
-                valueIdentifier: cell.identifier
-            )
-            .copyableOutput(cell.value)
-            HStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                Text(verbatim: cell.title)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 OutputAccessory(
                     value: cell.value ?? "",
@@ -243,6 +256,13 @@ struct TimestampCellView: View {
                     onAddStep: onAddStep
                 )
             }
+            OutputBlock(
+                state: cell.state,
+                placeholder: "timestamps.output.placeholder",
+                domain: .timestamps,
+                valueIdentifier: cell.identifier
+            )
+            .copyableOutput(cell.value)
         }
     }
 }

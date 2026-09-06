@@ -16,6 +16,27 @@ import XCTest
 // So a pinned test neither needs the app deleted between cases nor a reset control added to
 // shipped code — and it leaves no residue for the next case, which a disk write would.
 //
+// CORRECTED 2026-09-06, AFTER 07-11 MEASURED IT THREE WAYS. The sentence above is preserved and
+// it is true of the ARGUMENT DOMAIN and FALSE OF THE APP. `AppModel.hydrate()` runs inside
+// `init`; `RootView` declares `@State private var model = AppModel()`, whose initialiser
+// expression is re-evaluated on EVERY render pass; and each throwaway model reads the
+// HIGHEST-RANKING defaults domain and writes what it read straight back out through `didSet`.
+// With a pin in place that highest-ranking domain is `NSArgumentDomain`, so every re-render
+// writes the PINNED value into the app's own persistent store, over whatever the user has since
+// chosen. Measured on iOS 17.5 (07-11, `evidence/07-11-launch-layout.txt`), reading the app's own
+// plist: pinned + a tab tap to Timestamps + 8 s alive answered `encode`; pinned + the same tap +
+// terminate answered `encode`; the SAME tap after an UNPINNED launch answered `timestamps`.
+//
+// TWO CONSEQUENCES, BOTH LOAD-BEARING. A pinned launch DOES leave residue — in the persistent
+// domain, written by the app rather than by the pin. And a `LaunchState`-pinned launch CANNOT
+// prove a persistence claim at all: it silently reverts the very change such a test is about, so
+// the test measures the pin and reports it as the app. Criterion 3's relaunch case in
+// `LaunchLayoutTests` therefore pins NOTHING on either launch and drives instead, which
+// `onlySurface(_:)` below already names as the stronger of the two guarantees. The underlying
+// `@State` re-evaluation is NOT a defect this note authorises anyone to go fix: changing it is a
+// design change, and it is recorded here so the next reader knows the shape rather than
+// rediscovering it from a green run that measured nothing.
+//
 // THE SHIPPED PRECEDENT IS `app/Shared/App.swift:5..23`, `-UITestColorScheme`, reused rather than
 // re-argued: real users never pass these, so they are a no-op outside a UI test.
 //

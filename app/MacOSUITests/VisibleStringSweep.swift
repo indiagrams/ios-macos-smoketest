@@ -32,21 +32,25 @@ import XCTest
 /// Every string the app renders, on every surface, in both appearances — and no prose term among them.
 @MainActor
 final class VisibleStringSweep: XCTestCase {
-    private typealias Ident = AccessibilityIdentifiers
+    /// Internal, not private: `SweepDriver.swift` and `SweepSurfaces.swift` are cross-file
+    /// extensions of this class and Swift `private` does not reach them.
+    typealias Ident = AccessibilityIdentifiers
 
-    private var app: XCUIApplication!
+    /// Internal rather than private: `SweepDriver.swift` is a cross-file extension of this class
+    /// and Swift `private` does not reach it. Nothing outside this target can see either.
+    var app: XCUIApplication!
 
     /// The application element's own `label`. EMPTY ON macOS, and that is a measurement rather than an
     /// expectation: run 33959451763, job `app (macOS)`, failed clause 3 with
     /// `XCTAssertGreaterThan failed: ("0") is not greater than ("3") - the application element carries
     /// no name`, after a full 82.8-second walk. The iOS twin reads the display name straight off this
     /// property; on macOS it is blank and the name has to come from the menu bar instead.
-    private var applicationLabel = ""
+    var applicationLabel = ""
 
     /// The menu bar's top-level item titles, in order. Index 1 is the application menu, which is what
     /// settles RESEARCH assumption A3 — whether AppKit resolves that title from `CFBundleDisplayName`
     /// or `CFBundleName` was deliberately left unmeasured, and this reads it off the running app.
-    private var menuBarItems: [String] = []
+    var menuBarItems: [String] = []
 
     /// The product name as the RUNNING APP presents it, with the source it came from.
     ///
@@ -85,7 +89,7 @@ final class VisibleStringSweep: XCTestCase {
 
     // MARK: - The gate
 
-    /// The walk, in both appearances, then the assertions in the order that matters.
+    /// The fourteen-step walk, in both appearances, then the assertions in the order that matters.
     func testNoProseTermIsRenderedOnAnySurface() throws {
         var seen = SweepHarvest()
         let headless = NSHomeDirectory() == "/Users/runner"
@@ -148,45 +152,11 @@ final class VisibleStringSweep: XCTestCase {
         }
     }
 
-    // MARK: - The harvest
-
-    /// Appends the non-empty `label`, `title`, `placeholderValue` and string `value` at `node`, then
-    /// recurses over `node.children`. One `try app.snapshot()` feeds the whole walk of the tree.
-    private func harvest(_ node: XCUIElementSnapshot, inherited: SweepBucket, into out: inout SweepHarvest) {
-        let subtree = SweepPopulation.subtreeBucket(node, inherited: inherited)
-        let own = SweepPopulation.ownBucket(node, subtree: subtree)
-        let candidates = [
-            node.label,
-            node.title,
-            node.placeholderValue ?? "",
-            (node.value as? String) ?? ""
-        ]
-        for value in candidates where !value.isEmpty {
-            out.add(value, to: own)
-        }
-        if node.elementType == .menuBarItem {
-            let name = node.title.isEmpty ? node.label : node.title
-            if !name.isEmpty, !menuBarItems.contains(name) {
-                menuBarItems.append(name)
-            }
-        }
-        for child in node.children {
-            harvest(child, inherited: subtree, into: &out)
-        }
-    }
-
-    /// One harvest point: one round trip, four properties per node, the whole tree.
-    private func snap(into out: inout SweepHarvest) throws {
-        let root = try app.snapshot()
-        if !root.label.isEmpty {
-            applicationLabel = root.label
-        }
-        harvest(root, inherited: .rendered, into: &out)
-    }
-
     // MARK: - The walk
 
-    /// Launch, then each surface in turn, harvesting after every step.
+    /// Launch, then each surface in turn, harvesting after every step. Then steps 11-14, which
+    /// plan 07-12 appended and which run inside this function for the same reason the other steps
+    /// do — so the appearance loop above carries them too.
     private func walk(into out: inout SweepHarvest) throws {
         XCTAssertTrue(
             element(Ident.Shell.sidebarEncode).waitForExistence(timeout: 30),
@@ -203,198 +173,211 @@ final class VisibleStringSweep: XCTestCase {
         visit(Ident.Shell.sidebarTimestamps)
         try snap(into: &out)
         try timestampsSurface(into: &out)
+
+        try footerEditsAndTheRoot(into: &out)
     }
 
-    /// The encode/decode surface — the only one with an input-validation failure, and the only one
-    /// whose error states this walk can reach, because it reaches them by CLICKING the direction
-    /// picker rather than by typing. The worked value is not valid Base64 and its `&` opens an HTML
-    /// entity that is never closed, so decode gives two of the app's error sentences for free.
-    private func encodeSurface(into out: inout SweepHarvest) throws {
-        press(element(Ident.Encode.useExample), "the Encode worked-value button")
-        try snap(into: &out)
-
-        for index in 0 ..< 3 {
-            press(segment(Ident.Encode.format, index), "the format picker's segment \(index)")
-            try snap(into: &out)
-        }
-        press(segment(Ident.Encode.direction, 1), "the direction picker's decode segment")
-        for index in 0 ..< 3 {
-            press(segment(Ident.Encode.format, index), "the format picker's segment \(index)")
-            try snap(into: &out)
-        }
-        for fixture in SweepPopulation.encodeFixtures {
-            replaceInput(Ident.Encode.input, with: fixture.text)
-            for format in fixture.formats {
-                press(segment(Ident.Encode.format, format), "the format picker's segment \(format)")
-                try snap(into: &out)
-            }
-        }
-
-        clearInput(Ident.Encode.input, revealing: Ident.Encode.useExample)
-        press(segment(Ident.Encode.direction, 0), "the direction picker's encode segment")
-        press(segment(Ident.Encode.format, 0), "the format picker's first segment")
-        press(element(Ident.Encode.useExample), "the Encode worked-value button")
-
-        try chainAndBlock(into: &out)
+    /// One measured number out of the walk. A `print` from this bundle never reaches the workflow
+    /// log (06-01), so every number also rides an `XCTContext` activity — the one channel that
+    /// crosses testmanagerd. Kept as a function so the four steps below are byte-identical twins
+    /// of the iOS ones.
+    private func record(_ line: String) {
+        print(line)
+        XCTContext.runActivity(named: line) { _ in }
     }
 
-    /// Copy, open the menu, choose an operation, then drive the appended card to blocked.
+    // MARK: - Steps 11-14: the footers, a move, a removal, and the root alone
+
+    /// The four steps 07-UI-SPEC §"Harvest Population — delta" appends to the ten above. Inside
+    /// `walk(into:)`, so they run in BOTH appearances like every other step.
     ///
-    /// Menu items are in the accessibility tree ONLY WHILE THE MENU IS OPEN, which is why the menu is
-    /// opened and harvested before an item is chosen. The order after that is deliberate and is not
-    /// the one the walk table reads at first glance: a step whose output is an error has its add-step
-    /// control `.disabled(true)` by the State Contract, so the card is appended while the pipeline is
-    /// VALID and the failure is installed afterwards. That is what puts the blocked sentence on screen.
-    private func chainAndBlock(into out: inout SweepHarvest) throws {
-        press(control(Ident.Step.copy, 0), "the first copy control")
-        try snap(into: &out)
+    /// ON THE ENCODE SURFACE, AND THAT IS FORCED RATHER THAN CHOSEN. Step 13 needs a step that
+    /// FAILS with another step below it, and encode/decode is the only surface whose root output
+    /// can be turned into invalid input for the operation beneath it: hashing cannot fail (any
+    /// `String` has a UTF-8 encoding and every encoding has a digest) and the timestamps
+    /// conversions are not chainable at all, which `Operation`'s own header states.
+    ///
+    /// WHAT THIS BRINGS INTO THE POPULATION, which is the entire point of appending it:
+    /// `Step.position` on every card at four stack lengths, `Step.rootNote` on the root, the three
+    /// footer control labels, the container label at those same lengths, and the values a reorder
+    /// and a splice recompute. The two ANNOUNCEMENTS are not here and cannot be — the measured
+    /// reason and their alternative coverage site are in `SweepPopulation.phase7Strings`.
+    private func footerEditsAndTheRoot(into out: inout SweepHarvest) throws {
+        visit(Ident.Shell.sidebarEncode)
+        try twoAppendedCards(into: &out)
+        try readEveryFooter(into: &out)
+        try moveTheFirstAppendedCardDown(into: &out)
+        try removeTheFailingStep(into: &out)
+        try emptyTheStackToTheRoot(into: &out)
+    }
 
-        press(control(Ident.Step.addStep, 0), "the first add-step control")
-        try snap(into: &out)
-
-        // The SEEDED card's value carries the surface's own constant; only APPENDED cards use the
-        // shared `Step.output`. Measured from the running tree, not assumed.
-        let source = element(Ident.Encode.output).label
-        press(control(Ident.Step.addStepMenu, 0), "the add-step menu's first item")
-
-        // ROADMAP criterion 8 / APP-08, asserted as its CONJUNCTION rather than as the existence of a
-        // view type: the control is on screen, it was used, and the appended card renders the CHAINED
-        // result. The first menu item is `Operation.allCases.first`, whose expected value this process
-        // computes for itself — no app code is linked to produce it.
-        let chained = control(Ident.Step.output, 0)
-        XCTAssertTrue(chained.waitForExistence(timeout: 15), "the add-step menu appended no card")
-        XCTAssertEqual(
-            chained.label,
-            Data(source.utf8).base64EncodedString(),
-            "app08_chained_macos=failed — the appended step did not render the chained result of \"\(source)\""
-        )
-        try snap(into: &out)
-        XCTContext.runActivity(named: "app08_chained_macos=ok") { _ in }
-
-        press(segment(Ident.Encode.direction, 1), "the direction picker's decode segment")
-        XCTAssertTrue(
-            element(Ident.Step.blocked).waitForExistence(timeout: 15),
-            "an appended step below a failing one is not blocked"
-        )
-        try snap(into: &out)
+    /// Step 11's precondition: the app's declared defaults, a worked value, and exactly two
+    /// appended cards carrying DIFFERENT operations.
+    ///
+    /// NORMALISED FROM WHATEVER THE TEN STEPS LEFT, and that is a correctness requirement rather
+    /// than tidiness. The macOS walk arrives here with the card `chainAndBlock` appended still on
+    /// the stack, so appending two more would leave the first two cards holding the SAME
+    /// operation — and step 12's move would then swap two identical steps, changing nothing any
+    /// assertion could see. The iOS twin happens to arrive with an empty stack, but only because
+    /// `dismissKeyboard` relaunches; that is an accident of another mechanism, not a guarantee,
+    /// and a population that depends on one is the wrong population.
+    private func twoAppendedCards(into out: inout SweepHarvest) throws {
+        clearAppendedCards()
         press(segment(Ident.Encode.direction, 0), "the direction picker's encode segment")
-    }
-
-    /// Hashing. **It has no input-validation failure** — any `String` has a UTF-8 encoding and every
-    /// encoding has a digest — so there is no error fixture here and a later reader should not go
-    /// looking for a hashing error string. Its only non-output state is *blocked*, which is reachable
-    /// on an appended card and is harvested on the encode surface above.
-    private func hashingSurface(into out: inout SweepHarvest) throws {
-        press(element(Ident.Hashing.useExample), "the Hashing worked-value button")
-        try snap(into: &out)
-
-        press(control(Ident.Step.copy, 0), "the first digest's copy control")
-        try snap(into: &out)
-
-        press(control(Ident.Step.addStep, 0), "the first digest's add-step control")
-        try snap(into: &out)
-        press(control(Ident.Step.addStepMenu, 0), "the add-step menu's first item")
-        try appendedCard(into: &out)
-    }
-
-    /// Timestamps: the picker's three options, the caption, the Detect title and the cell titles.
-    private func timestampsSurface(into out: inout SweepHarvest) throws {
-        press(element(Ident.Timestamps.useExample), "the Timestamps worked-value button")
-        try snap(into: &out)
-
-        for index in 0 ..< 3 {
-            press(segment(Ident.Timestamps.readAs, index), "the read-as picker's segment \(index)")
-            try snap(into: &out)
+        press(segment(Ident.Encode.format, 0), "the format picker's Base64 segment")
+        if element(Ident.Encode.useExample).exists {
+            press(element(Ident.Encode.useExample), "the Encode worked-value button")
         }
-        press(element(Ident.Timestamps.detect), "the detect control")
-        try snap(into: &out)
-
-        for fixture in SweepPopulation.timestampFixtures {
-            replaceInput(Ident.Timestamps.input, with: fixture)
-            try snap(into: &out)
-        }
-        clearInput(Ident.Timestamps.input, revealing: Ident.Timestamps.useExample)
-        press(element(Ident.Timestamps.useExample), "the Timestamps worked-value button")
-
-        press(control(Ident.Step.copy, 0), "the first representation's copy control")
-        try snap(into: &out)
-        press(control(Ident.Step.addStep, 0), "the first representation's add-step control")
-        try snap(into: &out)
-        press(control(Ident.Step.addStepMenu, 0), "the add-step menu's first item")
-        try appendedCard(into: &out)
+        try appendStep(choosing: 0, into: &out)
+        try appendStep(choosing: 1, into: &out)
     }
 
-    /// Waits for the card the add-step menu appended, THEN harvests it. Measured on the iOS twin: the
-    /// snapshot taken straight after the menu tap caught the card unrendered on one runtime and
-    /// rendered on another, and a population that depends on a race is the wrong population.
-    private func appendedCard(into out: inout SweepHarvest) throws {
-        XCTAssertTrue(control(Ident.Step.output, 0).waitForExistence(timeout: 15), "the menu appended no card")
+    /// Opens the ROOT card's add-step control and chooses `menuItem` in `Operation.allCases`
+    /// order — 0 is Base64 encode and 1 is Base64 decode, the two the steps below rely on being
+    /// different. The menu's population is asserted before the index is taken, and the card count
+    /// before and after is what proves the choice landed.
+    private func appendStep(choosing menuItem: Int, into out: inout SweepHarvest) throws {
+        let before = count(Ident.Step.card)
+        press(control(Ident.Step.addStep, 0), "the root card's add-step control")
+        let items = count(Ident.Step.addStepMenu)
+        XCTAssertGreaterThan(items, menuItem, "the add-step menu presents \(items) items, so item \(menuItem) is outside it")
+        press(control(Ident.Step.addStepMenu, menuItem), "the add-step menu's item \(menuItem)")
+        XCTAssertTrue(
+            control(Ident.Step.card, before).waitForExistence(timeout: 15),
+            "the add-step menu appended no card: the stack stayed at \(before)"
+        )
         try snap(into: &out)
     }
 
-    // MARK: - Driving, all of it by identifier
-
-    /// The first element carrying `identifier`, whatever kind of element it is. Deliberately not scoped
-    /// to a query category: a sidebar row, a card and a menu item are different element types.
-    private func element(_ identifier: String) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
-    }
-
-    /// The `index`th element carrying `identifier` — the shape the `Step.*` constants are designed for.
-    private func control(_ identifier: String, _ index: Int) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).element(boundBy: index)
-    }
-
-    /// One segment of a segmented picker, by index. A picker surfaces as buttons on iOS and as radio
-    /// buttons on macOS, so both are tried rather than assumed.
-    private func segment(_ identifier: String, _ index: Int) -> XCUIElement {
-        let picker = element(identifier)
-        let buttons = picker.buttons
-        return buttons.count > index ? buttons.element(boundBy: index) : picker.radioButtons.element(boundBy: index)
-    }
-
-    /// `exists` first, `waitForExistence` only if it does not: the waiting form costs a full second per
-    /// call even when the element is already there, and this walk makes some forty of them.
-    private func press(_ target: XCUIElement, _ what: String) {
-        if !target.exists {
-            XCTAssertTrue(target.waitForExistence(timeout: 20), "the walk cannot reach \(what)")
+    /// Removes appended cards until none is left, and answers how many passes that took.
+    ///
+    /// Bounded twice over: by the remove population, which must shrink by one each pass, and by a
+    /// hard trip count, so a control that stops responding ends the loop with a named failure
+    /// instead of spinning against the accessibility tree — the volume D-107 is about.
+    @discardableResult
+    private func clearAppendedCards() -> Int {
+        var remaining = count(Ident.Step.remove)
+        var passes = 0
+        while remaining > 0, passes < 12 {
+            press(control(Ident.Step.remove, 0), "the topmost appended card's remove control")
+            XCTAssertTrue(
+                control(Ident.Step.remove, remaining - 1).waitForNonExistence(timeout: 15),
+                "a card was dropped and its footer control is still in the tree"
+            )
+            remaining = count(Ident.Step.remove)
+            passes += 1
         }
-        target.click()
+        XCTAssertEqual(remaining, 0, "the stack would not empty: \(remaining) footer controls left after \(passes) passes")
+        return passes
     }
 
-    /// Replaces a field's contents. A FIXED, GENEROUS DELETE COUNT rather than one derived from
-    /// `value`: an empty field reports its PROMPT as `value`, so a derived count is wrong in both
-    /// directions, and over-deleting an empty field is a no-op.
-    private func replaceInput(_ identifier: String, with text: String) {
-        let field = element(identifier)
-        if !field.exists {
-            XCTAssertTrue(field.waitForExistence(timeout: 20), "the walk cannot reach the input \(identifier)")
-        }
-        field.click()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
-        if !text.isEmpty {
-            field.typeText(text)
-        }
+    /// STEP 11 — read the footer of every card on a surface with two appended cards.
+    ///
+    /// READ, never press. Every string a footer renders has to be in the population whether or not
+    /// a control is ever activated, so this step activates nothing.
+    ///
+    /// The six structural invariants are asserted HERE, before anything indexes into the stack.
+    /// That is this walk's house rule — assert a population before indexing into it — and they are
+    /// also criterion 2's evidence, which is why the UI contract lists this step under both.
+    private func readEveryFooter(into out: inout SweepHarvest) throws {
+        let cards = count(Ident.Step.card)
+        let positions = count(Ident.Step.position)
+        let notes = count(Ident.Step.rootNote)
+        let ups = count(Ident.Step.moveUp)
+        let downs = count(Ident.Step.moveDown)
+        let removes = count(Ident.Step.remove)
+        XCTAssertGreaterThanOrEqual(cards, 3, "step 11 needs a root and two appended cards; the stack holds \(cards)")
+        XCTAssertEqual(positions, cards, "\(positions) of \(cards) cards carry an ordinal")
+        XCTAssertEqual(notes, 1, "\(notes) cards show the root note, expected exactly one")
+        XCTAssertEqual(ups, cards - 1, "\(ups) move-up controls for \(cards) cards")
+        XCTAssertEqual(downs, cards - 1, "\(downs) move-down controls for \(cards) cards")
+        XCTAssertEqual(removes, cards - 1, "\(removes) remove controls for \(cards) cards — D-100 says one per APPENDED card")
+        let ordinals = (0 ..< positions).map { control(Ident.Step.position, $0).label }
+        XCTAssertEqual(Set(ordinals).count, positions, "two cards render the same ordinal: \(ordinals)")
+        record("step11_cards=\(cards) step11_positions=\(positions) step11_rootnotes=\(notes) "
+            + "step11_moveups=\(ups) step11_movedowns=\(downs) step11_removes=\(removes)")
+        try snap(into: &out)
     }
 
-    /// Empties a field and CONFIRMS it, by the worked-value button that only exists while it is empty.
-    /// Measured on the iOS twin: a clear that is not verified is a step that can silently not happen.
-    private func clearInput(_ identifier: String, revealing button: String) {
-        for _ in 0 ..< 3 {
-            replaceInput(identifier, with: "")
-            if element(button).exists {
-                return
-            }
-        }
-        XCTFail("clearing \(identifier) never revealed \(button) — the field would not empty")
+    /// STEP 12 — move down on the FIRST appended card.
+    ///
+    /// The two cards carry different operations, so the swap is observable three ways: the
+    /// ORDINALS belong to slots and must NOT move, the container labels — "Step %lld of %lld, %@"
+    /// — swap their operation halves, and the value under the first appended ordinal is
+    /// recomputed. Asserting the ordinals alone would prove renumbering and not recomputation,
+    /// which is the distinction `StepEditTests` was written around.
+    ///
+    /// The MOVE ANNOUNCEMENT is posted by this press and is NOT in the tree; see
+    /// `SweepPopulation.phase7Strings` for the measurement and where the string is covered.
+    private func moveTheFirstAppendedCardDown(into out: inout SweepHarvest) throws {
+        let cards = count(Ident.Step.card)
+        let labelsBefore = (1 ..< cards).map { control(Ident.Step.card, $0).label }
+        let ordinalsBefore = (0 ..< cards).map { control(Ident.Step.position, $0).label }
+        let outputBefore = control(Ident.Step.output, 0).label
+        press(control(Ident.Step.moveDown, 0), "the first appended card's move-down control")
+        try snap(into: &out)
+        XCTAssertEqual(count(Ident.Step.card), cards, "the move changed the stack length")
+        let labelsAfter = (1 ..< cards).map { control(Ident.Step.card, $0).label }
+        let ordinalsAfter = (0 ..< cards).map { control(Ident.Step.position, $0).label }
+        let outputAfter = control(Ident.Step.output, 0).label
+        XCTAssertEqual(ordinalsAfter, ordinalsBefore, "the ordinals travelled with the steps; they belong to the slots")
+        XCTAssertNotEqual(labelsAfter, labelsBefore, "the move renamed nothing: still \(labelsBefore)")
+        XCTAssertNotEqual(outputAfter, outputBefore, "the first appended card traded places without recomputing")
+        record("step12_cards=\(cards) step12_labels_moved=true step12_ordinals_held=true")
     }
 
-    /// Moves to the destination carrying `identifier` and confirms it arrived.
-    private func visit(_ identifier: String) {
-        let destination = element(identifier)
-        if !destination.exists {
-            XCTAssertTrue(destination.waitForExistence(timeout: 20), "cannot reach the destination \(identifier)")
+    /// STEP 13 — drive the chain into a failure, then remove the FAILING step.
+    ///
+    /// ONE PRESS INSTALLS THE FAILURE, and it is the root's FORMAT rather than a typed fixture.
+    /// After step 12 the first appended card is a Base64 decode; switching the root to HTML makes
+    /// its output — the worked value with `&`, `<` and `>` escaped — invalid Base64 at the first
+    /// comma, so that card fails and the Base64 encode below it is blocked. The failing card is
+    /// APPENDED, which is what makes it removable; the pinned root could not be (D-100).
+    ///
+    /// GREATER THAN ZERO COMES FIRST. A zero-after with no positive-before is vacuous, and this
+    /// pair is criterion 2's evidence as well as this sweep's.
+    private func removeTheFailingStep(into out: inout SweepHarvest) throws {
+        press(segment(Ident.Encode.format, 2), "the format picker's HTML segment")
+        let stalled = element(Ident.Step.blocked)
+        if !stalled.exists {
+            XCTAssertTrue(stalled.waitForExistence(timeout: 15), "no card is blocked, so a zero after this would prove nothing")
         }
-        destination.click()
+        let blockedBefore = count(Ident.Step.blocked)
+        XCTAssertGreaterThan(blockedBefore, 0, "step13_blocked_before=\(blockedBefore) — nothing is blocked")
+        try snap(into: &out)
+
+        let cardsBefore = count(Ident.Step.card)
+        press(control(Ident.Step.remove, 0), "the failing card's own footer control")
+        XCTAssertTrue(
+            control(Ident.Step.card, cardsBefore - 1).waitForNonExistence(timeout: 15),
+            "the press took no card: the stack stayed at \(cardsBefore)"
+        )
+        let blockedAfter = count(Ident.Step.blocked)
+        XCTAssertEqual(
+            blockedAfter,
+            0,
+            "step13_blocked_before=\(blockedBefore) step13_blocked_after=\(blockedAfter) — a card is still blocked"
+        )
+        record("step13_blocked_before=\(blockedBefore) step13_blocked_after=\(blockedAfter)")
+        try snap(into: &out)
+    }
+
+    /// STEP 14 — take appended cards away until none remains.
+    ///
+    /// What is left is the pinned root ALONE: one card, one ordinal, its footer showing the root
+    /// note, and not one of the three footer controls anywhere on the surface. That is the one
+    /// state the ten-step walk never reaches once it has built a pipeline — and the root note is
+    /// the string 06-16's population could not have contained, because 06-16 predates it.
+    private func emptyTheStackToTheRoot(into out: inout SweepHarvest) throws {
+        let passes = clearAppendedCards()
+        let cards = count(Ident.Step.card)
+        XCTAssertEqual(cards, 1, "the root card is not alone: \(cards) cards remain")
+        XCTAssertEqual(count(Ident.Step.position), 1, "the root card alone carries no ordinal")
+        XCTAssertEqual(count(Ident.Step.rootNote), 1, "the root card alone does not show its note")
+        XCTAssertEqual(count(Ident.Step.remove), 0, "a footer control survived the last removal")
+        XCTAssertEqual(count(Ident.Step.moveUp), 0, "a move-up control survived the last removal")
+        XCTAssertEqual(count(Ident.Step.moveDown), 0, "a move-down control survived the last removal")
+        record("step14_passes=\(passes) step14_cards=\(cards) step14_removes=0 step14_rootnotes=1")
+        try snap(into: &out)
     }
 }

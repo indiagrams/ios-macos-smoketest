@@ -521,6 +521,40 @@
         }
       }
     },
+    "step.announce.moved" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moved to position %lld of %lld."
+          }
+        }
+      }
+    },
+    "step.announce.removed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Step removed. %lld step remains."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Step removed. %lld steps remain."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "step.blocked" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -528,6 +562,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Blocked by an error in an earlier step."
+          }
+        }
+      }
+    },
+    "step.card.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step %lld of %lld, %@"
           }
         }
       }
@@ -554,6 +599,28 @@
         }
       }
     },
+    "step.moveDown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move step down"
+          }
+        }
+      }
+    },
+    "step.moveUp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move step up"
+          }
+        }
+      }
+    },
     "step.output.label" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -561,6 +628,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Output"
+          }
+        }
+      }
+    },
+    "step.position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step %lld"
+          }
+        }
+      }
+    },
+    "step.remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove step"
+          }
+        }
+      }
+    },
+    "step.root" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This step starts the pipeline."
           }
         }
       }

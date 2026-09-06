@@ -204,196 +204,73 @@ struct StepCard<Content: View, Footer: View>: View {
     }
 }
 
-/// TRANSITIONAL — a card with an EMPTY footer row, kept only until plan 07-08
-/// rewires the three surfaces, which is the plan that owns those call sites.
+/// The shape the previews below share: an APPENDED card, numbered 2 of 2,
+/// with a live footer.
 ///
-/// This plan builds the footer and the slot; filling them means handing every
-/// surface its own remove and move closures, which is 07-08's job. Until then
-/// the six shipped call sites bind this initialiser and render an ordinal of
-/// "Step 1", a container label of "Step 1 of 1, " and a blank footer row of
-/// the correct height. THOSE ARE THE VISIBLE MARKER OF AN UNWIRED CALL SITE,
-/// not defaults anybody should keep: 07-08 passes real values and DELETES
-/// this initialiser, and a card still reading "Step 1 of 1" after that is a
-/// call site it missed.
-extension StepCard where Footer == EmptyView {
-    init(
-        title: LocalizedStringKey,
-        diagnostic: DiagnosticContent,
-        position: Int = 1,
-        total: Int = 1,
-        operationName: String = "",
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.init(
+/// A preview type rather than five repeated arguments per preview, and an
+/// appended card rather than a root one, because the four states below are
+/// exactly the four an appended card reaches — and because the footer's
+/// enablement being a function of POSITION ONLY is the property most worth
+/// seeing beside a `.failure` and a `.blocked` card.
+private struct StepCardPreview: View {
+    /// The operation name's catalog key.
+    let title: LocalizedStringKey
+
+    /// What the strip is saying.
+    let diagnostic: DiagnosticContent
+
+    /// The state the one output renders.
+    let state: StepRenderState
+
+    /// Card two of two: move up enabled, move down disabled at the bottom
+    /// end, remove enabled in every one of the four states.
+    var body: some View {
+        StepCard(
             title: title,
             diagnostic: diagnostic,
-            position: position,
-            total: total,
-            operationName: operationName,
-            footer: { EmptyView() },
-            content: content
+            position: 2,
+            total: 2,
+            operationName: "Base64 encode",
+            footer: { StepFooter(canMoveUp: true, canMoveDown: false, onMoveUp: {}, onMoveDown: {}, onRemove: {}) },
+            content: { SingleOutputBody(state: state, onAddStep: { _ in }) }
         )
-    }
-}
-
-/// One output's value area, in whichever of the four states it is in.
-///
-/// **All four states are named and rendered, and none of them is blank**
-/// (06-UI-SPEC.md §"State Contract"). The `switch` below is exhaustive with no
-/// catch-all branch, so a fifth state added to ``StepRenderState`` is a compile
-/// error here rather than an empty rectangle on a screen. (That branch keyword
-/// is described and not spelled, for the reason in this file's header rule 2.)
-///
-/// The reserved height is the same in all four states, which is what makes a
-/// card's height independent of whether its input currently parses.
-struct OutputBlock: View {
-    /// What this output is showing right now. Never stored, never cached —
-    /// `Pipeline.evaluate()` is called fresh, so nothing here can go stale.
-    let state: StepRenderState
-
-    /// The per-surface placeholder shown while the pipeline input is empty,
-    /// at the same metrics as a real output.
-    let placeholder: LocalizedStringKey
-
-    /// Which family of failure sentences this output renders. Only
-    /// `.unexpectedCharacter` reads differently between the two; see
-    /// ``FailureDomain``.
-    var domain: FailureDomain = .text
-
-    /// The identifier attached to the rendered value.
-    ///
-    /// Defaults to the shared `Step.output`. The Hashing surface overrides it
-    /// per digest row (`Hashing.digestMD5` and friends), which is why this is a
-    /// parameter rather than a constant.
-    var valueIdentifier: String = AccessibilityIdentifiers.Step.output
-
-    /// Three lines of body text, reserved in every state so the card's height
-    /// does not change when the input goes from valid to invalid.
-    @ScaledMetric(relativeTo: .body) private var reservedHeight: CGFloat = 60
-
-    /// The blocked sentence is centred; every other state is top-leading.
-    private var alignment: Alignment {
-        state == .blocked ? .center : .topLeading
-    }
-
-    /// The four states, exhaustively, with no catch-all branch.
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            switch state {
-            case .empty:
-                Text(placeholder)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            case let .value(value):
-                Text(verbatim: value)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier(valueIdentifier)
-            case let .failure(failure):
-                // The error REPLACES the output, in the same monospaced body
-                // metrics at full contrast, where the value would have been.
-                // No stale previous value is left anywhere on screen (D-84).
-                Text(verbatim: failureText(failure, in: domain))
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier(valueIdentifier)
-            case .blocked:
-                // No glyph: an earlier step failed, which is not an error of
-                // the user's making at THIS step (UI-SPEC §State Contract 4).
-                Text("step.blocked")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .accessibilityIdentifier(AccessibilityIdentifiers.Step.blocked)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: reservedHeight, alignment: alignment)
-        .padding(Spacing.md)
-        .background(
-            Palette.recessedSurface,
-            in: RoundedRectangle(cornerRadius: Spacing.outputRadius, style: .continuous)
-        )
-    }
-}
-
-/// The body every APPENDED card uses — one output, one accessory.
-///
-/// The three seeded first cards have specialised bodies (`EncodeBody`,
-/// `HashBody`, `TimestampBody`, built by plans 06-12 and 06-13). Every card the
-/// add-step control appends uses this one, which is what lets Phase 7 grow the
-/// stack without touching either the chrome or the surfaces.
-///
-/// The accessory is enabled ONLY in the `.value` state: you cannot copy or
-/// chain a value that does not exist. In the other three states both controls
-/// stay in the tree and are disabled, never removed.
-struct SingleOutputBody: View {
-    /// What this step is showing. `.blocked` is reachable here and only here —
-    /// the seeded first card of a surface is never blocked.
-    let state: StepRenderState
-
-    /// Appends a step seeded with THIS output. The surface wires it to
-    /// `Pipeline.appending(_:)` through the app-level model.
-    let onAddStep: (Operation) -> Void
-
-    /// The per-surface placeholder for the empty state.
-    var placeholder: LocalizedStringKey = "encode.output.placeholder"
-
-    /// Which family of failure sentences this step renders.
-    var domain: FailureDomain = .text
-
-    /// The value, when there is one. `nil` in the empty, error and blocked
-    /// states — which is exactly when both controls are disabled and when the
-    /// macOS copy command has nothing to yield.
-    private var copyableValue: String? {
-        if case let .value(value) = state {
-            return value
-        }
-        return nil
-    }
-
-    /// Output block on the leading side, accessory on the trailing side.
-    var body: some View {
-        HStack(alignment: .top, spacing: Spacing.sm) {
-            OutputBlock(state: state, placeholder: placeholder, domain: domain)
-            OutputAccessory(
-                value: copyableValue ?? "",
-                isEnabled: copyableValue != nil,
-                onAddStep: onAddStep
-            )
-        }
-        .copyableOutput(copyableValue)
+        .padding()
     }
 }
 
 #Preview("Empty") {
-    StepCard(title: "op.base64.encode", diagnostic: .neutral("Enter text above to see the result.")) {
-        SingleOutputBody(state: .empty, onAddStep: { _ in })
-    }
-    .padding()
+    StepCardPreview(
+        title: "op.base64.encode",
+        diagnostic: .neutral("Enter text above to see the result."),
+        state: .empty
+    )
 }
 
 #Preview("Valid") {
-    StepCard(title: "op.base64.encode", diagnostic: .neutral("8 characters")) {
-        SingleOutputBody(state: .value("aGVsbG8="), onAddStep: { _ in })
-    }
-    .padding()
+    StepCardPreview(title: "op.base64.encode", diagnostic: .neutral("8 characters"), state: .value("aGVsbG8="))
 }
 
 #Preview("Error") {
-    StepCard(
+    StepCardPreview(
         title: "op.base64.decode",
-        diagnostic: .problem(failureText(.unexpectedCharacter("!", position: 12)))
-    ) {
-        SingleOutputBody(state: .failure(.unexpectedCharacter("!", position: 12)), onAddStep: { _ in })
-    }
-    .padding()
+        diagnostic: .problem(failureText(.unexpectedCharacter("!", position: 12))),
+        state: .failure(.unexpectedCharacter("!", position: 12))
+    )
 }
 
 #Preview("Blocked") {
-    StepCard(title: "op.hash.sha256", diagnostic: .neutral(blockedStepText())) {
-        SingleOutputBody(state: .blocked, onAddStep: { _ in })
-    }
+    StepCardPreview(title: "op.hash.sha256", diagnostic: .neutral(blockedStepText()), state: .blocked)
+}
+
+#Preview("The pinned root") {
+    StepCard(
+        title: "op.base64.encode",
+        diagnostic: .neutral("8 characters"),
+        position: StepStackPosition.rootOrdinal,
+        total: 2,
+        operationName: "Base64 encode",
+        footer: { StepRootNote() },
+        content: { SingleOutputBody(state: .value("aGVsbG8="), onAddStep: { _ in }) }
+    )
     .padding()
 }

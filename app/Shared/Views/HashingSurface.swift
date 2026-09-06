@@ -32,207 +32,6 @@
 
 import SwiftUI
 
-// MARK: - The four rows
-
-/// One algorithm's row: its name, its value and the selector on that value.
-///
-/// A value type computed fresh from the input on every pass — nothing derived
-/// is stored, so nothing here can go stale (D-84's premise).
-struct DigestRow: Identifiable, Equatable, Sendable {
-    /// Which digest this row is. Also its identity in the stack.
-    let operation: Operation
-
-    /// The `AccessibilityIdentifiers.Hashing.digest*` constant this row's value
-    /// carries. A parameter rather than a constant because `OutputBlock` and
-    /// this row both need per-row selectors on a surface with four outputs.
-    let identifier: String
-
-    /// What this row is showing. Empty, or a value — never anything else on the
-    /// seeded card; see the file header.
-    let state: StepRenderState
-
-    /// Rows are identified by their algorithm, which is unique in the four.
-    var id: Operation {
-        operation
-    }
-
-    /// The algorithm's display name, already localized. `Operation`'s raw value
-    /// **is** its catalog key, so this is the same string the add-step menu
-    /// offers for the same algorithm.
-    var name: String {
-        localizedSentence(key: operation.rawValue)
-    }
-
-    /// The digest, when there is one. `nil` while the input is empty — which is
-    /// exactly when this row's two controls are disabled.
-    var value: String? {
-        if case let .value(digest) = state {
-            return digest
-        }
-        return nil
-    }
-
-    /// What the value column shows: the digest, or the surface's placeholder.
-    ///
-    /// Never blank in either case (UI-SPEC §"State Contract").
-    var displayedValue: String {
-        value ?? localizedSentence(key: "hashing.output.placeholder")
-    }
-
-    /// **The two strings this row contributes to the harvest, and the ONLY two
-    /// places either layout branch reads a string from.**
-    ///
-    /// Both `ViewThatFits` branches below render `DigestName` and `DigestValue`
-    /// over the same row, and those two views render exactly these two strings.
-    /// That is how UI-SPEC Harvest rule 5 is kept by construction rather than
-    /// by inspection: there is no second place for a word to be written, so the
-    /// harvest cannot depend on which branch the runner's window size selects.
-    /// `HashingSurfaceTests` reads this array rather than eyeballing the file.
-    var harvestStrings: [String] {
-        [name, displayedValue]
-    }
-}
-
-/// The four rows for one input, in the order the UI-SPEC's table lists them.
-///
-/// Each digest is taken over the INPUT, not over the row above it — the four
-/// are siblings, not a chain. Routed through `Pipeline.evaluate()` so the empty
-/// input is intercepted by the same rule every other surface uses, rather than
-/// by a second copy of that rule here.
-func digestRows(for input: String) -> [DigestRow] {
-    let algorithms: [(operation: Operation, identifier: String)] = [
-        (.md5, AccessibilityIdentifiers.Hashing.digestMD5),
-        (.sha1, AccessibilityIdentifiers.Hashing.digestSHA1),
-        (.sha256, AccessibilityIdentifiers.Hashing.digestSHA256),
-        (.sha512, AccessibilityIdentifiers.Hashing.digestSHA512)
-    ]
-    return algorithms.map { algorithm in
-        DigestRow(
-            operation: algorithm.operation,
-            identifier: algorithm.identifier,
-            state: Pipeline(
-                input: input,
-                steps: [Step(operation: algorithm.operation)]
-            ).evaluate().first ?? .empty
-        )
-    }
-}
-
-// MARK: - The three leaf views a row is built from
-
-/// The algorithm name — the table's leading column.
-struct DigestName: View {
-    /// The row this name belongs to.
-    let row: DigestRow
-
-    /// `.subheadline` `.secondary`, the same role every section label uses.
-    var body: some View {
-        Text(verbatim: row.name)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-    }
-}
-
-/// The digest itself.
-///
-/// One line with MIDDLE truncation, which keeps both ends visible — that is how
-/// people actually eyeball one digest against another, and it is the one class
-/// of string the Dynamic Type contract allows to truncate, with the stated
-/// escape that the value is selectable and carries a copy control. The
-/// truncation is a RENDERING concern only: the accessory beside it receives the
-/// untruncated value (T-06-54).
-struct DigestValue: View {
-    /// The row this value belongs to.
-    let row: DigestRow
-
-    /// Monospaced body, because column position carries meaning in a digest.
-    var body: some View {
-        Text(verbatim: row.displayedValue)
-            .font(.system(.body, design: .monospaced))
-            .foregroundStyle(row.value == nil ? Color.secondary : Color.primary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .textSelection(.enabled)
-            .accessibilityIdentifier(row.identifier)
-            .copyableOutput(row.value)
-    }
-}
-
-/// The copy and add-step pair for one digest.
-///
-/// One of these per row, so four per card. Disabled rather than removed while
-/// the input is empty: a disabled control is still in the accessibility tree
-/// and gains plan 06-16's sweep two strings.
-struct DigestAccessory: View {
-    /// The row these controls act on.
-    let row: DigestRow
-
-    /// Chains a new step from THIS digest's output.
-    let onAddStep: (Operation) -> Void
-
-    /// The uniform accessory, unchanged from every other output in the app.
-    var body: some View {
-        OutputAccessory(
-            value: row.value ?? "",
-            isEnabled: row.value != nil,
-            onAddStep: onAddStep
-        )
-    }
-}
-
-// MARK: - The row, in its two layouts
-
-/// One table row: name, value, controls — on one line, or on two.
-///
-/// **Both branches are built from the same three leaf views over the same
-/// row**, so they carry identical strings by construction (Harvest rule 5).
-///
-/// The fit is decided on the value's MINIMUM legible width rather than on its
-/// natural width, and that distinction is what makes the fallback reachable at
-/// all: a one-line, middle-truncated digest compresses to any width it is
-/// offered, so a branch measured on the real value would always "fit" and the
-/// two-line layout would be dead code — while a branch measured on the value's
-/// natural 128-character width would NEVER fit and the one-line layout would be
-/// dead instead. `idealWidth` is what a `ViewThatFits` measurement reads, and
-/// it scales with the text size, so the row folds when the name column and the
-/// controls have squeezed the value below legibility.
-struct DigestRowView: View {
-    /// The row to render.
-    let row: DigestRow
-
-    /// Chains a new step from this digest's output.
-    let onAddStep: (Operation) -> Void
-
-    /// The leading column's width. Fixed across the four rows — the alignment
-    /// is what makes this a table — and scaled, so it still holds the longest
-    /// name at large text sizes.
-    @ScaledMetric(relativeTo: .subheadline) private var nameColumnWidth: CGFloat = 76
-
-    /// The narrowest a digest may be squeezed before the row folds.
-    @ScaledMetric(relativeTo: .body) private var minimumValueWidth: CGFloat = 110
-
-    /// One line when the three fit; two lines when they do not.
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
-                DigestName(row: row)
-                    .frame(width: nameColumnWidth, alignment: .leading)
-                DigestValue(row: row)
-                    .frame(idealWidth: minimumValueWidth, maxWidth: .infinity, alignment: .leading)
-                DigestAccessory(row: row, onAddStep: onAddStep)
-            }
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                DigestName(row: row)
-                HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                    DigestValue(row: row)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    DigestAccessory(row: row, onAddStep: onAddStep)
-                }
-            }
-        }
-    }
-}
-
 // MARK: - The seeded card's body
 
 /// The seeded card's body: four rows, always all four.
@@ -268,7 +67,8 @@ struct HashingSurface: View {
         digestRows(for: model.hashing.input)
     }
 
-    /// The cards the add-step control has produced, each beside its state.
+    /// The cards the add-step control has produced, each beside its state and
+    /// its position.
     ///
     /// `model.hashing.steps` is empty until something is chained. Once it is
     /// not, its FIRST element is the digest the user chained FROM — it has to
@@ -276,12 +76,26 @@ struct HashingSurface: View {
     /// output — and everything after it is an appended card. So the appended
     /// cards are the steps and states from the second onward.
     ///
+    /// **`stepOffset: 1` IS THAT SENTENCE, AND IT IS WHY THIS SURFACE IS NOT A
+    /// COPY OF THE OTHER TWO.** 07-UI-SPEC §"The index mapping" says
+    /// `model.<surface>.steps` holds "only the appended steps"; here it does
+    /// not, and a remove wired straight to the appended index would delete the
+    /// CHAIN ROOT the first time a user asked to delete the first appended
+    /// card. `stateOffset: 1` for the matching reason on the other array: the
+    /// root digest evaluates to the first state.
+    ///
     /// `zip` rather than an index, so there is no subscript here to go out of
     /// range: these bundles are host-based and a trap takes the whole run.
-    private var appendedCards: [(step: Step, state: StepRenderState)] {
-        let states = model.hashing.evaluate()
-        return Array(zip(model.hashing.steps.dropFirst(), states.dropFirst()))
-            .map { (step: $0.0, state: $0.1) }
+    ///
+    /// - Note: Internal rather than `private` so a host-based unit test can
+    ///   read the offset this surface ACTUALLY uses rather than a copy of it.
+    var appendedCards: [AppendedStepCard] {
+        appendedStepCards(
+            steps: model.hashing.steps,
+            states: model.hashing.evaluate(),
+            stepOffset: 1,
+            stateOffset: 1
+        )
     }
 
     /// The seeded card's strip: the byte count of what was hashed, or the
@@ -322,8 +136,15 @@ struct HashingSurface: View {
     }
 
     /// The eager step stack: the four-row card, then anything chained below it.
+    ///
+    /// The root is rendered ALONE, outside the `ForEach`, which is what makes
+    /// D-100's absence a CALL-SITE decision rather than a flag: the root passes
+    /// ``StepRootNote`` and the repeated view passes ``StepFooter``, so no card
+    /// ever asks whether it is first.
     private var stepStack: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
+        let cards = appendedCards
+        let total = StepStackPosition.totalCards(appendedCount: cards.count)
+        return VStack(alignment: .leading, spacing: Spacing.lg) {
             // The header is the FAMILY name, not one algorithm's. The
             // UI-SPEC's mockup sketches "Hash" there, but its own string
             // inventory — which is the normative list, and which says every
@@ -332,16 +153,33 @@ struct HashingSurface: View {
             // using the approved name of the thing this card is; a card that
             // renders four operations cannot honestly be titled with one of
             // them either. Recorded as a deviation in this plan's summary.
-            StepCard(title: "shell.destination.hashing", diagnostic: seededDiagnostic) {
-                HashBody(rows: rows, onAddStep: chain)
-            }
-            ForEach(appendedCards, id: \.step.id) { card in
+            StepCard(
+                title: "shell.destination.hashing",
+                diagnostic: seededDiagnostic,
+                position: StepStackPosition.rootOrdinal,
+                total: total,
+                operationName: localizedSentence(key: "shell.destination.hashing"),
+                footer: { StepRootNote() },
+                content: { HashBody(rows: rows, onAddStep: chain) }
+            )
+            ForEach(cards, id: \.step.id) { card in
                 StepCard(
                     title: LocalizedStringKey(card.step.operation.rawValue),
-                    diagnostic: appendedStepDiagnostic(for: card.state)
-                ) {
-                    SingleOutputBody(state: card.state, onAddStep: append)
-                }
+                    diagnostic: appendedStepDiagnostic(for: card.state),
+                    position: card.position.visibleOrdinal,
+                    total: total,
+                    operationName: localizedSentence(key: card.step.operation.rawValue),
+                    footer: {
+                        StepFooter(
+                            canMoveUp: card.position.canMoveUp,
+                            canMoveDown: card.position.canMoveDown,
+                            onMoveUp: { move(card.position, .up) },
+                            onMoveDown: { move(card.position, .down) },
+                            onRemove: { remove(card.position) }
+                        )
+                    },
+                    content: { SingleOutputBody(state: card.state, onAddStep: append) }
+                )
             }
         }
     }
@@ -381,6 +219,35 @@ struct HashingSurface: View {
     /// Append a card below an already-chained one.
     private func append(_ operation: Operation) {
         model.hashing = model.hashing.appending(operation)
+    }
+
+    /// Drop one appended card — a splice, not a truncation (APP-09). The card
+    /// below it re-runs on the output of the card above it, and every
+    /// downstream value updates in the same pass.
+    ///
+    /// One assignment, exactly like ``append(_:)``, so the whole new
+    /// arrangement arrives in ONE render pass and no intermediate state is
+    /// ever rendered. Nothing animates.
+    ///
+    /// **`position.modelIndex` carries this surface's offset**, so the chain
+    /// root can never be the step that goes: the topmost appended card is
+    /// model index 1, not 0.
+    ///
+    /// - Note: Internal rather than `private` so a host-based unit test can
+    ///   drive THIS function rather than a copy of its rule — the shape
+    ///   ``chain(from:to:)`` was given after WR-01, where a test of the test's
+    ///   own copy could not have caught the defect and did not.
+    func remove(_ position: StepStackPosition) {
+        model.hashing = model.hashing.removing(at: position.modelIndex)
+    }
+
+    /// Swap one appended card with its neighbour. The same one-assignment
+    /// shape, and internal for the same reason. The topmost appended card
+    /// cannot rise past the chain root: its move-up is disabled, and
+    /// ``StepStackPosition/destinationIndex(_:)`` answers its own index there
+    /// so the pipeline refuses the swap as non-adjacent even if it is asked.
+    func move(_ position: StepStackPosition, _ direction: StepMoveDirection) {
+        model.hashing = model.hashing.moving(from: position.modelIndex, to: position.destinationIndex(direction))
     }
 }
 

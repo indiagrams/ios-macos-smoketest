@@ -118,12 +118,27 @@ struct TimestampsSurface: View {
     /// representation of an instant and there is no ``Operation`` that produces
     /// one from text.
     ///
+    /// **Both offsets are 0**, and this is the only surface where they are:
+    /// the states come from a pipeline built from the appended steps ALONE, so
+    /// neither array carries a leading element the other does not. Encode
+    /// synthesises its seeded step into the states; Hashing keeps its chain
+    /// root in `steps`. Three surfaces, three answers, named at each call site
+    /// rather than assumed to be one.
+    ///
     /// `zip` rather than an index, so there is no subscript here to go out of
     /// range — these bundles are host-based and a trap takes the whole run.
-    private var appendedCards: [(step: Step, state: StepRenderState)] {
+    ///
+    /// - Note: Internal rather than `private` so a host-based unit test can
+    ///   read the ordinals and the enablement flags this surface ACTUALLY
+    ///   renders, rather than a copy of the rule that produces them.
+    var appendedCards: [AppendedStepCard] {
         let chained = Pipeline(input: chainRootValue, steps: model.timestamps.steps)
-        return Array(zip(model.timestamps.steps, chained.evaluate()))
-            .map { (step: $0.0, state: $0.1) }
+        return appendedStepCards(
+            steps: model.timestamps.steps,
+            states: chained.evaluate(),
+            stepOffset: 0,
+            stateOffset: 0
+        )
     }
 
     /// The seeded card's strip: the segment in force when the input reads, the
@@ -171,18 +186,42 @@ struct TimestampsSurface: View {
     /// "Timestamp" there and its own string inventory — the normative list —
     /// carries no key for it, so this uses the approved name of the surface,
     /// exactly as plan 06-12 did on the Hashing card for the same reason.
+    ///
+    /// The root is rendered ALONE, outside the `ForEach`, which is what makes
+    /// D-100's absence a CALL-SITE decision rather than a flag: the root passes
+    /// ``StepRootNote`` and the repeated view passes ``StepFooter``, so no card
+    /// ever asks whether it is first.
     private var stepStack: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-            StepCard(title: "shell.destination.timestamps", diagnostic: seededDiagnostic) {
-                TimestampBody(model: model, detected: detected, cells: cells, onAddStep: chain)
-            }
-            ForEach(appendedCards, id: \.step.id) { card in
+        let cards = appendedCards
+        let total = StepStackPosition.totalCards(appendedCount: cards.count)
+        return VStack(alignment: .leading, spacing: Spacing.lg) {
+            StepCard(
+                title: "shell.destination.timestamps",
+                diagnostic: seededDiagnostic,
+                position: StepStackPosition.rootOrdinal,
+                total: total,
+                operationName: localizedSentence(key: "shell.destination.timestamps"),
+                footer: { StepRootNote() },
+                content: { TimestampBody(model: model, detected: detected, cells: cells, onAddStep: chain) }
+            )
+            ForEach(cards, id: \.step.id) { card in
                 StepCard(
                     title: LocalizedStringKey(card.step.operation.rawValue),
-                    diagnostic: appendedStepDiagnostic(for: card.state)
-                ) {
-                    SingleOutputBody(state: card.state, onAddStep: append)
-                }
+                    diagnostic: appendedStepDiagnostic(for: card.state),
+                    position: card.position.visibleOrdinal,
+                    total: total,
+                    operationName: localizedSentence(key: card.step.operation.rawValue),
+                    footer: {
+                        StepFooter(
+                            canMoveUp: card.position.canMoveUp,
+                            canMoveDown: card.position.canMoveDown,
+                            onMoveUp: { move(card.position, .up) },
+                            onMoveDown: { move(card.position, .down) },
+                            onRemove: { remove(card.position) }
+                        )
+                    },
+                    content: { SingleOutputBody(state: card.state, onAddStep: append) }
+                )
             }
         }
     }
@@ -213,6 +252,27 @@ struct TimestampsSurface: View {
     /// Append a card below an already-chained one.
     private func append(_ operation: Operation) {
         model.timestamps = model.timestamps.appending(operation)
+    }
+
+    /// Drop one appended card — a splice, not a truncation (APP-09). The card
+    /// below it re-runs on the output of the card above it, and every
+    /// downstream value updates in the same pass.
+    ///
+    /// One assignment, exactly like ``append(_:)``, so the whole new
+    /// arrangement arrives in ONE render pass and no intermediate state is
+    /// ever rendered. Nothing animates.
+    ///
+    /// - Note: Internal rather than `private` so a host-based unit test can
+    ///   drive THIS function rather than a copy of its rule — the shape
+    ///   ``chain(from:to:)`` was given after WR-01.
+    func remove(_ position: StepStackPosition) {
+        model.timestamps = model.timestamps.removing(at: position.modelIndex)
+    }
+
+    /// Swap one appended card with its neighbour. The same one-assignment
+    /// shape, and internal for the same reason.
+    func move(_ position: StepStackPosition, _ direction: StepMoveDirection) {
+        model.timestamps = model.timestamps.moving(from: position.modelIndex, to: position.destinationIndex(direction))
     }
 }
 

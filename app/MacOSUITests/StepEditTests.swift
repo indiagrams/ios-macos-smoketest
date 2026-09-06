@@ -12,8 +12,9 @@ import XCTest
 // below is `.click()` where the iOS twin taps, plus the two platform facts named next.
 //
 // WHERE THIS RUNS, AND WHY NOT HERE. Measured 2026-09-06 with the user present: the macOS runner IS
-// signed (`TeamIdentifier=G5H628C6WR`) and carries no quarantine attribute, and `spctl -a -t exec`
-// still answers `rejected, origin=Apple Development` — Gatekeeper's EXECUTION POLICY refuses a
+// signed — `codesign -dv` reports this fork's own team identifier, which is deliberately NOT in git
+// and so is not spelled here — and carries no quarantine attribute, while `spctl -a -t exec` still
+// answers `rejected, origin=Apple Development`. Gatekeeper's EXECUTION POLICY refuses a
 // Development-signed bundle that is neither Developer ID nor notarised. A local run dies at `Early
 // unexpected exit` and puts a "damaged" dialog on the developer's own desktop. CI is the arbiter,
 // and a MEASURED one: `pr.yml`'s `test macOS (unsigned)` step runs a full-scheme `xcodebuild test`

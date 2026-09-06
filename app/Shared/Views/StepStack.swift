@@ -27,6 +27,27 @@
 // function of three integers, which is what lets a host-based unit test assert
 // the ends rule and the ordinal without a running app — the two rules most
 // able to ship a trap are the two this file makes reachable.
+//
+// WHY THE FOCUS TABLE LIVES HERE TOO (07-UI-SPEC §"VoiceOver — labels, order,
+// announcements, focus"). §Motion takes the animation off removal and reorder,
+// so a screen-reader user gets no signal at all unless one is posted, and
+// removing the element that HOLDS focus drops focus to the top of the screen —
+// on a stack of cards, that is losing your place after every single removal.
+// Both remedies are decided by exactly the three integers above, so they are
+// decided here, once, rather than three times in three surfaces.
+//
+// AND THE FOCUS TARGETS ARE APPENDED INDEXES, NEVER `Pipeline.steps` INDEXES.
+// That is the whole safety argument for the shape below. `appendedIndex` and
+// `appendedCount` are offset-free by construction — they count CARDS, and every
+// surface has the same cards — while `modelIndex` carries `modelOffset` and is
+// 1 higher on Hashing than the same card's index on Encode. A focus table
+// written in model indexes would name a card one place off on exactly the
+// surface where the extra element is the chain root, and it would do it
+// silently, because a focus target that matches no element simply does nothing
+// visible to a sighted reviewer. `focusAfterMove(_:)` and `focusAfterRemoval`
+// therefore never mention `modelIndex` and never mention `modelOffset`; the one
+// member that carries the offset is used for one thing only, which is deciding
+// whether the pipeline accepted the move.
 
 /// Which way a move goes.
 ///
@@ -187,5 +208,103 @@ func appendedStepCards(
                 modelOffset: stepOffset
             )
         )
+    }
+}
+
+/// Which of the three footer controls a focus target names.
+///
+/// Focus after an edit is always *a control on a card*, never a card, so a
+/// target carries both. "The remove control of the card that took the removed
+/// card's position" is one of each, and the move rows of the table are the
+/// same shape.
+enum StepControlKind: Hashable, Sendable {
+    /// The move-up arrow.
+    case moveUp
+
+    /// The move-down arrow.
+    case moveDown
+
+    /// The trash control — the only irreversible one, and the one the focus
+    /// table lands on after a removal.
+    case remove
+}
+
+/// Where VoiceOver focus sits in a step stack.
+///
+/// See this file's header for why the payload is an APPENDED index rather than
+/// an index into `Pipeline.steps`.
+///
+/// `Hashable` because `@AccessibilityFocusState` requires it, and `Sendable`
+/// because everything else in this file is.
+enum StepFocusTarget: Hashable, Sendable {
+    /// The pinned root card's header — where focus goes when a removal empties
+    /// the appended stack and there is no remove control left to hold it.
+    case rootHeader
+
+    /// One control of the appended card at `appendedIndex`.
+    case control(StepControlKind, appendedIndex: Int)
+}
+
+/// The focus table and the two after-edit counts, as pure functions of the
+/// three integers above (07-UI-SPEC §"Focus management").
+extension StepStackPosition {
+    /// Where this card lands after a move in `direction`, or `nil` when the
+    /// move is not allowed.
+    ///
+    /// The refusal test is ``destinationIndex(_:)`` answering this card's own
+    /// index, which is the one place that question is decided — so a refused
+    /// move announces nothing and moves no focus, by the same expression the
+    /// pipeline uses to reject the swap as non-adjacent.
+    func moved(_ direction: StepMoveDirection) -> StepStackPosition? {
+        guard destinationIndex(direction) != modelIndex else { return nil }
+        let landing = switch direction {
+        case .up: appendedIndex - 1
+        case .down: appendedIndex + 1
+        }
+        return StepStackPosition(
+            appendedIndex: landing,
+            appendedCount: appendedCount,
+            modelOffset: modelOffset
+        )
+    }
+
+    /// Focus after a COMPLETED move: the SAME control of the SAME step, at the
+    /// index it now occupies. `nil` when the move was refused.
+    ///
+    /// Focus follows the step because the step is what the user is
+    /// manipulating; staying at the old index would leave them on the card that
+    /// moved the other way, which reads as the app having done nothing.
+    func focusAfterMove(_ direction: StepMoveDirection) -> StepFocusTarget? {
+        guard let landed = moved(direction) else { return nil }
+        let control = switch direction {
+        case StepMoveDirection.up: StepControlKind.moveUp
+        case StepMoveDirection.down: StepControlKind.moveDown
+        }
+        return .control(control, appendedIndex: landed.appendedIndex)
+    }
+
+    /// How many appended cards survive this card's removal.
+    var appendedCountAfterRemoval: Int {
+        appendedCount - 1
+    }
+
+    /// The stack's card count after this card's removal — what the removal
+    /// announcement counts, and the same definition every card's "Step %lld of
+    /// %lld" label already reads.
+    var totalCardsAfterRemoval: Int {
+        Self.totalCards(appendedCount: appendedCountAfterRemoval)
+    }
+
+    /// Focus after a COMPLETED removal, all three rows of the table.
+    ///
+    /// The card that TOOK the removed card's position keeps this card's index;
+    /// when the removed card was the last one there is no such card, and the
+    /// `min` lands on the card that is now last. When nothing appended
+    /// survives, focus goes to the pinned root's header — the one element that
+    /// is always there, since D-100 gives the root no controls at all.
+    var focusAfterRemoval: StepFocusTarget {
+        let remaining = appendedCountAfterRemoval
+        guard remaining > 0 else { return .rootHeader }
+        return .control(.remove, appendedIndex: min(appendedIndex, remaining - 1))
     }
 }

@@ -180,6 +180,16 @@ struct TimestampsSurface: View {
         .dismissesKeyboardOnScroll()
     }
 
+    /// Where VoiceOver focus sits in this surface's step stack.
+    ///
+    /// Declared HERE rather than inside the card or the footer, because the
+    /// element that holds focus is exactly the element a removal destroys:
+    /// state owned by a view that disappears cannot survive the edit that made
+    /// it disappear. The three surfaces each declare the property; the RULE
+    /// that decides what it is set to is one implementation, in
+    /// `StepStack.swift` and `StepControls.swift`.
+    @AccessibilityFocusState private var stepFocus: StepFocusTarget?
+
     /// The eager step stack: the three-cell card, then anything chained below.
     ///
     /// The header is the DESTINATION name. The UI-SPEC's mockup sketches
@@ -201,6 +211,7 @@ struct TimestampsSurface: View {
                 position: StepStackPosition.rootOrdinal,
                 total: total,
                 operationName: localizedSentence(key: "shell.destination.timestamps"),
+                headerFocus: $stepFocus,
                 footer: { StepRootNote() },
                 content: { TimestampBody(model: model, detected: detected, cells: cells, onAddStep: chain) }
             )
@@ -211,10 +222,11 @@ struct TimestampsSurface: View {
                     position: card.position.visibleOrdinal,
                     total: total,
                     operationName: localizedSentence(key: card.step.operation.rawValue),
+                    headerFocus: nil,
                     footer: {
                         StepFooter(
-                            canMoveUp: card.position.canMoveUp,
-                            canMoveDown: card.position.canMoveDown,
+                            position: card.position,
+                            focus: $stepFocus,
                             onMoveUp: { move(card.position, .up) },
                             onMoveDown: { move(card.position, .down) },
                             onRemove: { remove(card.position) }

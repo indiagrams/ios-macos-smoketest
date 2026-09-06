@@ -34,8 +34,16 @@
 // requires them to survive navigating away and back, and the platform trap that
 // closes is specific: on macOS a `NavigationSplitView` swaps the detail view
 // when the sidebar selection changes, and anything held inside that detail view
-// is discarded with it. This file therefore declares no view-local storage at
-// all.
+// is discarded with it. This file therefore declares no view-local storage for
+// anything the user can SEE.
+//
+// *(Amended by 07-09.* It does now declare one thing: `@AccessibilityFocusState`,
+// which is not a selection and is not document state. Where VoiceOver focus sits
+// is a property of the RENDERED hierarchy, so being discarded with the detail
+// view is the correct behaviour rather than the trap above — a focus target
+// that outlived its cards would name an element that no longer exists. It is
+// declared on the surface, and not on the card or the footer, because the
+// element holding focus is exactly the element a removal destroys.)*
 
 import SwiftUI
 
@@ -264,6 +272,16 @@ struct EncodeSurface: View {
         .dismissesKeyboardOnScroll()
     }
 
+    /// Where VoiceOver focus sits in this surface's step stack.
+    ///
+    /// Declared HERE rather than inside the card or the footer, because the
+    /// element that holds focus is exactly the element a removal destroys:
+    /// state owned by a view that disappears cannot survive the edit that made
+    /// it disappear. The three surfaces each declare the property; the RULE
+    /// that decides what it is set to is one implementation, in
+    /// `StepStack.swift` and `StepControls.swift`.
+    @AccessibilityFocusState private var stepFocus: StepFocusTarget?
+
     /// The eager step stack: the seeded card, then the appended ones.
     ///
     /// The root is rendered ALONE, outside the `ForEach`, and that is what
@@ -282,6 +300,7 @@ struct EncodeSurface: View {
                 position: StepStackPosition.rootOrdinal,
                 total: total,
                 operationName: localizedSentence(key: headerKey),
+                headerFocus: $stepFocus,
                 footer: { StepRootNote() },
                 content: { EncodeBody(model: model, state: seededState, onAddStep: append) }
             )
@@ -292,10 +311,11 @@ struct EncodeSurface: View {
                     position: card.position.visibleOrdinal,
                     total: total,
                     operationName: localizedSentence(key: card.step.operation.rawValue),
+                    headerFocus: nil,
                     footer: {
                         StepFooter(
-                            canMoveUp: card.position.canMoveUp,
-                            canMoveDown: card.position.canMoveDown,
+                            position: card.position,
+                            focus: $stepFocus,
                             onMoveUp: { move(card.position, .up) },
                             onMoveDown: { move(card.position, .down) },
                             onRemove: { remove(card.position) }

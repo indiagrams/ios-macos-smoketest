@@ -60,30 +60,82 @@
 // that as a decision rather than an omission: three bordered icon buttons
 // out of five would read as an accident rather than as emphasis.
 //
+// THE TWO EDITS ANNOUNCE THEMSELVES, BECAUSE NOTHING ELSE TELLS A
+// SCREEN-READER USER THEY HAPPENED. §Motion's no-animation row is affordable
+// only because three things replace it: the instant ordinal renumbering, the
+// iOS removal haptic above, and the VoiceOver announcement posted here. Both
+// post AFTER the surface's closure returns, so their counts are the counts the
+// screen now shows; posting the old ones is worse than posting nothing.
+//
+// NO KEY EQUIVALENT IS ASSIGNED TO REMOVE OR TO EITHER MOVE — not the delete
+// chord, not the option-arrow pair, not anything. A DECLINE, not an omission
+// (07-UI-SPEC §"macOS keyboard — an explicit decline"). There is no
+// SELECTED-STEP concept here — the stack is a plain vertical stack, not a list
+// with a selection — so a global chord has no unambiguous target; and D-101's
+// mitigation is POSITIONAL while a keystroke has no position, so the chord
+// would be an unconfirmed, un-undoable destructive action the whole mitigation
+// cannot reach. Keyboard users reach these controls through tab order plus the
+// system focus ring, which IS positional. A later plan tempted to "fix" this
+// answers that first.
+//
 // This file needs no manifest edit — both generators sweep `Shared/**`.
 
+import Accessibility
 import SwiftUI
+
+// MARK: - The two announcements
+
+/// What VoiceOver says after a COMPLETED move — `nil` when the pipeline
+/// refused it and nothing changed.
+///
+/// Both numbers come off the LANDING position, so the sentence describes the
+/// stack as it is now. `NSLocalizedString` + `localizedStringWithFormat` is
+/// ``localizedCount(_:_:)``'s route with two counts, spelled here for the
+/// reason `StepCard.containerLabel` spells three: no shipped helper takes two,
+/// and a `LocalizedStringKey` builds a key out of the interpolated TEXT.
+func stepMovedAnnouncement(_ position: StepStackPosition, _ direction: StepMoveDirection) -> String? {
+    guard let landed = position.moved(direction) else { return nil }
+    return String.localizedStringWithFormat(
+        NSLocalizedString("step.announce.moved", comment: ""),
+        landed.visibleOrdinal, landed.totalCards
+    )
+}
+
+/// What VoiceOver says after a COMPLETED removal. **The count is CARDS,
+/// including the pinned root** — the same number every
+/// card's "Step %lld of %lld" label already reads. Counting appended cards
+/// alone would announce "0 steps remain" while a card visibly labelled
+/// "Step 1 of 1" is still on screen. Through ``localizedCount(_:_:)``, so the
+/// catalog's plural variation applies and "1 steps remain" cannot render.
+func stepRemovedAnnouncement(_ position: StepStackPosition) -> String {
+    localizedCount("step.announce.removed", position.totalCardsAfterRemoval)
+}
 
 /// The footer of an APPENDED card: move up, move down, remove.
 ///
-/// The mirror of ``OutputAccessory``'s parameter shape — two enablement flags
-/// and the closures the surface wires to `model.<surface> =
+/// The mirror of ``OutputAccessory``'s parameter shape — a position, a focus
+/// binding and the closures the surface wires to `model.<surface> =
 /// model.<surface>.moving(from:to:)` / `.removing(at:)`, assignment rather
 /// than in-place mutation, which is what `@Observable` sees.
 ///
-/// **It takes no index and computes none.** Enablement is decided by the
-/// caller from the card's position in the stack, because the surface owns the
-/// array. **Absence on the root is a different CALL SITE, not a flag:** the
-/// root card renders ``StepRootNote`` instead, so there is no boolean here
-/// asking a repeated view which card it is.
+/// **It computes no enablement and no index of its own.** ``StepStackPosition``
+/// arrives already decided by the surface that owns the array, holding three
+/// integers and no render state, so nothing a card is SHOWING can reach what
+/// its footer permits. **Absence on the root is a different CALL SITE, not a
+/// flag:** the root renders ``StepRootNote`` instead, so no boolean here asks a
+/// repeated view which card it is.
+///
+/// *(Amended by 07-09, which replaced `canMoveUp` / `canMoveDown`. Announcing
+/// an edit and moving focus to a named card both need the card's place, and one
+/// position beats two flags beside an index — three things that can disagree.)*
 ///
 /// **Reserved height is owned by ``StepCard``**, which gives its footer slot
 /// the platform hit target as a minimum in both variants. A root card and an
 /// appended card therefore have identical geometry by construction, and
 /// nothing is collapsed where a control would have been.
 struct StepFooter: View {
-    /// `false` on the topmost appended card. The control is then
-    /// `.disabled(true)` and PRESENT, never removed by a conditional.
+    /// Where this card sits: the ends rule, the ordinal, and the index its
+    /// controls act on.
     ///
     /// **The ends rule, and why it extends D-100 rather than contradicting
     /// it.** A control is ABSENT when its action is impossible for the whole
@@ -102,10 +154,11 @@ struct StepFooter: View {
     /// instability D-101's mitigation depends on not existing. It would also
     /// make `Step.moveUp` resolve to a different card than `Step.moveDown` at
     /// the same index, quietly corrupting criterion 2's own test.
-    let canMoveUp: Bool
+    let position: StepStackPosition
 
-    /// `false` on the last card. Same rule, mirrored.
-    let canMoveDown: Bool
+    /// The stack-wide accessibility focus, owned by the SURFACE — it has to be,
+    /// because the element holding focus is the element a removal destroys.
+    let focus: AccessibilityFocusState<StepFocusTarget?>.Binding
 
     /// Swap this step with the one above it.
     let onMoveUp: () -> Void
@@ -196,10 +249,13 @@ struct StepFooter: View {
             symbol: "arrow.up",
             tint: .primary,
             label: "step.moveUp",
-            identifier: AccessibilityIdentifiers.Step.moveUp,
-            action: onMoveUp
-        )
-        .disabled(!canMoveUp)
+            identifier: AccessibilityIdentifiers.Step.moveUp
+        ) {
+            onMoveUp()
+            completed(stepMovedAnnouncement(position, .up), position.focusAfterMove(.up))
+        }
+        .disabled(!position.canMoveUp)
+        .accessibilityFocused(focus, equals: .control(.moveUp, appendedIndex: position.appendedIndex))
     }
 
     /// The mirror of ``moveUpButton``, and remove's only neighbour. Dimmed
@@ -209,10 +265,13 @@ struct StepFooter: View {
             symbol: "arrow.down",
             tint: .primary,
             label: "step.moveDown",
-            identifier: AccessibilityIdentifiers.Step.moveDown,
-            action: onMoveDown
-        )
-        .disabled(!canMoveDown)
+            identifier: AccessibilityIdentifiers.Step.moveDown
+        ) {
+            onMoveDown()
+            completed(stepMovedAnnouncement(position, .down), position.focusAfterMove(.down))
+        }
+        .disabled(!position.canMoveDown)
+        .accessibilityFocused(focus, equals: .control(.moveDown, appendedIndex: position.appendedIndex))
     }
 
     /// The only irreversible control in the app, in the only red in the
@@ -234,7 +293,29 @@ struct StepFooter: View {
             // arrangement of steps is a legal pipeline and removal cannot
             // fail. This is the only place the haptic trigger moves.
             removalGeneration += 1
+            completed(stepRemovedAnnouncement(position), position.focusAfterRemoval)
         }
+        .accessibilityFocused(focus, equals: .control(.remove, appendedIndex: position.appendedIndex))
+    }
+
+    /// A COMPLETED edit: say what happened, then put focus where the table
+    /// says it goes. Called AFTER the surface's closure returns, so both
+    /// arguments describe the arrangement the user now has; two `nil`s are the
+    /// refused-move case — nothing spoken, focus unmoved, nothing changed.
+    ///
+    /// `AccessibilityNotification.Announcement` is declared in the
+    /// **Accessibility** module, not in SwiftUI, and carries
+    /// `@available(iOS 17.0, macOS 14.0, ...)` — both read out of the SDK's own
+    /// `.swiftinterface`, both exactly this app's floors. Transcript:
+    /// `evidence/07-09-announce-focus.txt`. Available at both, so the
+    /// `UIAccessibility` / `NSAccessibility` fallback the contract offers as
+    /// the alternative is NOT built.
+    private func completed(_ sentence: String?, _ target: StepFocusTarget?) {
+        if let sentence {
+            AccessibilityNotification.Announcement(sentence).post()
+        }
+        guard let target else { return }
+        focus.wrappedValue = target
     }
 
     /// The shipped icon-button chain, factored so all three controls are

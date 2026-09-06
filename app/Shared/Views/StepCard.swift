@@ -111,6 +111,16 @@ struct StepCard<Content: View, Footer: View>: View {
     /// supported way back to the string it resolves to.
     let operationName: String
 
+    /// The stack-wide accessibility focus — passed ONLY by the call site that
+    /// renders the pinned root, and `nil` on every appended card.
+    ///
+    /// Root-ness stays a CALL-SITE fact here, exactly as ``footer`` already
+    /// makes it: no repeated view asks whether it is first. The root's header
+    /// is where focus goes when a removal empties the appended stack, because
+    /// D-100 leaves the root no controls to land on and dropping focus to the
+    /// top of the screen is the failure the focus table exists to prevent.
+    let headerFocus: AccessibilityFocusState<StepFocusTarget?>.Binding?
+
     /// What the footer row holds: ``StepFooter`` on an appended card,
     /// ``StepRootNote`` on the pinned root. WHICH CALL SITE FILLS IT is what
     /// makes D-100's absence a decision rather than a flag inside a repeated
@@ -173,6 +183,7 @@ struct StepCard<Content: View, Footer: View>: View {
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier(AccessibilityIdentifiers.Step.header)
+                    .modifier(RootHeaderFocus(focus: headerFocus))
             }
             Divider()
             content()
@@ -204,6 +215,28 @@ struct StepCard<Content: View, Footer: View>: View {
     }
 }
 
+/// The root header's focus anchor, applied only where a binding was passed.
+///
+/// A modifier rather than an `if` inside the header row, so the two branches
+/// resolve to one type and the header keeps its modifier CHAIN — the shape
+/// ``RemovalFeedback`` and `CopyFeedback` established for the platform forks.
+private struct RootHeaderFocus: ViewModifier {
+    /// `nil` on every appended card; the pinned root's binding on exactly one
+    /// card per surface.
+    let focus: AccessibilityFocusState<StepFocusTarget?>.Binding?
+
+    /// Anchored where there is a binding, untouched where there is not.
+    /// `ViewModifier.body(content:)` is declared `@ViewBuilder` by the protocol
+    /// itself, so the two branches resolve without repeating the attribute.
+    func body(content: Content) -> some View {
+        if let focus {
+            content.accessibilityFocused(focus, equals: .rootHeader)
+        } else {
+            content
+        }
+    }
+}
+
 /// The shape the previews below share: an APPENDED card, numbered 2 of 2,
 /// with a live footer.
 ///
@@ -222,6 +255,15 @@ private struct StepCardPreview: View {
     /// The state the one output renders.
     let state: StepRenderState
 
+    /// The footer needs a real binding; a preview has no VoiceOver to move.
+    @AccessibilityFocusState private var focus: StepFocusTarget?
+
+    /// The appended card of a two-card stack: move up enabled, move down
+    /// disabled at the bottom end, remove enabled in all four states.
+    private var position: StepStackPosition {
+        StepStackPosition(appendedIndex: 0, appendedCount: 1, modelOffset: 0)
+    }
+
     /// Card two of two: move up enabled, move down disabled at the bottom
     /// end, remove enabled in every one of the four states.
     var body: some View {
@@ -231,7 +273,8 @@ private struct StepCardPreview: View {
             position: 2,
             total: 2,
             operationName: "Base64 encode",
-            footer: { StepFooter(canMoveUp: true, canMoveDown: false, onMoveUp: {}, onMoveDown: {}, onRemove: {}) },
+            headerFocus: nil,
+            footer: { StepFooter(position: position, focus: $focus, onMoveUp: {}, onMoveDown: {}, onRemove: {}) },
             content: { SingleOutputBody(state: state, onAddStep: { _ in }) }
         )
         .padding()
@@ -262,15 +305,27 @@ private struct StepCardPreview: View {
     StepCardPreview(title: "op.hash.sha256", diagnostic: .neutral(blockedStepText()), state: .blocked)
 }
 
+/// The pinned root, which is the only card that carries a header focus anchor.
+private struct StepRootCardPreview: View {
+    /// The root header is a focus target; the binding has to exist to anchor it.
+    @AccessibilityFocusState private var focus: StepFocusTarget?
+
+    /// Ordinal 1, the note instead of the three controls, and the anchor.
+    var body: some View {
+        StepCard(
+            title: "op.base64.encode",
+            diagnostic: .neutral("8 characters"),
+            position: StepStackPosition.rootOrdinal,
+            total: 2,
+            operationName: "Base64 encode",
+            headerFocus: $focus,
+            footer: { StepRootNote() },
+            content: { SingleOutputBody(state: .value("aGVsbG8="), onAddStep: { _ in }) }
+        )
+        .padding()
+    }
+}
+
 #Preview("The pinned root") {
-    StepCard(
-        title: "op.base64.encode",
-        diagnostic: .neutral("8 characters"),
-        position: StepStackPosition.rootOrdinal,
-        total: 2,
-        operationName: "Base64 encode",
-        footer: { StepRootNote() },
-        content: { SingleOutputBody(state: .value("aGVsbG8="), onAddStep: { _ in }) }
-    )
-    .padding()
+    StepRootCardPreview()
 }

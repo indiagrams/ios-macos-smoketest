@@ -135,6 +135,16 @@ struct HashingSurface: View {
         .dismissesKeyboardOnScroll()
     }
 
+    /// Where VoiceOver focus sits in this surface's step stack.
+    ///
+    /// Declared HERE rather than inside the card or the footer, because the
+    /// element that holds focus is exactly the element a removal destroys:
+    /// state owned by a view that disappears cannot survive the edit that made
+    /// it disappear. The three surfaces each declare the property; the RULE
+    /// that decides what it is set to is one implementation, in
+    /// `StepStack.swift` and `StepControls.swift`.
+    @AccessibilityFocusState private var stepFocus: StepFocusTarget?
+
     /// The eager step stack: the four-row card, then anything chained below it.
     ///
     /// The root is rendered ALONE, outside the `ForEach`, which is what makes
@@ -159,6 +169,7 @@ struct HashingSurface: View {
                 position: StepStackPosition.rootOrdinal,
                 total: total,
                 operationName: localizedSentence(key: "shell.destination.hashing"),
+                headerFocus: $stepFocus,
                 footer: { StepRootNote() },
                 content: { HashBody(rows: rows, onAddStep: chain) }
             )
@@ -169,10 +180,11 @@ struct HashingSurface: View {
                     position: card.position.visibleOrdinal,
                     total: total,
                     operationName: localizedSentence(key: card.step.operation.rawValue),
+                    headerFocus: nil,
                     footer: {
                         StepFooter(
-                            canMoveUp: card.position.canMoveUp,
-                            canMoveDown: card.position.canMoveDown,
+                            position: card.position,
+                            focus: $stepFocus,
                             onMoveUp: { move(card.position, .up) },
                             onMoveDown: { move(card.position, .down) },
                             onRemove: { remove(card.position) }

@@ -65,7 +65,8 @@
 #   P8  REVERSE: every declared category is used, naming the category                per entry
 #   P9  every declared category is one of Apple's five                               per entry
 #   P10 every declared reason is non-empty and valid FOR THAT CATEGORY               per entry
-#   P11 when --archive is supplied, the bundle's EMBEDDED manifest is the source one  per bundle
+#   P11 when --archive is supplied, the bundle SHIPS the manifest, exactly once, at
+#       the path its own bundle shape requires, byte-identical to source        per bundle
 #
 #   P1 is asserted BEFORE anything iterates. A population that has stopped being
 #   enumerated looks exactly like a population with nothing wrong in it, and `.each`
@@ -110,7 +111,7 @@
 #
 # Options:
 #   --root DIR      scan a different tree (used by the negative controls)
-#   --archive PATH  a built .app whose EMBEDDED manifest is checked too (plan 07-13)
+#   --archive PATH  an .xcarchive or a built .app whose EMBEDDED manifest is checked too
 
 require "digest"
 require "rexml/document"
@@ -736,41 +737,156 @@ assert used_slugs.sort == declared_slugs.uniq.sort, "privacy", MANIFEST_REL,
        "#{used_slugs.empty? && declared_slugs.empty? ? ' — both are EMPTY, which is this ' \
        'tree\'s correct state and is asserted here rather than left as an absence' : ''}"
 
-# ─── P11: the archive half (declared here, driven by plan 07-13) ─────────────
+# ─── P11: the archive half — the SHIPPED artefact, not the input ─────────────
+#
+# WHY THIS EXISTS AT ALL, since the bytes are identical to the source file.
+# Measured 2026-09-06 across four Release archives (XcodeGen x Tuist, iOS x macOS):
+# every embedded copy shares one digest with app/Shared/PrivacyInfo.xcprivacy, so an
+# archive-side CONTENT check tells a reviewer nothing a source-side check does not.
+# It earns its place by proving three things a source scan structurally cannot:
+#
+#   (1) the manifest is PRESENT in the bundle that ships — a source file that no
+#       generator copies is a declaration nobody receives;
+#   (2) it is present EXACTLY ONCE — Apple's rule is per bundle, so a future
+#       embedded framework needs its OWN manifest, and the count assertion is what
+#       makes that arrival visible instead of silent; and
+#   (3) BOTH generators put it there — XcodeGen picks it up through `sources:` and
+#       Tuist through an explicit entry, two different mechanisms reaching the same
+#       file, so parity is not automatic and is asserted rather than assumed.
+#
+# The path accepted is EITHER an `.xcarchive` OR a built `.app`. An `.xcarchive`
+# tells you where its own app is; NEVER derive a product path from a scheme or a
+# target name, which is a named anti-pattern in this repository with three prior
+# instances (UL-043, plan 05-04, and bin/take-readme-screenshots.sh searching for
+# `App-iOS.app` when the bundle is named from APP_PRODUCT_NAME).
+#
+# archive_checked is the "did anybody actually look" flag. An exit code alone
+# cannot distinguish "looked and found nothing wrong" from "never looked", and a
+# job that exits 0 having never looked is the failure this whole gate is about.
 
 archive_checked = false
+archive_kind    = "none"
+archive_shape   = ""
+archive_app     = ""
+archive_format  = ""
+manifests_found = 0
+manifest_in     = ""
 archive_reason  = "no --archive supplied; the SOURCE manifest was checked and the built " \
-                  "bundle was not. Plan 07-13 supplies one per generator per platform"
+                  "bundle was not. Pass an .xcarchive (or a built .app) to check the " \
+                  "shipped artefact too"
 
 if ARCHIVE
-  bundle = File.expand_path(ARCHIVE)
-  if !File.directory?(bundle)
-    assert false, "privacy", bundle, "the --archive path is a bundle directory"
-    archive_reason = "the --archive path #{bundle} is not a directory"
+  supplied = File.expand_path(ARCHIVE)
+  if !File.directory?(supplied)
+    assert false, "privacy", supplied,
+           "the --archive path exists and is a directory — an .xcarchive or a built .app"
+    archive_reason = "the --archive path #{supplied} is not a directory"
   else
-    # Bundle SHAPE, never a product name: a macOS bundle nests its executable and
-    # its resources under Contents/.
-    nested   = File.directory?(File.join(bundle, "Contents"))
-    embedded = nested ? File.join(bundle, "Contents", "Resources", ARCHIVE_LEAF)
-                      : File.join(bundle, ARCHIVE_LEAF)
-    embedded = File.join(bundle, "Resources", ARCHIVE_LEAF) if !nested && !File.file?(embedded)
-    here = File.file?(embedded)
-    assert here, "privacy", bundle,
-           "the built #{nested ? 'macOS' : 'iOS'} bundle carries an embedded " \
-           "#{ARCHIVE_LEAF}; a bundle without one ships no manifest at all, which is " \
-           "the artefact-level form of the failure this whole gate is about"
-    if here
-      embedded_sha = Digest::SHA256.hexdigest(File.binread(embedded))
-      assert embedded_sha == manifest_sha, "privacy", bundle,
-             "the embedded manifest is byte-identical to #{MANIFEST_REL} " \
-             "(source #{manifest_sha}, embedded #{embedded_sha}). This is the artefact, " \
-             "not the input — a source-only gate passing over a bundle that does not " \
-             "match it is the class this repository has already produced twice"
-      archive_checked = true
-      archive_reason  = "embedded #{ARCHIVE_LEAF} read from #{File.basename(bundle)} " \
-                        "(#{nested ? 'macOS' : 'iOS'} bundle shape), sha256 #{embedded_sha}"
+    # STEP 1 — resolve the .app from the archive's OWN metadata.
+    info_plist = File.join(supplied, "Info.plist")
+    app_rel    = ""
+    if File.file?(info_plist) && have_plutil
+      raw, status = capture("/usr/bin/plutil", "-extract",
+                            "ApplicationProperties.ApplicationPath", "raw", "-o", "-",
+                            info_plist)
+      app_rel = raw.to_s.strip if status == 0
+    end
+    if app_rel.empty?
+      # Not an .xcarchive. It may still be a built .app — 07-04 declared this option
+      # against one — but it may equally be the path an archive was SUPPOSED to be
+      # written to and was not. Those are different facts and only one of them is
+      # something to inspect, so the shape is RECOGNISED rather than assumed.
+      archive_kind = "bundle"
+      bundle       = supplied
+      archive_app  = File.basename(bundle)
+      read_from    = "the path as given — no readable ApplicationProperties.ApplicationPath " \
+                     "in #{info_plist}, so this is not an .xcarchive"
+      recognised   = File.file?(File.join(supplied, "Info.plist")) ||
+                     File.file?(File.join(supplied, "Contents", "Info.plist"))
     else
-      archive_reason = "no #{ARCHIVE_LEAF} found inside #{File.basename(bundle)}"
+      archive_kind = "xcarchive"
+      bundle       = File.join(supplied, "Products", app_rel)
+      archive_app  = File.join("Products", app_rel)
+      read_from    = "ApplicationProperties.ApplicationPath = #{app_rel.inspect} in #{info_plist}"
+      recognised   = true
+    end
+
+    if !recognised
+      # THE SILENT CASE, named. A build step that produced nothing leaves a path
+      # exactly like this behind, and a gate that shrugs at it exits 0 having never
+      # looked — which an exit code alone cannot be distinguished from "looked and
+      # found nothing wrong".
+      assert false, "privacy", supplied,
+             "the --archive path is an .xcarchive or a built .app. It is neither: no " \
+             "readable ApplicationProperties.ApplicationPath and no Info.plist at either " \
+             "bundle shape's location. Nothing was produced here to inspect"
+      archive_kind   = "unrecognised"
+      archive_reason = "#{supplied} is neither an .xcarchive nor an app bundle — no " \
+                       "ApplicationProperties.ApplicationPath and no Info.plist. Nothing " \
+                       "was produced here, so NOTHING WAS INSPECTED"
+    else
+      app_here = File.directory?(bundle)
+      assert app_here, "privacy", supplied,
+             "the #{archive_kind} resolves to a bundle directory. Read #{read_from}, " \
+             "resolved to #{bundle}. The product path comes from the artefact's own " \
+             "metadata, never from a scheme or target name"
+      if !app_here
+        archive_reason = "#{archive_kind} #{supplied} names #{app_rel.inspect} but " \
+                         "#{bundle} is not a directory"
+      else
+        # STEP 2 — platform by bundle SHAPE, never by name. A macOS bundle nests its
+        # executable and its resources under Contents/. Same predicate
+        # test/app_offline_test.rb already uses for entitlements.
+        nested        = File.directory?(File.join(bundle, "Contents"))
+        archive_shape = nested ? "macOS" : "iOS"
+
+        # STEP 3 — the expected path for that shape.
+        expected = nested ? File.join(bundle, "Contents", "Resources", ARCHIVE_LEAF)
+                          : File.join(bundle, ARCHIVE_LEAF)
+
+        # STEP 4 — INDEPENDENTLY glob the bundle, and assert the count and the path
+        # SEPARATELY. Two assertions, not one: a count of 1 at the WRONG path and a
+        # count of 2 with one at the right path are different defects, and a path
+        # check alone catches only the first.
+        found           = Dir.glob(File.join(bundle, "**", "*#{File.extname(ARCHIVE_LEAF)}")).sort
+        manifests_found = found.length
+        rel_found       = found.map { |hit| hit.sub("#{bundle}/", "") }
+
+        assert manifests_found == 1, "privacy", bundle,
+               "the #{archive_shape} bundle carries EXACTLY ONE #{ARCHIVE_LEAF}; found " \
+               "#{manifests_found} (#{rel_found.empty? ? 'none' : rel_found.join(', ')}). " \
+               "Apple's rule is per bundle, so an embedded framework or plug-in that starts " \
+               "using a required-reason API needs its own manifest — this count is what makes " \
+               "that arrival a failure instead of a silence"
+
+        at_expected = found.include?(expected)
+        assert at_expected, "privacy", bundle,
+               "the #{ARCHIVE_LEAF} sits at the path this #{archive_shape} bundle shape " \
+               "requires (#{expected.sub("#{bundle}/", '')}); found " \
+               "#{rel_found.empty? ? 'none' : rel_found.join(', ')}. A manifest at the wrong " \
+               "path inside the bundle is not read by anything and ships as no declaration " \
+               "at all"
+
+        if at_expected
+          embedded_bytes = File.binread(expected)
+          embedded_sha   = Digest::SHA256.hexdigest(embedded_bytes)
+          archive_format = embedded_bytes.start_with?("bplist00") ? "binary" : "xml"
+          manifest_in    = expected.sub("#{bundle}/", "")
+          # STEP 5's byte-identity, inherited from 07-04. This is the artefact, not
+          # the input — a source-only gate passing over a bundle that does not match
+          # it is the class this repository has already produced twice.
+          assert embedded_sha == manifest_sha, "privacy", bundle,
+                 "the embedded manifest is byte-identical to #{MANIFEST_REL} " \
+                 "(source #{manifest_sha}, embedded #{embedded_sha})"
+          archive_checked = true
+          archive_reason  = "#{manifest_in} read from #{File.basename(bundle)} " \
+                            "(#{archive_shape} bundle shape, #{archive_kind}), " \
+                            "sha256 #{embedded_sha}"
+        else
+          archive_reason = "no #{ARCHIVE_LEAF} at the #{archive_shape} bundle's own manifest " \
+                           "path inside #{File.basename(bundle)}"
+        end
+      end
     end
   end
 end
@@ -800,6 +916,12 @@ puts "privacy_categories_declared=#{declared_labels.sort.uniq.join(',')}"
 used_slugs.each do |slug|
   used[slug].each { |rel, line, symbol| puts "privacy_use #{slug} #{rel}:#{line}=#{symbol}" }
 end
+puts "privacy_archive_kind=#{archive_kind}"
+puts "privacy_archive_app=#{archive_app}"
+puts "privacy_archive_bundle_shape=#{archive_shape}"
+puts "privacy_manifests_in_bundle=#{manifests_found}"
+puts "privacy_manifest_path=#{manifest_in}"
+puts "privacy_archive_manifest_format=#{archive_format}"
 puts "privacy_archive_checked=#{archive_checked}"
 puts "privacy_archive_reason=#{archive_reason}"
 puts "privacy_measured_on=#{MEASURED_ON}"

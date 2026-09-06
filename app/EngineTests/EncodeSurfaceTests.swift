@@ -107,7 +107,7 @@ struct EncodeSurfaceTests {
 
     @Test("the two selections live on the model, and the header follows them")
     func theSelectionsLiveOnTheModelAndTheHeaderFollows() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         // D-09: the surface is seeded, and this is the operation it is seeded
         // with — the first card a user ever sees says "Base64 encode".
         #expect(encodeHeaderKey(format: model.encodeFormat, direction: model.encodeDirection) == "op.base64.encode")
@@ -121,7 +121,7 @@ struct EncodeSurfaceTests {
 
     @Test("the seeded card and an appended card chain, and the chain halts on a failure")
     func theSeededCardAndAnAppendedCardChain() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.encode.input = InputExample.encode
 
         // The surface composes [seeded] + the appended steps and evaluates

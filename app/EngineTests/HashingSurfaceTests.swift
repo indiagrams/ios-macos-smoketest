@@ -134,7 +134,7 @@ struct HashingSurfaceTests {
 
     @Test("chaining from one named digest produces the chained result")
     func chainingFromOneNamedDigestProducesTheChainedResult() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.hashing.input = InputExample.hashing
         let rows = digestRows(for: model.hashing.input)
         let sha256 = rows.first { $0.operation == .sha256 }

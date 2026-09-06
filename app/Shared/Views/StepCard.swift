@@ -36,6 +36,13 @@
 //    check pointed at an incomplete population, which is the failure class this
 //    phase exists to stop repeating. Same de-spelling rule as above.
 //
+// 4. THE FOOTER ROW IS CHROME, NOT SURFACE. Present on every card, in every
+//    state, at the same reserved height whether it holds three controls or
+//    the root's sentence, and always LAST. Nothing goes above the output
+//    section: criterion 5's margin on the smallest supported iPhone is
+//    roughly 77 pt against an 88 pt two-hit-target floor, and a header-row
+//    cluster would spend more than half of it on every card.
+//
 // The card's fill, corner radius and padding DO NOT CHANGE with the error
 // state, and there is no border, no shadow and no elevation stack: cards are
 // distinguished from the background by fill alone.
@@ -70,10 +77,12 @@ enum DiagnosticContent: Equatable {
 /// The Hashing surface renders four digests inside one card and still shows one
 /// strip.
 ///
-/// The generic parameter is named `Content` and the closure `content` rather
-/// than the `Body` / `body` the UI-SPEC's sketch uses, because both of those
-/// names are already taken by `View`'s own associated type and requirement.
-struct StepCard<Content: View>: View {
+/// The generic parameters are named `Content` / `Footer` and their closures
+/// `content` / `footer` rather than the `Body` / `body` the UI-SPEC's sketch
+/// uses, because both of those names are already taken by `View`'s own
+/// associated type and requirement. The note applied to one closure in Phase
+/// 6 and applies to both now.
+struct StepCard<Content: View, Footer: View>: View {
     /// The composed operation name, rendered `.headline`.
     ///
     /// A `LocalizedStringKey` is right here and only here: an operation name
@@ -85,22 +94,93 @@ struct StepCard<Content: View>: View {
     /// Always present, never empty. See ``DiagnosticContent``.
     let diagnostic: DiagnosticContent
 
+    /// This card's 1-based place in its surface's stack.
+    ///
+    /// PASSED, never computed here and never read from the environment: the
+    /// surface owns the array. The ordinal it renders is what makes a removal
+    /// or a move visible — every number below the edit renumbers in the same
+    /// pass, and that is the feedback replacing the animation this phase
+    /// deliberately does not have.
+    let position: Int
+
+    /// How many cards the stack holds, for the container label's "of N".
+    let total: Int
+
+    /// The already-localized operation name, for the container label.
+    /// ``title`` cannot serve: a `LocalizedStringKey` is opaque, with no
+    /// supported way back to the string it resolves to.
+    let operationName: String
+
+    /// What the footer row holds: ``StepFooter`` on an appended card,
+    /// ``StepRootNote`` on the pinned root. WHICH CALL SITE FILLS IT is what
+    /// makes D-100's absence a decision rather than a flag inside a repeated
+    /// view — the root card is rendered outside the surface's loop, so no
+    /// card ever asks whether it is first.
+    @ViewBuilder let footer: () -> Footer
+
     /// The body renderer. Four ship in Phase 6 — `EncodeBody`, `HashBody` and
     /// `TimestampBody` for the three seeded first cards, and
     /// ``SingleOutputBody`` for every appended card.
     @ViewBuilder let content: () -> Content
 
-    /// Header, divider, body, divider, strip — in that order, always.
+    /// The footer row's reserved height, growing with Dynamic Type.
+    @ScaledMetric(relativeTo: .body) private var scaledFooterHeight = Spacing.iOSHitTarget
+
+    /// 44 pt on iOS, 28 pt on macOS, applied in BOTH footer variants so a root
+    /// card and an appended card have identical geometry.
+    private var footerHeight: CGFloat {
+        #if os(iOS)
+            scaledFooterHeight
+        #else
+            Spacing.macOSHitTarget
+        #endif
+    }
+
+    /// "Step 2 of 5, Base64 encode" — announced on entering the group, so a
+    /// user who lands on a control has the step's identity and its position
+    /// without hunting for them.
+    ///
+    /// `NSLocalizedString` plus a format — ``localizedCount(_:_:)``'s route,
+    /// not a `LocalizedStringKey`, which would build a key out of the
+    /// interpolated TEXT and miss the dotted key. Neither shipped helper takes
+    /// two counts and a string, so their two calls are spelled here.
+    private var containerLabel: String {
+        String.localizedStringWithFormat(
+            NSLocalizedString("step.card.label", comment: ""),
+            position, total, operationName
+        )
+    }
+
+    /// Header, divider, body, divider, strip, divider, footer — in that
+    /// order, always. The footer is the last row and nothing goes above the
+    /// output section; see rule 4 in this file's header.
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            Text(title)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier(AccessibilityIdentifiers.Step.header)
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                // Visible prose: an identifier, no label override.
+                // `.monospacedDigit()` is a numeric variant of the same text
+                // style, not a fifth size — it keeps the number from changing
+                // width between 9 and 10. The ordinal is fixed and prioritised;
+                // the operation name has no line limit and WRAPS.
+                Text(verbatim: localizedCount("step.position", position))
+                    .monospacedDigit()
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .layoutPriority(1)
+                    .accessibilityIdentifier(AccessibilityIdentifiers.Step.position)
+                Text(title)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(AccessibilityIdentifiers.Step.header)
+            }
             Divider()
             content()
             Divider()
             DiagnosticStrip(content: diagnostic)
+            Divider()
+            footer()
+                .frame(maxWidth: .infinity, minHeight: footerHeight, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.lg)
@@ -118,7 +198,41 @@ struct StepCard<Content: View>: View {
         // disturbs the harvest; this plan's evidence file answers it with
         // measured counts rather than with reasoning.
         .accessibilityElement(children: .contain)
+        // The container GAINS a label; it does not replace its children.
+        .accessibilityLabel(containerLabel)
         .accessibilityIdentifier(AccessibilityIdentifiers.Step.card)
+    }
+}
+
+/// TRANSITIONAL — a card with an EMPTY footer row, kept only until plan 07-08
+/// rewires the three surfaces, which is the plan that owns those call sites.
+///
+/// This plan builds the footer and the slot; filling them means handing every
+/// surface its own remove and move closures, which is 07-08's job. Until then
+/// the six shipped call sites bind this initialiser and render an ordinal of
+/// "Step 1", a container label of "Step 1 of 1, " and a blank footer row of
+/// the correct height. THOSE ARE THE VISIBLE MARKER OF AN UNWIRED CALL SITE,
+/// not defaults anybody should keep: 07-08 passes real values and DELETES
+/// this initialiser, and a card still reading "Step 1 of 1" after that is a
+/// call site it missed.
+extension StepCard where Footer == EmptyView {
+    init(
+        title: LocalizedStringKey,
+        diagnostic: DiagnosticContent,
+        position: Int = 1,
+        total: Int = 1,
+        operationName: String = "",
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            diagnostic: diagnostic,
+            position: position,
+            total: total,
+            operationName: operationName,
+            footer: { EmptyView() },
+            content: content
+        )
     }
 }
 

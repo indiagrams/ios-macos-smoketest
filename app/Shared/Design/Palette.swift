@@ -63,9 +63,19 @@ import SwiftUI
 /// nothing about the words flickers. Only a 16 pt leading
 /// `exclamationmark.triangle.fill` changes, and it is `.accessibilityHidden(true)`
 /// because it is redundant with the sentence beside it, which names the problem
-/// in words. There is no destructive role in this palette: Phase 6 has no
-/// destructive action, so the hue that means danger and irreversibility appears
-/// nowhere in this phase. Remove-step is APP-09 and belongs to Phase 7.
+/// in words.
+///
+/// **3. ``destructive`` is the GLYPH ONLY too, and it is the only red here.**
+/// Phase 6's version of this comment said there is no destructive role in this
+/// palette, because Phase 6 had no destructive action, and that remove-step is
+/// APP-09 and belongs to Phase 7. Phase 7 is now: that sentence is AMENDED
+/// here, 2026-09-05 (plan 07-03), in the same edit that makes it false, rather
+/// than left to rot into a forward reference nobody re-reads. The role is
+/// filled by ``destructive``, and the restriction it lands with is the same
+/// shape as ``diagnostic``'s — the remove control's glyph, never a fill, never
+/// a border, never text, never a card outline, exactly one control per APPENDED
+/// card. **The accent reserved-for list above is UNCHANGED**: remove is not one
+/// of its four items and must never be accent-coloured.
 public enum Palette {
     /// Dominant (60%) — the scene background behind the scroll content, set
     /// once at the root of each surface.
@@ -111,15 +121,50 @@ public enum Palette {
         Color.orange
     }
 
+    /// The remove control's glyph tint — the ONLY red in the app.
+    ///
+    /// Never a fill, never a border, never text, never a card outline. Exactly
+    /// one control per APPENDED card carries it; under D-100 the root card has
+    /// no remove control at all, so the root card carries no red.
+    ///
+    /// **Why the hue is spendable here and was not in Phase 6.** Red means
+    /// danger and irreversibility. Phase 6 had no irreversible action, so red
+    /// there would have been decoration. Under D-101 removal has NO
+    /// confirmation and NO undo — it is the only genuinely irreversible action
+    /// in the app — and the hue that means exactly that should be spent on
+    /// exactly it. Spending it anywhere else drains the meaning back out.
+    ///
+    /// **Why the glyph only, exactly as ``diagnostic`` is the glyph only.** Red
+    /// as text, or as a large fill at caption metrics on a light background, is
+    /// a 4.5:1 contrast risk; and a permanently red REGION on every appended
+    /// card would read as an error state rather than as a control. The `trash`
+    /// symbol and the "Remove step" accessibility label carry the meaning
+    /// without hue, so nothing here depends on colour alone.
+    ///
+    /// **Never accent.** Accent is the add-step control's signature (see the
+    /// reserved-for list in this type's documentation). Giving remove the same
+    /// hue would visually equate the app's primary action with its only
+    /// irreversible one — D-101's muscle-memory failure expressed in colour
+    /// instead of in position.
+    public static var destructive: Color {
+        Color.red
+    }
+
     /// Hairline separators, where `Divider()` is not what the layout wants.
     ///
-    /// - Note: **RESERVED, and unused in Phase 6** (IN-01, 2026-09-05). Every
-    ///   Phase 6 surface separates content with spacing and card edges, so
-    ///   `Divider()` is never wanted and neither is this. It lands with Phase
-    ///   7's History list, where rows need a hairline between them. Declared
-    ///   rather than left to be invented, because the alternative the next
-    ///   author reaches for is a hex literal, which the design rule forbids by
-    ///   name.
+    /// - Note: **RESERVED, and still unused** (IN-01, 2026-09-05; forward
+    ///   reference AMENDED 2026-09-05 by plan 07-03). Every Phase 6 surface
+    ///   separates content with spacing and card edges, so `Divider()` is never
+    ///   wanted and neither is this. This comment used to name a PHASE — Phase
+    ///   6 reserved the token for a History list it expected next — and
+    ///   07-CONTEXT.md §Phase Boundary puts History at Phase 8+, so the promise
+    ///   had already gone stale. It is restated as a SHAPE, which cannot rot:
+    ///   this is for a hairline between rows in a LIST-LIKE SURFACE. Phase 7 is
+    ///   not that surface. Its step-card footer separator is a plain
+    ///   `Divider()`, matching the two dividers already inside `StepCard`.
+    ///   Declared rather than left to be invented, because the alternative the
+    ///   next author reaches for is a hex literal, which the design rule
+    ///   forbids by name.
     public static var separator: Color {
         #if os(iOS)
             Color(uiColor: .separator)

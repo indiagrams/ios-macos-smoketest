@@ -101,11 +101,62 @@ struct StringCatalogTests {
             "hashing.diagnostic.empty": "Enter text above to see its digests.",
             "timestamps.readAs.caption":
                 "Set automatically from the input. Change it if the detection is wrong.",
-            "timestamps.error.range": "Out of range: %@ is outside the dates this app can show."
+            "timestamps.error.range": "Out of range: %@ is outside the dates this app can show.",
+            "step.position": "Step %lld",
+            "step.root": "This step starts the pipeline.",
+            "step.moveUp": "Move step up",
+            "step.moveDown": "Move step down",
+            "step.remove": "Remove step",
+            "step.card.label": "Step %lld of %lld, %@",
+            "step.announce.moved": "Moved to position %lld of %lld."
         ]
         for (key, sentence) in expected {
             let value = rendered(key)
             #expect(value == sentence, "\(key) resolved to \(value)")
+        }
+    }
+
+    /// The removal announcement picks the singular at exactly one.
+    ///
+    /// Same discrimination as the three Phase 6 plural entries, and for the
+    /// same reason: a FLAT `"Step removed. %lld steps remain."` entry — the
+    /// shape a hand-written row falls into — passes any non-empty check and
+    /// renders "Step removed. 1 steps remain." to a VoiceOver user. The middle
+    /// case is the one that catches it; the outer two catch the opposite
+    /// mistake.
+    @Test("the removal announcement selects the singular at one, and only at one")
+    func removalAnnouncementSelectsTheSingularOnlyAtOne() {
+        #expect(rendered("step.announce.removed", 0) == "Step removed. 0 steps remain.")
+        #expect(rendered("step.announce.removed", 1) == "Step removed. 1 step remains.")
+        #expect(rendered("step.announce.removed", 2) == "Step removed. 2 steps remain.")
+    }
+
+    /// The three argument-taking step keys substitute in the right ORDER and
+    /// leave no specifier behind.
+    ///
+    /// Distinct arguments throughout, so a transposed format cannot pass by
+    /// symmetry: "Step 2 of 5" and "Step 5 of 2" are different sentences, and
+    /// `%@` last means a codec name landing first would show up too. The
+    /// residual-specifier check is the second half — a key that resolved to
+    /// ITSELF would contain no `%`, but a row that dropped an argument would,
+    /// and neither should reach a screen.
+    @Test("the argument-taking step keys substitute in order, with nothing left over")
+    func argumentTakingStepKeysSubstituteInOrder() {
+        let position = String.localizedStringWithFormat(NSLocalizedString("step.position", comment: ""), 3)
+        #expect(position == "Step 3")
+
+        let label = String.localizedStringWithFormat(
+            NSLocalizedString("step.card.label", comment: ""), 2, 5, "Base64 encode"
+        )
+        #expect(label == "Step 2 of 5, Base64 encode")
+
+        let moved = String.localizedStringWithFormat(
+            NSLocalizedString("step.announce.moved", comment: ""), 3, 4
+        )
+        #expect(moved == "Moved to position 3 of 4.")
+
+        for rendered in [position, label, moved] {
+            #expect(!rendered.contains("%"), "residual format specifier in \(rendered)")
         }
     }
 }

@@ -135,4 +135,34 @@ extension VisibleStringSweep {
         }
         destination.click()
     }
+
+    /// Every string 07-UI-SPEC's copywriting delta adds, looked for BY NAME in the harvest.
+    ///
+    /// A FLOOR CANNOT DO THIS JOB. `distinctFloor` catches a surface disappearing; it cannot catch a
+    /// phase adding eight strings that the walk never renders, because the count would go UP and the
+    /// assertion would pass while the population had stopped covering its subject. That is the exact
+    /// failure plan 07-12 exists to close, so the eight are named rather than counted.
+    ///
+    /// THE TWO UNREACHABLE ONES ARE PRINTED, NOT DROPPED. An exemption here is a labelled count, the
+    /// same discipline `SweepPopulation`'s four buckets already follow, so the number moves the day a
+    /// runtime starts surfacing announcements or somebody adds a ninth string.
+    func assertPhase7StringsAreRendered(in distinct: Set<String>) {
+        var exempted = 0
+        for expected in SweepPopulation.phase7Strings {
+            let found = SweepPopulation.matches(expected, in: distinct)
+            if let exemption = expected.exemption {
+                exempted += 1
+                recordCounter("exempt_string key=\(expected.key) matches=\(found.count) reason=\(exemption)")
+                continue
+            }
+            recordCounter("swept_string key=\(expected.key) matches=\(found.count)")
+            XCTAssertGreaterThan(
+                found.count,
+                0,
+                "nothing rendered matches \(expected.key) — the catalog holds \"\(expected.catalogValue)\" "
+                    + "and the walk never brought it into the population"
+            )
+        }
+        recordCounter("phase7_strings=\(SweepPopulation.phase7Strings.count) phase7_exempt=\(exempted)")
+    }
 }

@@ -77,6 +77,17 @@ final class VisibleStringSweep: XCTestCase {
     /// system_data_strings=22 platform_control_strings=152`. The floor is 85 — nine below the
     /// measurement, and low enough that adding strings cannot break it while losing the smallest
     /// surface (Hashing, about eleven distinct strings) still trips it.
+    ///
+    /// NOT RE-MEASURED BY PLAN 07-12, AND THAT IS RECORDED RATHER THAN PAPERED OVER. Walk steps
+    /// 11-14 were appended to this file on 2026-09-06 and the macOS UI target cannot be run on a
+    /// developer Mac: `AppMacOSUITests-Runner` is Apple-Development-signed, Gatekeeper's EXECUTION
+    /// POLICY rejects it, and the run dies at exit 65 with a dialog on the user's desktop. CI is the
+    /// arbiter for this half. The iOS twin re-measured to 142 / 140 and set its floor to 136; this
+    /// one stays at 85, which is still a VALID floor — the population only grew — but a loose one,
+    /// and a loose floor makes everything above it easier to pass.
+    ///
+    /// TO CLOSE IT: read `SWEEP_COUNTERS` out of the `app (macOS)` job's xcresult on the next CI run,
+    /// then apply the iOS twin's rule — the smallest measured count minus 4 — and date it here.
     private static let distinctFloor = 85
 
     override func setUpWithError() throws {
@@ -127,6 +138,10 @@ final class VisibleStringSweep: XCTestCase {
             Self.distinctFloor,
             "the population shrank below the floor \(Self.distinctFloor). \(counters)"
         )
+
+        // 1b — IS IT STILL COMPLETE? A floor cannot answer that: eight new strings the walk
+        // never renders would raise the count and pass. The eight are looked for BY NAME.
+        assertPhase7StringsAreRendered(in: distinct)
 
         // 2 — and only then, the prose condition, over the rendered bucket alone.
         for string in distinct.sorted() {
@@ -181,7 +196,7 @@ final class VisibleStringSweep: XCTestCase {
     /// log (06-01), so every number also rides an `XCTContext` activity — the one channel that
     /// crosses testmanagerd. Kept as a function so the four steps below are byte-identical twins
     /// of the iOS ones.
-    private func record(_ line: String) {
+    func recordCounter(_ line: String) {
         print(line)
         XCTContext.runActivity(named: line) { _ in }
     }
@@ -294,7 +309,7 @@ final class VisibleStringSweep: XCTestCase {
         XCTAssertEqual(removes, cards - 1, "\(removes) remove controls for \(cards) cards — D-100 says one per APPENDED card")
         let ordinals = (0 ..< positions).map { control(Ident.Step.position, $0).label }
         XCTAssertEqual(Set(ordinals).count, positions, "two cards render the same ordinal: \(ordinals)")
-        record("step11_cards=\(cards) step11_positions=\(positions) step11_rootnotes=\(notes) "
+        recordCounter("step11_cards=\(cards) step11_positions=\(positions) step11_rootnotes=\(notes) "
             + "step11_moveups=\(ups) step11_movedowns=\(downs) step11_removes=\(removes)")
         try snap(into: &out)
     }
@@ -323,7 +338,7 @@ final class VisibleStringSweep: XCTestCase {
         XCTAssertEqual(ordinalsAfter, ordinalsBefore, "the ordinals travelled with the steps; they belong to the slots")
         XCTAssertNotEqual(labelsAfter, labelsBefore, "the move renamed nothing: still \(labelsBefore)")
         XCTAssertNotEqual(outputAfter, outputBefore, "the first appended card traded places without recomputing")
-        record("step12_cards=\(cards) step12_labels_moved=true step12_ordinals_held=true")
+        recordCounter("step12_cards=\(cards) step12_labels_moved=true step12_ordinals_held=true")
     }
 
     /// STEP 13 — drive the chain into a failure, then remove the FAILING step.
@@ -358,7 +373,7 @@ final class VisibleStringSweep: XCTestCase {
             0,
             "step13_blocked_before=\(blockedBefore) step13_blocked_after=\(blockedAfter) — a card is still blocked"
         )
-        record("step13_blocked_before=\(blockedBefore) step13_blocked_after=\(blockedAfter)")
+        recordCounter("step13_blocked_before=\(blockedBefore) step13_blocked_after=\(blockedAfter)")
         try snap(into: &out)
     }
 
@@ -377,7 +392,7 @@ final class VisibleStringSweep: XCTestCase {
         XCTAssertEqual(count(Ident.Step.remove), 0, "a footer control survived the last removal")
         XCTAssertEqual(count(Ident.Step.moveUp), 0, "a move-up control survived the last removal")
         XCTAssertEqual(count(Ident.Step.moveDown), 0, "a move-down control survived the last removal")
-        record("step14_passes=\(passes) step14_cards=\(cards) step14_removes=0 step14_rootnotes=1")
+        recordCounter("step14_passes=\(passes) step14_cards=\(cards) step14_removes=0 step14_rootnotes=1")
         try snap(into: &out)
     }
 }

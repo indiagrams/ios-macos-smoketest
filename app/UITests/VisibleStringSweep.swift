@@ -44,9 +44,33 @@ final class VisibleStringSweep: XCTestCase {
     /// The application element's own name, read from the running app rather than from a plist.
     var productName = ""
 
-    /// The measured floor for `harvested_distinct`, recorded in 06-16-sweep.txt. A floor rather than an
-    /// equality: adding a string must not break the gate, but LOSING a surface must.
-    private static let distinctFloor = 85
+    /// The measured floor for `harvested_distinct`. A floor rather than an equality: adding a string
+    /// must not break the gate, but LOSING a surface must.
+    ///
+    /// RE-MEASURED 2026-09-06 by plan 07-12, after walk steps 11-14 were appended — measured, not
+    /// bumped. 06-16 set 85 against a measured 106; the fourteen-step walk was run on two runtimes
+    /// off one build on 2026-09-06:
+    ///
+    ///     iOS 17.5, iPhone SE (3rd generation)   harvested_distinct=142   harvested_strings=3066
+    ///     iOS 18.6, iPhone 16 Pro                harvested_distinct=140   harvested_strings=3402
+    ///
+    /// 136 = 140, the SMALLER measurement, minus 4. The margin is twice the largest inter-runtime
+    /// spread ever observed here (2 today, 1 at 06-16), so a runtime difference cannot trip the gate.
+    /// It is also tight enough to keep the property 06-16's floor CLAIMED and did not have:
+    /// Hashing contributes about 11 distinct strings and Timestamps about 20, and 140 - 11 = 129 and
+    /// 140 - 20 = 120 both fall below 136 — where the old 85 would have let the loss of Hashing pass
+    /// unnoticed, since 106 - 11 = 95 is still above it.
+    ///
+    /// WHAT THIS FLOOR DOES NOT GUARD, measured rather than hoped: removing ONE of walk steps 11-14
+    /// costs about five distinct strings (142 -> 137 with step 13 taken out), which is inside any
+    /// runtime-safe margin. The four steps are guarded by name instead, in
+    /// ``assertPhase7StringsAreRendered(in:)``; this number guards against losing a SURFACE.
+    ///
+    /// iOS 26.1 is absent from that table BY MEASUREMENT and not by omission: the walk does not reach
+    /// its assertions on that runtime, and a pristine-tree control at 1e08537 fails identically, so
+    /// the defect predates these four steps. `evidence/07-12-sweep.txt` and the phase's
+    /// `deferred-items.md` carry it.
+    private static let distinctFloor = 136
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -96,6 +120,10 @@ final class VisibleStringSweep: XCTestCase {
             "the population shrank: harvested_distinct=\(distinct.count), floor \(Self.distinctFloor)"
         )
 
+        // 1b — IS IT STILL COMPLETE? A floor cannot answer that: eight new strings the walk
+        // never renders would raise the count and pass. The eight are looked for BY NAME.
+        assertPhase7StringsAreRendered(in: distinct)
+
         // 2 — and only then, the prose condition, over the rendered bucket alone.
         for string in distinct.sorted() {
             let lowered = string.lowercased()
@@ -143,7 +171,7 @@ final class VisibleStringSweep: XCTestCase {
     /// One measured number out of the walk. `print` from this bundle DOES reach the log on iOS;
     /// the macOS twin adds the `XCTContext` channel, which is the only one that crosses
     /// testmanagerd (06-01). Kept as a function so the four steps below are byte-identical twins.
-    private func record(_ line: String) {
+    func recordCounter(_ line: String) {
         print(line)
     }
 
@@ -255,7 +283,7 @@ final class VisibleStringSweep: XCTestCase {
         XCTAssertEqual(removes, cards - 1, "\(removes) remove controls for \(cards) cards — D-100 says one per APPENDED card")
         let ordinals = (0 ..< positions).map { control(Ident.Step.position, $0).label }
         XCTAssertEqual(Set(ordinals).count, positions, "two cards render the same ordinal: \(ordinals)")
-        record("step11_cards=\(cards) step11_positions=\(positions) step11_rootnotes=\(notes) "
+        recordCounter("step11_cards=\(cards) step11_positions=\(positions) step11_rootnotes=\(notes) "
             + "step11_moveups=\(ups) step11_movedowns=\(downs) step11_removes=\(removes)")
         try snap(into: &out)
     }
@@ -284,7 +312,7 @@ final class VisibleStringSweep: XCTestCase {
         XCTAssertEqual(ordinalsAfter, ordinalsBefore, "the ordinals travelled with the steps; they belong to the slots")
         XCTAssertNotEqual(labelsAfter, labelsBefore, "the move renamed nothing: still \(labelsBefore)")
         XCTAssertNotEqual(outputAfter, outputBefore, "the first appended card traded places without recomputing")
-        record("step12_cards=\(cards) step12_labels_moved=true step12_ordinals_held=true")
+        recordCounter("step12_cards=\(cards) step12_labels_moved=true step12_ordinals_held=true")
     }
 
     /// STEP 13 — drive the chain into a failure, then remove the FAILING step.
@@ -319,7 +347,7 @@ final class VisibleStringSweep: XCTestCase {
             0,
             "step13_blocked_before=\(blockedBefore) step13_blocked_after=\(blockedAfter) — a card is still blocked"
         )
-        record("step13_blocked_before=\(blockedBefore) step13_blocked_after=\(blockedAfter)")
+        recordCounter("step13_blocked_before=\(blockedBefore) step13_blocked_after=\(blockedAfter)")
         try snap(into: &out)
     }
 
@@ -338,7 +366,7 @@ final class VisibleStringSweep: XCTestCase {
         XCTAssertEqual(count(Ident.Step.remove), 0, "a footer control survived the last removal")
         XCTAssertEqual(count(Ident.Step.moveUp), 0, "a move-up control survived the last removal")
         XCTAssertEqual(count(Ident.Step.moveDown), 0, "a move-down control survived the last removal")
-        record("step14_passes=\(passes) step14_cards=\(cards) step14_removes=0 step14_rootnotes=1")
+        recordCounter("step14_passes=\(passes) step14_cards=\(cards) step14_removes=0 step14_rootnotes=1")
         try snap(into: &out)
     }
 }

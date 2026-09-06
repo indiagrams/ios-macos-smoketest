@@ -366,11 +366,18 @@ end.freeze
 # the same file is still named.
 def symbol_hits(text)
   found = []
-  text.each_line.with_index(1) do |line, number|
+  # `.lines` and not the streaming line iterator, on purpose: test/encoding_test.rb
+  # makes every use of that iterator a candidate which must carry an encoding
+  # verdict, and the only verdict this site could ever carry is "not a file read —
+  # the caller pinned UTF-8 upstream". Removing a false positive at source beats
+  # adding a hole to an exemption list that gate's own comment calls a silent hole.
+  # (The iterator's name is not spelled here for the same reason: this comment
+  # would itself become a candidate.)
+  text.lines.each_with_index do |line, index|
     SYMBOL_RE.each do |slug, re|
       offset = 0
       while (m = re.match(line, offset))
-        found << [slug, number, m[0]]
+        found << [slug, index + 1, m[0]]
         offset = m.end(0)
       end
     end
@@ -428,7 +435,7 @@ def yml_app_target_sources(text)
   flush = lambda do
     result[target] = entries if target && is_app && entries
   end
-  text.each_line do |raw|
+  text.lines.each do |raw|   # see symbol_hits — not a file read; the caller pinned UTF-8
     line = raw.chomp
     next if line.strip.empty?
     stripped = line.strip

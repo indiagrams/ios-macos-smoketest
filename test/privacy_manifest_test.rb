@@ -521,14 +521,6 @@ swift_norm = swift_targets.transform_values do |(inc, exc)|
   [inc.map { |p| normalise_glob(p) }.sort, exc.map { |p| normalise_glob(p) }.sort]
 end
 
-# P2. Both manifests, compared. tools/identity-parity.rb does not look at sources
-# lists, so a pair that disagreed here would be invisible to it.
-assert yml_norm == swift_norm, "privacy", "#{MANIFEST_YML} + #{MANIFEST_SWIFT}",
-       "the two generator manifests declare the same application-target sources " \
-       "(xcodegen: #{yml_norm.inspect} / tuist: #{swift_norm.inspect}). A disagreement means " \
-       "one generator ships Swift the other does not, and this gate would be scanning only " \
-       "half the shipped code"
-
 def population_for(norm, root)
   files = {}
   norm.each do |target, (included, excluded)|
@@ -556,6 +548,19 @@ population = (yml_pop.keys | swift_pop.keys).sort
 no_verdict("the union of both manifests' application-target sources holds #{population.length} " \
            "Swift file(s) under #{ROOT}, below the floor of #{SWIFT_FLOOR} measured on " \
            "#{MEASURED_ON} (32). Re-measure the triple; do not lower the floor") if population.length < SWIFT_FLOOR
+
+# P2. Both manifests, compared. tools/identity-parity.rb does not look at sources
+# lists, so a pair that disagreed here would be invisible to it.
+#
+# Deliberately placed AFTER every refusal above and not before: a run that ends in
+# CANNOT RUN must print NOTHING on stdout, not even a passing assertion. A tick
+# mark in a run that rendered no verdict is the "nobody looked" shape wearing the
+# costume of a result.
+assert yml_norm == swift_norm, "privacy", "#{MANIFEST_YML} + #{MANIFEST_SWIFT}",
+       "the two generator manifests declare the same application-target sources " \
+       "(xcodegen: #{yml_norm.inspect} / tuist: #{swift_norm.inspect}). A disagreement means " \
+       "one generator ships Swift the other does not, and this gate would be scanning only " \
+       "half the shipped code"
 
 def contribution(population, prefix)
   population.count { |rel| rel.start_with?(prefix) }

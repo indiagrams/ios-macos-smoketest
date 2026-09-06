@@ -230,8 +230,8 @@ final class StepEditTests: XCTestCase {
         assertEndsRule(surface)
         assertEveryRemoveIsEnabled(surface)
         print("step_card_count=\(cards) step_remove_count=\(removes) step_surface=\(surface)")
-        XCTContext.runActivity(named: "stepedit_surface=\(surface) card=\(cards) position=\(positions) rootNote=\(notes) "
-            + "remove=\(removes) moveUp=\(ups) moveDown=\(downs)") { _ in }
+        XCTContext.runActivity(named: "stepedit_surface=\(surface) step_card_count=\(cards) step_remove_count=\(removes) "
+            + "position=\(positions) rootNote=\(notes) moveUp=\(ups) moveDown=\(downs)") { _ in }
     }
 
     /// First move-up dimmed, last move-down dimmed, every other move enabled. `isEnabled` is

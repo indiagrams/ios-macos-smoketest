@@ -28,7 +28,7 @@ The fork ↔ upstream sync property is the most important architectural invarian
 | Cross-platform app code | `app/Shared/` | SwiftUI by default. Both iOS + macOS targets compile this. |
 | iOS-only resources | `app/iOS/` | Entitlements, info.plist additions, iOS-only assets |
 | macOS-only resources | `app/macOS/` | Same shape, macOS variant |
-| Unit tests | `app/Tests/` (iOS), `app/MacOSTests/` (macOS) | XCTest |
+| Unit tests | `app/EngineTests/` (both platforms) | **Swift Testing** — `import Testing`, `@Test`, `#expect`. One corpus, compiled into BOTH `AppTests` (iOS) and `AppMacOSTests` (macOS) via the generators' `sources:` (`app/project.yml:234,299`, `app/Project.swift:245,269`). The template's XCTest stubs at `app/Tests/AppTests.swift` and `app/MacOSTests/AppMacOSTests.swift` still exist and still compile — **add new tests to `app/EngineTests/`, not there** |
 | UI tests / screenshot tests | `app/UITests/`, `app/MacOSUITests/` | UI tests can't `@testable import` the app binary |
 | Accessibility identifiers | `app/Shared/AccessibilityIdentifiers.swift` | Compiled into BOTH app and UI test targets via project manifest `sources:` |
 | App icon (1024 PNG) | `app/iOS/Assets.xcassets/AppIcon.appiconset/icon_1024.png` | Run `make icons` to regenerate macOS .icns from the same source |
@@ -74,7 +74,7 @@ Full walkthrough: `docs/ADOPTING-EXISTING-APP.md`.
 ## When adding a new feature
 
 1. Add code under `app/Shared/` (cross-platform) or `app/iOS/` / `app/macOS/` (platform-specific).
-2. Add unit tests under `app/Tests/` / `app/MacOSTests/`.
+2. Add unit tests under `app/EngineTests/` using **Swift Testing** (`import Testing` / `@Test` / `#expect`), not XCTest — one file is compiled into both unit-test targets. The XCTest stubs in `app/Tests/` and `app/MacOSTests/` are template leftovers; leave them alone. (UI tests are the exception and ARE XCTest — see `app/UITests/`.)
 3. If the feature has a UI element you'll test from XCUITest, add an identifier to `app/Shared/AccessibilityIdentifiers.swift` and attach it via `.accessibilityIdentifier(AccessibilityIdentifiers.foo)` on the **leaf** view (Text/Button/Image/TextField/Toggle — SwiftUI containers like VStack don't surface in XCUITest queries).
 4. If the feature requires a new Apple capability (Push, iCloud, App Groups, Sign in with Apple, Wallet, CloudKit):
    - Enable it at [developer.apple.com](https://developer.apple.com) → Identifiers → your Bundle ID → check the capability

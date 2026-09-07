@@ -61,7 +61,13 @@ extension VisibleStringSweep {
 
         // The SEEDED card's value carries the surface's own constant (`Encode.output`); only APPENDED
         // cards use the shared `Step.output`. Measured from the running tree, not assumed.
-        let source = element(Ident.Encode.output).label
+        let source = readable(element(Ident.Encode.output))
+        // GREATER THAN ZERO COMES FIRST, and on macOS it never did. Both sides of the equality
+        // below were read with `.label`, which reads EMPTY for a SwiftUI `Text` on that platform —
+        // and `Data("".utf8).base64EncodedString()` IS `""`, so the assertion compared "" to ""
+        // and recorded APP-08 as proven. Measured 2026-09-06; see `readable(_:)`.
+        XCTAssertFalse(source.isEmpty, "the seeded card renders no output the sweep can read, so the"
+            + " expectation below is the base64 of the empty string and this check proves nothing")
         press(control(Ident.Step.addStepMenu, 0), "the add-step menu's first item")
         try snap(into: &out)
 
@@ -72,7 +78,7 @@ extension VisibleStringSweep {
         let chained = control(Ident.Step.output, 0)
         XCTAssertTrue(chained.waitForExistence(timeout: 15), "the add-step menu appended no card")
         XCTAssertEqual(
-            chained.label,
+            readable(chained),
             Data(source.utf8).base64EncodedString(),
             "the appended step did not render the chained result of \"\(source)\""
         )

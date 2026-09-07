@@ -307,8 +307,8 @@ final class VisibleStringSweep: XCTestCase {
         XCTAssertEqual(ups, cards - 1, "\(ups) move-up controls for \(cards) cards")
         XCTAssertEqual(downs, cards - 1, "\(downs) move-down controls for \(cards) cards")
         XCTAssertEqual(removes, cards - 1, "\(removes) remove controls for \(cards) cards — D-100 says one per APPENDED card")
-        let ordinals = (0 ..< positions).map { control(Ident.Step.position, $0).label }
-        XCTAssertEqual(Set(ordinals).count, positions, "two cards render the same ordinal: \(ordinals)")
+        let ordinals = (0 ..< positions).map { readable(control(Ident.Step.position, $0)) }
+        assertOrdinalsAreDistinct(ordinals, of: positions)
         recordCounter("step11_cards=\(cards) step11_positions=\(positions) step11_rootnotes=\(notes) "
             + "step11_moveups=\(ups) step11_movedowns=\(downs) step11_removes=\(removes)")
         try snap(into: &out)
@@ -327,14 +327,14 @@ final class VisibleStringSweep: XCTestCase {
     private func moveTheFirstAppendedCardDown(into out: inout SweepHarvest) throws {
         let cards = count(Ident.Step.card)
         let labelsBefore = (1 ..< cards).map { control(Ident.Step.card, $0).label }
-        let ordinalsBefore = (0 ..< cards).map { control(Ident.Step.position, $0).label }
-        let outputBefore = control(Ident.Step.output, 0).label
+        let ordinalsBefore = (0 ..< cards).map { readable(control(Ident.Step.position, $0)) }
+        let outputBefore = readable(control(Ident.Step.output, 0))
         press(control(Ident.Step.moveDown, 0), "the first appended card's move-down control")
         try snap(into: &out)
         XCTAssertEqual(count(Ident.Step.card), cards, "the move changed the stack length")
         let labelsAfter = (1 ..< cards).map { control(Ident.Step.card, $0).label }
-        let ordinalsAfter = (0 ..< cards).map { control(Ident.Step.position, $0).label }
-        let outputAfter = control(Ident.Step.output, 0).label
+        let ordinalsAfter = (0 ..< cards).map { readable(control(Ident.Step.position, $0)) }
+        let outputAfter = readable(control(Ident.Step.output, 0))
         XCTAssertEqual(ordinalsAfter, ordinalsBefore, "the ordinals travelled with the steps; they belong to the slots")
         XCTAssertNotEqual(labelsAfter, labelsBefore, "the move renamed nothing: still \(labelsBefore)")
         XCTAssertNotEqual(outputAfter, outputBefore, "the first appended card traded places without recomputing")

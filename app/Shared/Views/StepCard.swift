@@ -36,6 +36,13 @@
 //    check pointed at an incomplete population, which is the failure class this
 //    phase exists to stop repeating. Same de-spelling rule as above.
 //
+// 4. THE FOOTER ROW IS CHROME, NOT SURFACE. Present on every card, in every
+//    state, at the same reserved height whether it holds three controls or
+//    the root's sentence, and always LAST. Nothing goes above the output
+//    section: criterion 5's margin on the smallest supported iPhone is
+//    roughly 77 pt against an 88 pt two-hit-target floor, and a header-row
+//    cluster would spend more than half of it on every card.
+//
 // The card's fill, corner radius and padding DO NOT CHANGE with the error
 // state, and there is no border, no shadow and no elevation stack: cards are
 // distinguished from the background by fill alone.
@@ -70,10 +77,12 @@ enum DiagnosticContent: Equatable {
 /// The Hashing surface renders four digests inside one card and still shows one
 /// strip.
 ///
-/// The generic parameter is named `Content` and the closure `content` rather
-/// than the `Body` / `body` the UI-SPEC's sketch uses, because both of those
-/// names are already taken by `View`'s own associated type and requirement.
-struct StepCard<Content: View>: View {
+/// The generic parameters are named `Content` / `Footer` and their closures
+/// `content` / `footer` rather than the `Body` / `body` the UI-SPEC's sketch
+/// uses, because both of those names are already taken by `View`'s own
+/// associated type and requirement. The note applied to one closure in Phase
+/// 6 and applies to both now.
+struct StepCard<Content: View, Footer: View>: View {
     /// The composed operation name, rendered `.headline`.
     ///
     /// A `LocalizedStringKey` is right here and only here: an operation name
@@ -85,22 +94,104 @@ struct StepCard<Content: View>: View {
     /// Always present, never empty. See ``DiagnosticContent``.
     let diagnostic: DiagnosticContent
 
+    /// This card's 1-based place in its surface's stack.
+    ///
+    /// PASSED, never computed here and never read from the environment: the
+    /// surface owns the array. The ordinal it renders is what makes a removal
+    /// or a move visible — every number below the edit renumbers in the same
+    /// pass, and that is the feedback replacing the animation this phase
+    /// deliberately does not have.
+    let position: Int
+
+    /// How many cards the stack holds, for the container label's "of N".
+    let total: Int
+
+    /// The already-localized operation name, for the container label.
+    /// ``title`` cannot serve: a `LocalizedStringKey` is opaque, with no
+    /// supported way back to the string it resolves to.
+    let operationName: String
+
+    /// The stack-wide accessibility focus — passed ONLY by the call site that
+    /// renders the pinned root, and `nil` on every appended card.
+    ///
+    /// Root-ness stays a CALL-SITE fact here, exactly as ``footer`` already
+    /// makes it: no repeated view asks whether it is first. The root's header
+    /// is where focus goes when a removal empties the appended stack, because
+    /// D-100 leaves the root no controls to land on and dropping focus to the
+    /// top of the screen is the failure the focus table exists to prevent.
+    let headerFocus: AccessibilityFocusState<StepFocusTarget?>.Binding?
+
+    /// What the footer row holds: ``StepFooter`` on an appended card,
+    /// ``StepRootNote`` on the pinned root. WHICH CALL SITE FILLS IT is what
+    /// makes D-100's absence a decision rather than a flag inside a repeated
+    /// view — the root card is rendered outside the surface's loop, so no
+    /// card ever asks whether it is first.
+    @ViewBuilder let footer: () -> Footer
+
     /// The body renderer. Four ship in Phase 6 — `EncodeBody`, `HashBody` and
     /// `TimestampBody` for the three seeded first cards, and
     /// ``SingleOutputBody`` for every appended card.
     @ViewBuilder let content: () -> Content
 
-    /// Header, divider, body, divider, strip — in that order, always.
+    /// The footer row's reserved height, growing with Dynamic Type.
+    @ScaledMetric(relativeTo: .body) private var scaledFooterHeight = Spacing.iOSHitTarget
+
+    /// 44 pt on iOS, 28 pt on macOS, applied in BOTH footer variants so a root
+    /// card and an appended card have identical geometry.
+    private var footerHeight: CGFloat {
+        #if os(iOS)
+            scaledFooterHeight
+        #else
+            Spacing.macOSHitTarget
+        #endif
+    }
+
+    /// "Step 2 of 5, Base64 encode" — announced on entering the group, so a
+    /// user who lands on a control has the step's identity and its position
+    /// without hunting for them.
+    ///
+    /// `NSLocalizedString` plus a format — ``localizedCount(_:_:)``'s route,
+    /// not a `LocalizedStringKey`, which would build a key out of the
+    /// interpolated TEXT and miss the dotted key. Neither shipped helper takes
+    /// two counts and a string, so their two calls are spelled here.
+    private var containerLabel: String {
+        String.localizedStringWithFormat(
+            NSLocalizedString("step.card.label", comment: ""),
+            position, total, operationName
+        )
+    }
+
+    /// Header, divider, body, divider, strip, divider, footer — in that
+    /// order, always. The footer is the last row and nothing goes above the
+    /// output section; see rule 4 in this file's header.
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            Text(title)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier(AccessibilityIdentifiers.Step.header)
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                // Visible prose: an identifier, no label override.
+                // `.monospacedDigit()` is a numeric variant of the same text
+                // style, not a fifth size — it keeps the number from changing
+                // width between 9 and 10. The ordinal is fixed and prioritised;
+                // the operation name has no line limit and WRAPS.
+                Text(verbatim: localizedCount("step.position", position))
+                    .monospacedDigit()
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .layoutPriority(1)
+                    .accessibilityIdentifier(AccessibilityIdentifiers.Step.position)
+                Text(title)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(AccessibilityIdentifiers.Step.header)
+                    .modifier(RootHeaderFocus(focus: headerFocus))
+            }
             Divider()
             content()
             Divider()
             DiagnosticStrip(content: diagnostic)
+            Divider()
+            footer()
+                .frame(maxWidth: .infinity, minHeight: footerHeight, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.lg)
@@ -118,168 +209,123 @@ struct StepCard<Content: View>: View {
         // disturbs the harvest; this plan's evidence file answers it with
         // measured counts rather than with reasoning.
         .accessibilityElement(children: .contain)
+        // The container GAINS a label; it does not replace its children.
+        .accessibilityLabel(containerLabel)
         .accessibilityIdentifier(AccessibilityIdentifiers.Step.card)
     }
 }
 
-/// One output's value area, in whichever of the four states it is in.
+/// The root header's focus anchor, applied only where a binding was passed.
 ///
-/// **All four states are named and rendered, and none of them is blank**
-/// (06-UI-SPEC.md §"State Contract"). The `switch` below is exhaustive with no
-/// catch-all branch, so a fifth state added to ``StepRenderState`` is a compile
-/// error here rather than an empty rectangle on a screen. (That branch keyword
-/// is described and not spelled, for the reason in this file's header rule 2.)
-///
-/// The reserved height is the same in all four states, which is what makes a
-/// card's height independent of whether its input currently parses.
-struct OutputBlock: View {
-    /// What this output is showing right now. Never stored, never cached —
-    /// `Pipeline.evaluate()` is called fresh, so nothing here can go stale.
-    let state: StepRenderState
+/// A modifier rather than an `if` inside the header row, so the two branches
+/// resolve to one type and the header keeps its modifier CHAIN — the shape
+/// ``RemovalFeedback`` and `CopyFeedback` established for the platform forks.
+private struct RootHeaderFocus: ViewModifier {
+    /// `nil` on every appended card; the pinned root's binding on exactly one
+    /// card per surface.
+    let focus: AccessibilityFocusState<StepFocusTarget?>.Binding?
 
-    /// The per-surface placeholder shown while the pipeline input is empty,
-    /// at the same metrics as a real output.
-    let placeholder: LocalizedStringKey
-
-    /// Which family of failure sentences this output renders. Only
-    /// `.unexpectedCharacter` reads differently between the two; see
-    /// ``FailureDomain``.
-    var domain: FailureDomain = .text
-
-    /// The identifier attached to the rendered value.
-    ///
-    /// Defaults to the shared `Step.output`. The Hashing surface overrides it
-    /// per digest row (`Hashing.digestMD5` and friends), which is why this is a
-    /// parameter rather than a constant.
-    var valueIdentifier: String = AccessibilityIdentifiers.Step.output
-
-    /// Three lines of body text, reserved in every state so the card's height
-    /// does not change when the input goes from valid to invalid.
-    @ScaledMetric(relativeTo: .body) private var reservedHeight: CGFloat = 60
-
-    /// The blocked sentence is centred; every other state is top-leading.
-    private var alignment: Alignment {
-        state == .blocked ? .center : .topLeading
-    }
-
-    /// The four states, exhaustively, with no catch-all branch.
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            switch state {
-            case .empty:
-                Text(placeholder)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            case let .value(value):
-                Text(verbatim: value)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier(valueIdentifier)
-            case let .failure(failure):
-                // The error REPLACES the output, in the same monospaced body
-                // metrics at full contrast, where the value would have been.
-                // No stale previous value is left anywhere on screen (D-84).
-                Text(verbatim: failureText(failure, in: domain))
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier(valueIdentifier)
-            case .blocked:
-                // No glyph: an earlier step failed, which is not an error of
-                // the user's making at THIS step (UI-SPEC §State Contract 4).
-                Text("step.blocked")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .accessibilityIdentifier(AccessibilityIdentifiers.Step.blocked)
-            }
+    /// Anchored where there is a binding, untouched where there is not.
+    /// `ViewModifier.body(content:)` is declared `@ViewBuilder` by the protocol
+    /// itself, so the two branches resolve without repeating the attribute.
+    func body(content: Content) -> some View {
+        if let focus {
+            content.accessibilityFocused(focus, equals: .rootHeader)
+        } else {
+            content
         }
-        .frame(maxWidth: .infinity, minHeight: reservedHeight, alignment: alignment)
-        .padding(Spacing.md)
-        .background(
-            Palette.recessedSurface,
-            in: RoundedRectangle(cornerRadius: Spacing.outputRadius, style: .continuous)
-        )
     }
 }
 
-/// The body every APPENDED card uses — one output, one accessory.
+/// The shape the previews below share: an APPENDED card, numbered 2 of 2,
+/// with a live footer.
 ///
-/// The three seeded first cards have specialised bodies (`EncodeBody`,
-/// `HashBody`, `TimestampBody`, built by plans 06-12 and 06-13). Every card the
-/// add-step control appends uses this one, which is what lets Phase 7 grow the
-/// stack without touching either the chrome or the surfaces.
-///
-/// The accessory is enabled ONLY in the `.value` state: you cannot copy or
-/// chain a value that does not exist. In the other three states both controls
-/// stay in the tree and are disabled, never removed.
-struct SingleOutputBody: View {
-    /// What this step is showing. `.blocked` is reachable here and only here —
-    /// the seeded first card of a surface is never blocked.
+/// A preview type rather than five repeated arguments per preview, and an
+/// appended card rather than a root one, because the four states below are
+/// exactly the four an appended card reaches — and because the footer's
+/// enablement being a function of POSITION ONLY is the property most worth
+/// seeing beside a `.failure` and a `.blocked` card.
+private struct StepCardPreview: View {
+    /// The operation name's catalog key.
+    let title: LocalizedStringKey
+
+    /// What the strip is saying.
+    let diagnostic: DiagnosticContent
+
+    /// The state the one output renders.
     let state: StepRenderState
 
-    /// Appends a step seeded with THIS output. The surface wires it to
-    /// `Pipeline.appending(_:)` through the app-level model.
-    let onAddStep: (Operation) -> Void
+    /// The footer needs a real binding; a preview has no VoiceOver to move.
+    @AccessibilityFocusState private var focus: StepFocusTarget?
 
-    /// The per-surface placeholder for the empty state.
-    var placeholder: LocalizedStringKey = "encode.output.placeholder"
-
-    /// Which family of failure sentences this step renders.
-    var domain: FailureDomain = .text
-
-    /// The value, when there is one. `nil` in the empty, error and blocked
-    /// states — which is exactly when both controls are disabled and when the
-    /// macOS copy command has nothing to yield.
-    private var copyableValue: String? {
-        if case let .value(value) = state {
-            return value
-        }
-        return nil
+    /// The appended card of a two-card stack: move up enabled, move down
+    /// disabled at the bottom end, remove enabled in all four states.
+    private var position: StepStackPosition {
+        StepStackPosition(appendedIndex: 0, appendedCount: 1, modelOffset: 0)
     }
 
-    /// Output block on the leading side, accessory on the trailing side.
+    /// Card two of two: move up enabled, move down disabled at the bottom
+    /// end, remove enabled in every one of the four states.
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.sm) {
-            OutputBlock(state: state, placeholder: placeholder, domain: domain)
-            OutputAccessory(
-                value: copyableValue ?? "",
-                isEnabled: copyableValue != nil,
-                onAddStep: onAddStep
-            )
-        }
-        .copyableOutput(copyableValue)
+        StepCard(
+            title: title,
+            diagnostic: diagnostic,
+            position: 2,
+            total: 2,
+            operationName: "Base64 encode",
+            headerFocus: nil,
+            footer: { StepFooter(position: position, focus: $focus, onMoveUp: {}, onMoveDown: {}, onRemove: {}) },
+            content: { SingleOutputBody(state: state, onAddStep: { _ in }) }
+        )
+        .padding()
     }
 }
 
 #Preview("Empty") {
-    StepCard(title: "op.base64.encode", diagnostic: .neutral("Enter text above to see the result.")) {
-        SingleOutputBody(state: .empty, onAddStep: { _ in })
-    }
-    .padding()
+    StepCardPreview(
+        title: "op.base64.encode",
+        diagnostic: .neutral("Enter text above to see the result."),
+        state: .empty
+    )
 }
 
 #Preview("Valid") {
-    StepCard(title: "op.base64.encode", diagnostic: .neutral("8 characters")) {
-        SingleOutputBody(state: .value("aGVsbG8="), onAddStep: { _ in })
-    }
-    .padding()
+    StepCardPreview(title: "op.base64.encode", diagnostic: .neutral("8 characters"), state: .value("aGVsbG8="))
 }
 
 #Preview("Error") {
-    StepCard(
+    StepCardPreview(
         title: "op.base64.decode",
-        diagnostic: .problem(failureText(.unexpectedCharacter("!", position: 12)))
-    ) {
-        SingleOutputBody(state: .failure(.unexpectedCharacter("!", position: 12)), onAddStep: { _ in })
-    }
-    .padding()
+        diagnostic: .problem(failureText(.unexpectedCharacter("!", position: 12))),
+        state: .failure(.unexpectedCharacter("!", position: 12))
+    )
 }
 
 #Preview("Blocked") {
-    StepCard(title: "op.hash.sha256", diagnostic: .neutral(blockedStepText())) {
-        SingleOutputBody(state: .blocked, onAddStep: { _ in })
+    StepCardPreview(title: "op.hash.sha256", diagnostic: .neutral(blockedStepText()), state: .blocked)
+}
+
+/// The pinned root, which is the only card that carries a header focus anchor.
+private struct StepRootCardPreview: View {
+    /// The root header is a focus target; the binding has to exist to anchor it.
+    @AccessibilityFocusState private var focus: StepFocusTarget?
+
+    /// Ordinal 1, the note instead of the three controls, and the anchor.
+    var body: some View {
+        StepCard(
+            title: "op.base64.encode",
+            diagnostic: .neutral("8 characters"),
+            position: StepStackPosition.rootOrdinal,
+            total: 2,
+            operationName: "Base64 encode",
+            headerFocus: $focus,
+            footer: { StepRootNote() },
+            content: { SingleOutputBody(state: .value("aGVsbG8="), onAddStep: { _ in }) }
+        )
+        .padding()
     }
-    .padding()
+}
+
+#Preview("The pinned root") {
+    StepRootCardPreview()
 }

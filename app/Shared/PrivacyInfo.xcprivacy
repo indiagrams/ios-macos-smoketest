@@ -3,34 +3,74 @@
 <!--
     Apple Privacy Manifest for Shipkit Pipes.
 
-    Apple requires a Privacy Manifest for many SDKs and increasingly checks
-    for one in App Store Connect submissions. The four required keys must be
-    present (even when empty) per Apple's spec:
+    Apple requires a privacy manifest and validates it at upload. All four
+    required keys must be present even when empty, per Apple's spec:
 
       - NSPrivacyTracking                  Bool
       - NSPrivacyTrackingDomains           Array of String
       - NSPrivacyCollectedDataTypes        Array of dict
       - NSPrivacyAccessedAPITypes          Array of dict
 
-    This stub declares the conservative defaults for an app that does no
-    tracking, collects no data, and uses no required-reason APIs. As your
-    fork adds features that touch any of these (analytics SDKs, file system
-    timestamps, UserDefaults, system boot time, etc.), update this file.
+    This app does no tracking and collects no data, so the first three stay
+    empty — and test/privacy_manifest_test.rb asserts the collected-data array
+    is empty BY NAME rather than letting an empty default pass unexamined.
+
+    THE ONE DECLARED ENTRY, AND WHY IT LANDED IN THE COMMIT IT DID. Plan 07-05
+    gave the app its first durable state: the last-used surface and four
+    control values, behind a single seam in app/Shared/Model/AppModel.swift.
+    That seam reaches a required-reason API, so the declaration below was
+    written in the SAME commit as the code. A commit that added the code
+    without the declaration would be a commit where the repository gate is
+    legitimately red, and a manifest filled ahead of the code would be a
+    declaration with nothing behind it.
+
+    The reason code is CA92.1 — read and write information only accessible to
+    the app itself. Deliberately NOT the App-Group-scoped reason (this app has
+    no App Group), NOT the third-party-SDK-wrapper reason (this app has no
+    third-party dependencies at all, by PROJECT.md constraint AR-05), and NOT
+    the managed-configuration reason.
+
+    OVER-DECLARING IS A FALSE STATEMENT, NOT A HARMLESS EXTRA. Apple's rule is
+    that you may use these APIs, and the data derived from their use, for the
+    DECLARED reasons only. So this list is asserted in BOTH directions by
+    test/privacy_manifest_test.rb on every pull request: everything the app's
+    own Swift reaches is declared here (ITMS-91053 rejects the gap), and
+    everything declared here is reached by that Swift (an unused entry is the
+    false statement). A declared entry with a missing or wrong-category reason
+    is ITMS-91055.
+
+    WHEN A FUTURE FEATURE NEEDS A SECOND ENTRY, look the categories up at the
+    reference below, or read the run-time-assembled constants in
+    test/privacy_manifest_test.rb. They are deliberately not named in this
+    comment. This file is that gate's own subject, and until 07-05 the single
+    occurrence of a category name anywhere under app/Shared/ was right here, in
+    prose — a name that a file-wide scan would have had to report as a use on a
+    correct tree and that, once this manifest was filled, could have satisfied
+    a declaration no code justified. Shapes, not words.
+
+    Edit this file STRUCTURALLY — plutil -insert … -json — never by text
+    substitution. A sed on XML is how a manifest stops parsing.
 
     Reference: https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
 -->
 <plist version="1.0">
 <dict>
-    <key>NSPrivacyTracking</key>
-    <false/>
-
-    <key>NSPrivacyTrackingDomains</key>
-    <array/>
-
-    <key>NSPrivacyCollectedDataTypes</key>
-    <array/>
-
-    <key>NSPrivacyAccessedAPITypes</key>
-    <array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
 </dict>
 </plist>

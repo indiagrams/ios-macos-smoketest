@@ -58,7 +58,12 @@ final class AppStoreScreenshotTests: XCTestCase {
         // bypassing the system appearance API entirely.
         let scheme = (appearance == .dark) ? "dark" : "light"
         app.launchArguments.append(contentsOf: ["-UITestColorScheme", scheme])
-        app.launch()
+        // PINNED (07-07). This captures the PNG called "01-home" that is uploaded to the App Store,
+        // and the wait below names the Encode destination's content. Once `selection` persists, an
+        // unpinned launch would either time out here or — worse if the wait were ever loosened —
+        // ship a screenshot of whichever surface the previous test happened to leave behind. The pin
+        // appends, so the appearance argument set above survives.
+        app.launchPinned(showing: LaunchState.encodeDestination)
 
         // Wait for the first destination by accessibility identifier. Never
         // query by visible text — that's fragile to localization and copy edits.

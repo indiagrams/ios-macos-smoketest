@@ -170,3 +170,118 @@ enum SweepPopulation {
         return qualifiers.flatMap { qualifier in subjects.map { "\(qualifier) \($0)" } } + standalone + narrow
     }()
 }
+
+// MARK: - The strings Phase 7 added, and where each of them is judged
+
+/// One string this phase added: the catalog key that owns it, the value the catalog holds, and how
+/// a RENDERED instance of it is recognised in the harvest.
+///
+/// KEYED BY THE CATALOG KEY, NOT BY THE SENTENCE. The key is the identity — `Localizable.xcstrings`
+/// is where the string is defined, `StringCatalogTests` asserts the key resolves to the sentence,
+/// and this file asserts that the sentence reaches a screen. Three files, one key, no fourth place
+/// where a sentence could be edited without the others noticing.
+///
+/// THIS IS NOT A QUERY BY VISIBLE TEXT. The house rule forbids ADDRESSING an element by the words
+/// it shows, because a query by text asserts on the very strings under test. Reading the harvested
+/// SET afterwards and asking whether a rendered string matches is the sweep's own shape — its
+/// prose condition already does exactly this, over the same set, in the other direction.
+struct SweptString {
+    /// The `Localizable.xcstrings` key.
+    let key: String
+
+    /// The catalog's own value, carried so this file can be read without opening the catalog, and
+    /// so a failure message can say what was looked for rather than only that nothing matched.
+    let catalogValue: String
+
+    /// An ANCHORED pattern a rendered instance matches. Anchored because the argument-taking rows
+    /// render a different sentence at every stack length, and an unanchored fragment would be
+    /// satisfied by a longer string that merely contains it — `Step 2` is a prefix of
+    /// `Step 2 of 3, Base64 encode`, and treating one as evidence for the other is the wrong
+    /// population wearing a match.
+    let pattern: String
+
+    /// `nil` when the harvest can see this string. Otherwise the NAMED reason it cannot, and the
+    /// site that covers it instead. Never an absence: a string that leaves the population leaves it
+    /// with a reason and a printed count, so the number moves when somebody adds one.
+    let exemption: String?
+}
+
+extension SweepPopulation {
+    /// The eight strings 07-UI-SPEC §"Copywriting Contract — delta" adds, all eight, in its order.
+    ///
+    /// SIX ARE HARVESTABLE AND TWO ARE NOT, AND THAT SPLIT IS MEASURED RATHER THAN ASSUMED. The two
+    /// announcements are posted through `AccessibilityNotification.Announcement`, which delivers a
+    /// sentence to assistive technology and puts NO element in the accessibility tree — so the four
+    /// properties the harvest collects at every node cannot see them, on either platform, at any
+    /// stack length. Measured on iOS 17.5 and 18.6 on 2026-09-06 by running the fourteen-step walk
+    /// and filtering the harvested set for both patterns: `matches=0` for each, while the other six
+    /// matched. The counts are PRINTED on every run, so if a future runtime does surface them the
+    /// number moves rather than the exemption quietly becoming permanent.
+    ///
+    /// NO NEW EXEMPTION IS ADDED TO THE THREE BUCKETS. `chrome`, `systemData` and `platformControl`
+    /// are unchanged; these two strings are not exempted FROM the swept set, they are unreachable
+    /// BY it, and they are covered where they can be: `StringCatalogTests` asserts the moved
+    /// announcement's argument order and the removed announcement's plural discrimination at three
+    /// counts, which is a stronger statement about them than "it appeared somewhere on a screen".
+    static let phase7Strings: [SweptString] = [
+        SweptString(
+            key: "step.position",
+            catalogValue: "Step %lld",
+            pattern: "^Step [0-9]+$",
+            exemption: nil
+        ),
+        SweptString(
+            key: "step.root",
+            catalogValue: "This step starts the pipeline.",
+            pattern: "^This step starts the pipeline\\.$",
+            exemption: nil
+        ),
+        SweptString(
+            key: "step.moveUp",
+            catalogValue: "Move step up",
+            pattern: "^Move step up$",
+            exemption: nil
+        ),
+        SweptString(
+            key: "step.moveDown",
+            catalogValue: "Move step down",
+            pattern: "^Move step down$",
+            exemption: nil
+        ),
+        SweptString(
+            key: "step.remove",
+            catalogValue: "Remove step",
+            pattern: "^Remove step$",
+            exemption: nil
+        ),
+        SweptString(
+            key: "step.card.label",
+            catalogValue: "Step %lld of %lld, %@",
+            pattern: "^Step [0-9]+ of [0-9]+, .+$",
+            exemption: nil
+        ),
+        SweptString(
+            key: "step.announce.moved",
+            catalogValue: "Moved to position %lld of %lld.",
+            pattern: "^Moved to position [0-9]+ of [0-9]+\\.$",
+            exemption: "posted as an accessibility announcement, which puts no element in the tree; "
+                + "covered by StringCatalogTests.argumentTakingStepKeysSubstituteInOrder"
+        ),
+        SweptString(
+            key: "step.announce.removed",
+            catalogValue: "Step removed. %lld step remains. / Step removed. %lld steps remain.",
+            pattern: "^Step removed\\. [0-9]+ steps? remains?\\.$",
+            exemption: "posted as an accessibility announcement, which puts no element in the tree; "
+                + "covered by StringCatalogTests.removalAnnouncementSelectsTheSingularOnlyAtOne"
+        )
+    ]
+
+    /// How many harvested strings match `expected`'s pattern.
+    ///
+    /// `range(of:options:.regularExpression)` rather than `NSRegularExpression`: one call, no
+    /// throwing initialiser to swallow, and a malformed pattern answers `nil` for every string,
+    /// which reads as `matches=0` and fails the assertion above rather than passing silently.
+    static func matches(_ expected: SweptString, in harvested: Set<String>) -> [String] {
+        harvested.filter { $0.range(of: expected.pattern, options: .regularExpression) != nil }.sorted()
+    }
+}

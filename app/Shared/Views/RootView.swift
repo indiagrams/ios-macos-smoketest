@@ -32,6 +32,29 @@
 // One mechanism, stated once: every surface takes `model:`, which makes the
 // dependency visible in each call site and keeps a surface constructible in a
 // preview and in a test without a host view to inject it.
+//
+// WHICH SURFACE IS SHOWING IS MODEL STATE, ON BOTH PLATFORMS (D-97, APP-13).
+// Neither container keeps a `@State` of its own for it. macOS binds its
+// `List(selection:)` to `model.selection`, which is a move; iOS binds
+// `TabView(selection:)` to the same property, which is an ADDITION — before
+// this the tab shell had no selection binding at all and tab selection was
+// entirely system-managed, so the model never saw it. That asymmetry is the
+// reason this is one change on two surfaces rather than one refactor.
+//
+// THE MODEL'S PROPERTY IS NON-OPTIONAL, and that is load-bearing rather than
+// tidy. `List(selection:)` has a `Destination?` overload and this file
+// deliberately does not reach it, so neither binding can be nil and the
+// `?? .encode` fallback the detail area used to carry has nothing left to
+// defend against. D-98's UI clause is stated by the type instead of by a
+// defensive expression; the model's `hydrate()` is where an unresolvable
+// persisted value is turned back into the declared default, once, for every
+// key.
+//
+// PERSISTENCE HAS NO UI HERE, BY CONSTRUCTION. The model's `didSet` writes and
+// its `hydrate()` reads; this file adds a binding and nothing else. A launch
+// onto the last-used surface renders identically to a cold launch onto that
+// surface — no banner, no notice, no preferences pane, nothing that tells the
+// user their choice was remembered.
 
 import SwiftUI
 
@@ -128,13 +151,6 @@ struct RootView: View {
     /// change is a change of view and never a change of state.
     @State private var model = AppModel()
 
-    #if os(macOS)
-        /// Which sidebar row is showing. Navigation state, not work in
-        /// progress — the work lives on the model, one level up from the detail
-        /// view the split view swaps.
-        @State private var selection: Destination? = .encode
-    #endif
-
     /// The platform's own container. Two branches, deliberately (D-11).
     var body: some View {
         #if os(macOS)
@@ -146,8 +162,22 @@ struct RootView: View {
 
     #if os(iOS)
         /// Three tabs, each wrapping its surface in its own navigation stack.
+        ///
+        /// The `.tag(destination)` on each stack is what the selection binding
+        /// reads, and it is the LAST modifier deliberately: a tag is a view
+        /// trait the container looks for on the outermost view of each child.
+        ///
+        /// **`.accessibilityIdentifier(destination.tabIdentifier)` has not
+        /// moved and has not changed.** `app/UITests/ShellTests.swift:35..52`
+        /// records that four identifier placements were tried before the
+        /// current one was established, because SwiftUI puts no identifier on
+        /// an iOS tab-bar BUTTON on 18.6 or 26.1 — the identifier reaches the
+        /// tab's CONTENT and the suite is built around that. This change
+        /// touches the selection mechanism and nothing else, and it does not
+        /// adopt iOS 18's tab-content builder, which was one of the four
+        /// placements already measured not to help.
         private var iOSShell: some View {
-            TabView {
+            TabView(selection: $model.selection) {
                 ForEach(Destination.allCases) { destination in
                     NavigationStack {
                         surface(destination)
@@ -159,6 +189,7 @@ struct RootView: View {
                         Label(destination.tabLabelKey, systemImage: destination.symbol)
                     }
                     .accessibilityIdentifier(destination.tabIdentifier)
+                    .tag(destination)
                 }
             }
         }
@@ -174,7 +205,7 @@ struct RootView: View {
         /// they are declared exceptions to the 8-point scale.
         private var macOSShell: some View {
             NavigationSplitView {
-                List(selection: $selection) {
+                List(selection: $model.selection) {
                     ForEach(Destination.allCases) { destination in
                         Label(destination.titleKey, systemImage: destination.symbol)
                             .accessibilityIdentifier(destination.sidebarIdentifier)
@@ -183,7 +214,7 @@ struct RootView: View {
                 }
                 .navigationSplitViewColumnWidth(min: 168, ideal: 200, max: 280)
             } detail: {
-                let shown = selection ?? .encode
+                let shown = model.selection
                 surface(shown)
                     .navigationTitle(shown.titleKey)
                     .background(Palette.surface)

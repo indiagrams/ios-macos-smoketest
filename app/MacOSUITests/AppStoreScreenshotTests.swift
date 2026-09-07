@@ -54,7 +54,10 @@ final class AppStoreScreenshotTests: XCTestCase {
         }
 
         app.launchArguments = ["UI_TESTING"]
-        app.launch()
+        // PINNED (07-07). Same reason as the iOS twin: the capture below is a screenshot of the
+        // WINDOW, whose detail area shows `model.selection` — which now persists. The sidebar-row
+        // assertion further down would not catch it, because all three rows exist at any selection.
+        app.launchPinned(showing: LaunchState.encodeDestination)
         // activate() so the window comes to front; without it the window may
         // launch behind others and XCUITest's window queries return nothing
         // on a real Mac with other GUI apps running.

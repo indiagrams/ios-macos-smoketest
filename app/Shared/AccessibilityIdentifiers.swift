@@ -213,5 +213,49 @@ public enum AccessibilityIdentifiers {
         /// The sentence a step shows when an earlier step in its pipeline
         /// failed (D-84). Never blank, and never a stale value.
         public static let blocked = "Step.blocked"
+
+        /// The card's ordinal in its header — "Step 1", "Step 2".
+        ///
+        /// **Population: EVERY card, the root included.** Written down here
+        /// because `count(Step.card) == count(Step.position)` is what proves
+        /// every card is numbered, and an invariant counted against an unnamed
+        /// population asserts nothing.
+        public static let position = "Step.position"
+
+        /// The move-up control in a card's footer.
+        ///
+        /// **Population: APPENDED cards only — `count(Step.card) - 1`**, equal
+        /// to the ``moveDown`` and ``remove`` counts at every moment. The root
+        /// card has no footer controls at all (D-100), which is where the minus
+        /// one comes from. Resolved by index: the FIRST is the topmost appended
+        /// card's, and it is the one that must not be enabled.
+        public static let moveUp = "Step.moveUp"
+
+        /// The move-down control in a card's footer.
+        ///
+        /// **Population: APPENDED cards only — `count(Step.card) - 1`**, the
+        /// same set as ``moveUp``. Resolved by index: the LAST is the bottom
+        /// card's, and it is the one that must not be enabled.
+        public static let moveDown = "Step.moveDown"
+
+        /// The remove control in a card's footer.
+        ///
+        /// **Population: APPENDED cards only.** `count(Step.remove) ==
+        /// count(Step.card) - 1` is D-100's proof, not a coincidence: the root
+        /// step is pinned and carries no remove control, so a surface where
+        /// those two counts are EQUAL has grown one on the root. Every member
+        /// of this population is enabled in every render state, `.failure` and
+        /// `.blocked` included — removing the step is how a user clears a
+        /// broken one.
+        public static let remove = "Step.remove"
+
+        /// The root card's footer sentence, standing where the three controls
+        /// stand on every other card.
+        ///
+        /// **Population: the ROOT card only — `count(Step.rootNote) == 1`, on
+        /// every surface, at every moment.** It is the affirmative half of
+        /// D-100: absence on its own reads as a bug, so the root says why it
+        /// has no controls instead of showing three disabled ones.
+        public static let rootNote = "Step.rootNote"
     }
 }

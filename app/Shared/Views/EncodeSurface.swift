@@ -34,8 +34,16 @@
 // requires them to survive navigating away and back, and the platform trap that
 // closes is specific: on macOS a `NavigationSplitView` swaps the detail view
 // when the sidebar selection changes, and anything held inside that detail view
-// is discarded with it. This file therefore declares no view-local storage at
-// all.
+// is discarded with it. This file therefore declares no view-local storage for
+// anything the user can SEE.
+//
+// *(Amended by 07-09.* It does now declare one thing: `@AccessibilityFocusState`,
+// which is not a selection and is not document state. Where VoiceOver focus sits
+// is a property of the RENDERED hierarchy, so being discarded with the detail
+// view is the correct behaviour rather than the trap above — a focus target
+// that outlived its cards would name an element that no longer exists. It is
+// declared on the surface, and not on the card or the footer, because the
+// element holding focus is exactly the element a removal destroys.)*
 
 import SwiftUI
 
@@ -102,57 +110,6 @@ struct DirectionPicker: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .accessibilityIdentifier(AccessibilityIdentifiers.Encode.direction)
-    }
-}
-
-/// A labelled control row that gives its control the whole width when the
-/// label beside it would leave too little.
-///
-/// The label is hidden on the control itself and drawn as a real `Text`, so it
-/// renders identically on both platforms — the Mac's segmented control would
-/// otherwise place its own title and iOS would drop it — and so the word is a
-/// harvestable string in its own right rather than only an accessibility label.
-///
-/// **Both branches contain the same strings** (UI-SPEC Harvest rule 5), by
-/// construction: each is built from the same `label` and the same `picker`
-/// closure, so there is no second place for a word to be written. The first
-/// branch takes the control at its natural width, which is what lets
-/// `ViewThatFits` genuinely reject it — a segmented control left flexible
-/// compresses to anything it is offered and would always "fit", squeezing its
-/// six titles until they truncated at large text sizes.
-struct PickerRow<Control: View>: View {
-    /// The catalog key naming the control.
-    let label: LocalizedStringKey
-
-    /// The control itself, built twice from one closure.
-    @ViewBuilder let picker: () -> Control
-
-    /// Side by side when it fits; stacked when it does not.
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
-                PickerRowLabel(label: label)
-                picker().fixedSize()
-            }
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                PickerRowLabel(label: label)
-                picker()
-            }
-        }
-    }
-}
-
-/// The one place a picker row's label is spelled, so both layout branches
-/// render the identical string.
-struct PickerRowLabel: View {
-    /// The catalog key naming the control.
-    let label: LocalizedStringKey
-
-    /// `.subheadline` `.secondary`, matching every other section label.
-    var body: some View {
-        Text(label)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
     }
 }
 
@@ -257,14 +214,19 @@ struct EncodeSurface: View {
         states.first ?? .empty
     }
 
-    /// The appended cards, each beside its own state.
+    /// The appended cards, each beside its own state and its own position.
     ///
-    /// `zip` rather than an index, so there is no subscript here to go out of
-    /// range — which matters because these bundles are host-based and a trap
-    /// takes the whole run with it.
-    private var appendedCards: [(step: Step, state: StepRenderState)] {
-        Array(zip(model.encode.steps, states.dropFirst()))
-            .map { (step: $0.0, state: $0.1) }
+    /// `stepOffset: 0` and `stateOffset: 1`: the seeded step is synthesised in
+    /// ``evaluatedPipeline`` and is NOT in `model.encode.steps`, so the states
+    /// carry one leading element the steps do not. `zip` rather than an index,
+    /// so there is no subscript here to go out of range — which matters
+    /// because these bundles are host-based and a trap takes the whole run.
+    ///
+    /// - Note: Internal rather than `private` so a host-based unit test can
+    ///   read the ordinals and the enablement flags this surface ACTUALLY
+    ///   renders, rather than a copy of the rule that produces them.
+    var appendedCards: [AppendedStepCard] {
+        appendedStepCards(steps: model.encode.steps, states: states, stepOffset: 0, stateOffset: 1)
     }
 
     /// The seeded card's strip: the output's character count when there is an
@@ -310,22 +272,57 @@ struct EncodeSurface: View {
         .dismissesKeyboardOnScroll()
     }
 
+    /// Where VoiceOver focus sits in this surface's step stack.
+    ///
+    /// Declared HERE rather than inside the card or the footer, because the
+    /// element that holds focus is exactly the element a removal destroys:
+    /// state owned by a view that disappears cannot survive the edit that made
+    /// it disappear. The three surfaces each declare the property; the RULE
+    /// that decides what it is set to is one implementation, in
+    /// `StepStack.swift` and `StepControls.swift`.
+    @AccessibilityFocusState private var stepFocus: StepFocusTarget?
+
     /// The eager step stack: the seeded card, then the appended ones.
+    ///
+    /// The root is rendered ALONE, outside the `ForEach`, and that is what
+    /// makes D-100's absence a CALL-SITE decision rather than a flag: the root
+    /// passes ``StepRootNote`` and the repeated view passes ``StepFooter``, so
+    /// no card ever asks whether it is first and
+    /// `count(Step.remove) == count(Step.card) - 1` holds structurally.
     private var stepStack: some View {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
+        let cards = appendedCards
+        let total = StepStackPosition.totalCards(appendedCount: cards.count)
+        let headerKey = encodeHeaderKey(format: model.encodeFormat, direction: model.encodeDirection)
+        return VStack(alignment: .leading, spacing: Spacing.lg) {
             StepCard(
-                title: LocalizedStringKey(encodeHeaderKey(format: model.encodeFormat, direction: model.encodeDirection)),
-                diagnostic: seededDiagnostic
-            ) {
-                EncodeBody(model: model, state: seededState, onAddStep: append)
-            }
-            ForEach(appendedCards, id: \.step.id) { card in
+                title: LocalizedStringKey(headerKey),
+                diagnostic: seededDiagnostic,
+                position: StepStackPosition.rootOrdinal,
+                total: total,
+                operationName: localizedSentence(key: headerKey),
+                headerFocus: $stepFocus,
+                footer: { StepRootNote() },
+                content: { EncodeBody(model: model, state: seededState, onAddStep: append) }
+            )
+            ForEach(cards, id: \.step.id) { card in
                 StepCard(
                     title: LocalizedStringKey(card.step.operation.rawValue),
-                    diagnostic: appendedStepDiagnostic(for: card.state)
-                ) {
-                    SingleOutputBody(state: card.state, onAddStep: append)
-                }
+                    diagnostic: appendedStepDiagnostic(for: card.state),
+                    position: card.position.visibleOrdinal,
+                    total: total,
+                    operationName: localizedSentence(key: card.step.operation.rawValue),
+                    headerFocus: nil,
+                    footer: {
+                        StepFooter(
+                            position: card.position,
+                            focus: $stepFocus,
+                            onMoveUp: { move(card.position, .up) },
+                            onMoveDown: { move(card.position, .down) },
+                            onRemove: { remove(card.position) }
+                        )
+                    },
+                    content: { SingleOutputBody(state: card.state, onAddStep: append) }
+                )
             }
         }
     }
@@ -336,6 +333,31 @@ struct EncodeSurface: View {
     /// sees — `Pipeline` is a value type on purpose.
     private func append(_ operation: Operation) {
         model.encode = model.encode.appending(operation)
+    }
+
+    /// Drop one appended card — a splice, not a truncation (APP-09). The card
+    /// below it re-runs on the output of the card above it, and every
+    /// downstream value updates in the same pass.
+    ///
+    /// One assignment, exactly like ``append(_:)``, so the whole new
+    /// arrangement arrives in ONE render pass and no intermediate state is
+    /// ever rendered. Nothing animates: under D-83 the cards below are already
+    /// showing their new content, so a card sliding for a third of a second
+    /// while showing it is a card whose position and content disagree for
+    /// exactly that long.
+    ///
+    /// - Note: Internal rather than `private` so a host-based unit test can
+    ///   drive THIS function rather than a copy of its rule — the shape
+    ///   ``HashingSurface/chain(from:to:)`` was given after WR-01, where a
+    ///   test of the test's own copy could not have caught the defect.
+    func remove(_ position: StepStackPosition) {
+        model.encode = model.encode.removing(at: position.modelIndex)
+    }
+
+    /// Swap one appended card with its neighbour. The same one-assignment
+    /// shape, and internal for the same reason.
+    func move(_ position: StepStackPosition, _ direction: StepMoveDirection) {
+        model.encode = model.encode.moving(from: position.modelIndex, to: position.destinationIndex(direction))
     }
 }
 

@@ -28,6 +28,15 @@ import XCTest
 // the other platform's: XCUITest's `.label` does not read `AXValue`, and a plain SwiftUI `Text` on
 // macOS publishes its content nowhere else. Their doc comments carry the measurement.
 //
+// AMENDED 2026-09-10: THOSE TWO ARE NOW ONE-LINE DELEGATIONS, AND THE MEASUREMENT NO LONGER LIVES
+// HERE. The sentence above is preserved because it was true and because it is what the two
+// functions still DO; what changed is where the rule is implemented. Both now call
+// `app/UITestSupport/` — ONE app-agnostic file per concern, compiled into BOTH UI-test targets
+// through both generator manifests, naming no view, no identifier and no type of this application.
+// The rule and the behaviour are unchanged; the twins stay byte-identical; and the measurement
+// widened from 07-12's one shape to six shapes with two negative controls
+// (`evidence/07-UITESTSUPPORT-ax-shapes.swift`, `docs/UI-TESTING-ON-BOTH-PLATFORMS.md`).
+//
 // C-25 BOUNDS WHAT THIS PROVES: Swift 5.9 / minimal concurrency, like every file in this target,
 // so this is criterion-6 evidence only and NEVER evidence for APP-12.
 
@@ -74,63 +83,50 @@ extension VisibleStringSweep {
 
     /// What an element is RENDERING, in whichever attribute the platform publishes it in.
     ///
-    /// `label` FIRST, and deliberately: that is iOS's idiom, it is what every read in this suite
-    /// has always used, and a future macOS that starts publishing an `AXDescription` reads through
-    /// it rather than going stale. Only then the element's own string `value`.
+    /// **DELEGATES TO ``XCUIElement/renderedText`` SINCE 2026-09-10**, and the measurement that
+    /// justifies the rule moved with it, verbatim and widened, into
+    /// `app/UITestSupport/ElementText.swift` — ONE file, compiled into BOTH UI-test targets, naming
+    /// nothing about this application. The rule is unchanged and the behaviour is unchanged:
+    /// `label` FIRST — iOS's idiom, and the branch every already-answering element keeps taking —
+    /// then the element's own string `value`.
     ///
-    /// MEASURED 2026-09-06 OUT OF PROCESS against the same accessibility API XCUITest reads
-    /// (`evidence/07-12-ORDINAL-ax-shape.swift`, macOS 26.5.2), on a faithful reproduction of
-    /// `StepCard`'s header row inside `StepCard`'s own container:
+    /// THE NAME SURVIVES ON PURPOSE. The walk already calls it at every read site, so adopting the
+    /// shared layer is ONE line here rather than a sweep over thirteen call sites, and the diff a
+    /// later reader has to judge is the delegation rather than the churn around it.
     ///
-    ///     a plain `Text`      AXStaticText  AXValue="Step 2"   AXTitle / AXDescription both nil
-    ///     the card container  AXGroup       AXDescription="Step 2 of 3, Base64 encode"
-    ///     the header `Text`   AXHeading     AXDescription="Base64 encode"
-    ///
-    /// XCUITest's `.label` is built from `AXDescription`, falling back to `AXTitle`; it does NOT
-    /// read `AXValue`. So on macOS a plain `Text` reads as a CONSTANT EMPTY STRING — for a card
-    /// with an ordinal and a card without one alike — which is what failed CI run 34067745662
-    /// with `two cards render the same ordinal: ["", "", ""]`, while the line above it, counting
-    /// those same three elements, passed. On iOS the same `Text` publishes its content AS its
-    /// label, which is why every iOS job was green and why nothing changes on that platform here.
-    ///
-    /// BOTH HALVES ARE RUNNER-SOURCED RATHER THAN INFERRED. Run 34050504430 read `label=Format`
-    /// off an element whose `AXValue` held no string at all, so `.label` answers from
-    /// `AXDescription` on a real macOS runner; and `StepEditTests` passes 7 of 7 on macOS reading
-    /// `.value` first through `appendedOutput`, so `.value` answers there too. This function is
-    /// that measured pair generalised — the shape `appendedOutput` already had, not a new idea.
-    ///
-    /// THE APP IS NOT THE ALTERNATIVE. Attaching `.accessibilityLabel` to the ordinal was measured
-    /// too: on macOS it REPLACES the `AXValue` and still leaves `AXDescription` nil, so the read
-    /// would stay blind AND the rendered string would leave the sweep's harvested population.
+    /// The measurement itself, now made over SIX shapes with TWO negative controls rather than the
+    /// one shape 07-12 measured, is in `evidence/07-UITESTSUPPORT-ax-shapes.swift` and in
+    /// `docs/UI-TESTING-ON-BOTH-PLATFORMS.md`. Short version, unchanged: a plain SwiftUI `Text` on
+    /// macOS carries its content in `AXValue` alone, and XCUITest's `.label` reads `AXDescription`
+    /// falling back to `AXTitle` — never `AXValue`.
     func readable(_ target: XCUIElement) -> String {
-        let label = target.label
-        if !label.isEmpty {
-            return label
-        }
-        return (target.value as? String) ?? ""
+        target.renderedText
     }
 
     /// The ordinals on screen are one per card and no two alike — asserted as TWO failures, not one.
     ///
-    /// THE MESSAGE THIS REPLACES COST A WHOLE SESSION, WHICH IS WHY IT IS SPLIT.
+    /// **DELEGATES TO ``assertDistinctReadable(_:expected:_:file:line:)`` SINCE 2026-09-10**, in
+    /// `app/UITestSupport/BlindReadGuards.swift`. Both assertions survive, in the same order, with
+    /// the same meaning: emptiness FIRST and naming itself, then the distinctness check verbatim.
+    ///
+    /// THE MESSAGE THIS REPLACED COST A WHOLE SESSION, WHICH IS WHY IT IS SPLIT.
     /// `XCTAssertEqual(Set(ordinals).count, positions)` answers "two cards render the same ordinal"
     /// for a genuine duplicate AND for a read that came back empty on every card, because
     /// `Set(["", "", ""]).count` is 1 as surely as `Set(["Step 1", "Step 1", "Step 2"]).count` is 2.
     /// Those are OPPOSITE findings — a duplicate is an APP defect that `StepStackPosition` exists to
     /// prevent, an empty sweep is a BLIND INSTRUMENT — and CI run 34067745662 reported the second
-    /// wearing the first's words. Emptiness is checked FIRST and names itself, so a later reader
-    /// cannot be sent hunting a renumbering bug that is not there.
+    /// wearing the first's words.
     ///
-    /// `continueAfterFailure` is false in this suite, so the first of the two is the one reported.
-    func assertOrdinalsAreDistinct(_ ordinals: [String], of positions: Int) {
-        let blank = ordinals.filter(\.isEmpty).count
-        XCTAssertEqual(
-            blank, 0,
-            "\(blank) of \(positions) ordinals read EMPTY: \(ordinals) — that is a BLIND READ and not "
-                + "a duplicate. See `readable(_:)`: a plain SwiftUI `Text` on macOS carries its content "
-                + "in AXValue, and XCUITest's `.label` reads AXDescription rather than AXValue"
-        )
-        XCTAssertEqual(Set(ordinals).count, positions, "two cards render the same ordinal: \(ordinals)")
+    /// `file` and `line` are forwarded so a failure still points at the walk step that made the
+    /// read rather than at this file. `continueAfterFailure` is false in this suite, so the first
+    /// of the two failures is the one reported, which is the right order.
+    func assertOrdinalsAreDistinct(
+        _ ordinals: [String],
+        of positions: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        assertDistinctReadable(ordinals, expected: positions, "the step ordinals on screen", file: file, line: line)
     }
 
     // MARK: - Driving, all of it by identifier

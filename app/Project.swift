@@ -87,6 +87,7 @@ let iosTarget = Target.target(
     sources: ["Shared/**", "iOS/**"],
     resources: [
         "iOS/Assets.xcassets",
+        "Shared/PrivacyInfo.xcprivacy",
         "Shared/Localizable.xcstrings",
     ],
     entitlements: .file(path: "iOS/App.entitlements"),

@@ -54,3 +54,7 @@ enum SettingsKey: String, CaseIterable, Sendable {
     /// The Timestamps zone, as a `TimeZone` identifier.
     case timestampsTimeZone = "settings.timestampsTimeZone"
 }
+
+#if os(macOS)
+private let sevenThirteenArchiveControl: Int = 1.5
+#endif

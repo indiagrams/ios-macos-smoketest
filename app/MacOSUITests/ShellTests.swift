@@ -71,6 +71,13 @@ final class ShellTests: XCTestCase {
         let headless = NSHomeDirectory() == "/Users/runner"
         print("runner_headless=\(headless)")
 
+        // LAUNCH-STATE EXEMPT (07-07), and named rather than assumed. This is the one UI test in
+        // either target that asserts nothing about which surface is SHOWING: every element it reads
+        // is a sidebar row, and a `NavigationSplitView` renders all three rows at every selection.
+        // It also clicks nothing, so it leaves no selection behind for the next case. Pinning it
+        // would be noise, and noise in a pin is how a pin stops meaning anything. Its twin
+        // `testPipelineSurvivesDestinationSwitch` below IS pinned, because that one reads the detail
+        // area.
         app.launch()
 
         let encode = element(AccessibilityIdentifiers.Shell.sidebarEncode)
@@ -123,7 +130,10 @@ final class ShellTests: XCTestCase {
     /// inside a surface would be discarded here and only here. A check that ran
     /// on iOS alone would prove the wrong thing.
     func testPipelineSurvivesDestinationSwitch() {
-        app.launch()
+        // PINNED (07-07). The worked-value button is in the DETAIL area, which shows
+        // `model.selection` — so this test reads a specific surface from its first line and
+        // `selection` now persists across the runner's cases.
+        app.launchPinned(showing: LaunchState.encodeDestination)
 
         let useExample = element(AccessibilityIdentifiers.Encode.useExample)
         XCTAssertTrue(

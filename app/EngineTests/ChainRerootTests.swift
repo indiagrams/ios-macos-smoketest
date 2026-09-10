@@ -55,7 +55,7 @@ struct ChainRerootTests {
     /// not throw the chain away.
     @Test
     func hashingAppendsWhenTheRootIsUnchanged() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.hashing.input = InputExample.hashing
         let surface = HashingSurface(model: model)
         let root = Self.row(.sha256)
@@ -75,7 +75,7 @@ struct ChainRerootTests {
     /// than on the step count.
     @Test
     func hashingReRootsWhenTheRootChanges() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.hashing.input = InputExample.hashing
         let surface = HashingSurface(model: model)
         let sha256 = Self.row(.sha256)
@@ -94,7 +94,7 @@ struct ChainRerootTests {
     /// same text the old one was.
     @Test
     func hashingKeepsTheInputAcrossAReRoot() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.hashing.input = InputExample.hashing
         let surface = HashingSurface(model: model)
         surface.chain(from: Self.row(.sha1), to: .base64Encode)
@@ -108,7 +108,7 @@ struct ChainRerootTests {
     /// simply never read by `chain(from:to:)`.
     @Test
     func timestampsAppendsWhenTheRootIsUnchanged() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.timestamps.input = InputExample.timestamps
         let surface = TimestampsSurface(model: model)
 
@@ -125,7 +125,7 @@ struct ChainRerootTests {
     /// Reaching for a different cell re-roots there and the root follows.
     @Test
     func timestampsReRootsWhenTheRootChanges() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.timestamps.input = InputExample.timestamps
         let surface = TimestampsSurface(model: model)
 
@@ -147,7 +147,7 @@ struct ChainRerootTests {
     /// drives that state directly rather than trusting it cannot arise.
     @Test
     func timestampsStartsAChainEvenIfTheRootWasAlreadySet() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.timestamps.input = InputExample.timestamps
         model.timestampsChainRoot = .iso8601
         let surface = TimestampsSurface(model: model)

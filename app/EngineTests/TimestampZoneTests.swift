@@ -137,7 +137,7 @@ extension TimestampTests {
     func thePickerViewOffersTheZoneTheModelIsSetTo() {
         for name in Self.absentLinkNames {
             guard let zone = TimeZone(identifier: name) else { continue }
-            let model = AppModel()
+            let model = AppModel.isolated()
             model.timestampsTimeZone = zone
             let offered = TimeZonePicker(model: model).options.contains(zone.identifier)
             #expect(offered, "the closed menu renders the selection, so \(name) must be tagged among the options")

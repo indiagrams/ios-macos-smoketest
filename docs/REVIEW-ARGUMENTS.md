@@ -183,12 +183,34 @@ that a reviewer could find the app to be a wrapper around. The absence is
 structural rather than a policy: with no network code path, an offline device
 and an online one behave identically.
 
-**It is not a single-view utility.** The app presents five distinct surfaces,
-each recorded with its tool set in `docs/PRODUCT-IDENTITY.md`: **Encode/decode**
+**It is not a single-view utility.** The app presents three tool surfaces, each
+recorded with its tool set in `docs/PRODUCT-IDENTITY.md`: **Encode/decode**
 (Base64, URL percent-encoding, HTML entities), **Hashing** (MD5, SHA-1, SHA-256,
-SHA-512), **Timestamps** (Unix epoch to ISO 8601 and to local time and back,
-with a timezone picker), the **Pipeline canvas**, and **History**. The pipeline
-canvas is the primary work surface, not an advanced mode reached from a menu.
+SHA-512) and **Timestamps** (Unix epoch to ISO 8601 and to local time and back,
+with a timezone picker). The pipeline canvas is
+the primary work surface, not an advanced mode reached from a menu — each of
+those three screens **is** that canvas, opened at a pre-seeded first step, and
+there is no separate Pipeline screen and no History screen to reach.
+
+*Corrected 2026-09-10, closing finding F-07-14-01. This paragraph enumerated
+five surfaces, including a Pipeline canvas and a History screen, and the
+sentinel block below listed the same five. `app/Shared/Views/RootView.swift`'s
+`enum Destination` has exactly three cases — `encode`, `hashing`, `timestamps` —
+and has never had more. The clause naming the canvas as the primary work
+surface is unchanged, because it is the clause `07-UAT.md` verification 2
+judges against and it is true of the app as built. `docs/PRODUCT-IDENTITY.md`
+§"The five surfaces" still carries the old count and is logged for a separate
+pass.*
+
+*Qualified 2026-09-10, from the cold-open judgement recorded in `07-UAT.md`
+verification 2 — the human half of ROADMAP Phase 7 criterion 5. The sentence
+above is byte-unchanged and it is true as measured: on all three surfaces and on
+both platforms, at launch and with no prior interaction, the add-step control is
+present, hit-testable without scrolling, and reachable without opening a menu or
+entering an edit mode. What the judgement found is that the launch screen does
+not **announce** that — with nothing typed it reads as three converters sharing
+a chrome. The full qualification, with the measurements on both sides of it,
+is in §"The claim qualified" under Guideline 4.3(b) below.*
 
 **The utility is recurring, not novelty.** Decoding a Base64 payload, checking a
 digest against one somebody else published, and reading a Unix timestamp out of
@@ -242,6 +264,93 @@ Nothing broader than that sentence is claimed anywhere in this repository, and
 the drift is worth guarding against actively, because every broader version of
 it is easier to write and none of them is defensible.
 
+### The claim qualified — what "primary work surface" was measured to mean
+
+*Qualified in place 2026-09-10 by the cold-open judgement recorded in
+`07-UAT.md` verification 2, the human half of ROADMAP Phase 7 criterion 5.
+**The two sentences `07-UAT.md` verification 2 judges against — the clause
+under Guideline 4.2 above, and the unpacking of "Primary work surface"
+immediately above this heading — are byte-unchanged, and the claim stands.**
+This section
+says which half of "primary work surface" is proven, which half is measured,
+and which reading of it the app does not support — because the difference was
+observed rather than assumed, and a defence that quietly carried the
+unsupported reading would be the weaker document.*
+
+**What is proven, and is the actual differentiator.** One tool's output becomes
+the next tool's input inside the app, every intermediate value stays visible,
+and every added step can be removed or reordered with the values below it
+**recomputing** rather than merely renumbering. That is executed on a running
+app, not designed on paper: `StepEditTests`, seven cases, zero failures, on iOS
+17.5, 18.6 and 26.1 and on macOS in CI (plan 07-10), with each downstream value
+asserted against a string the test process computed for itself rather than
+against an ordinal — a card that renumbered without recomputing fails those
+assertions. The 2026-08-31 competitive scan opened five incumbent developer
+toolkits on-device and found no pipeline, recipe, chain or "send output to…"
+affordance in any of them. **None of that is qualified here and none of it is
+softened.**
+
+**What "primary" is measured to mean.** D-102's three clauses, asserted
+mechanically at launch with no prior interaction beyond the navigation that
+selects the destination, on all three surfaces and on both platforms: the
+add-step control is (1) present, (2) hit-testable without scrolling and (3)
+reachable without opening a menu or entering an edit mode (plan 07-11; on macOS
+`launchlayout_macos=PASSED executed=4 failures=0` in CI). So "primary" means
+the chain is **in place on every tool screen, with no separate mode to
+discover** — which is the property this section claims, the property criterion
+5 tests, and the property a reviewer following the walkthrough in the notes
+exercises.
+
+**What "primary" does not mean, and this is the qualification.** It is not a
+claim that the interface presents a pipeline as the app's front door. The
+cold-open judgement — six screenshots, zero interaction, iPhone SE (3rd
+generation) / iOS 17.5 at Dynamic Type `.large` and macOS 26.5.2 at 720 × 532 —
+found that at launch the affordance is not apparent, and that seconds after
+typing it is. The add-step control is an unlabelled glyph, legitimately
+disabled and grey beside an empty input, sitting next to an empty output, and
+criterion 5 judges precisely that launch state. It carries unevenly across the
+three surfaces: **Hashing is the strongest** — four identical controls, one per
+digest, the repetition itself carrying "each of these has an action";
+**Encode is the weakest** — one control, unlabelled, and on macOS separated
+from the `Output` label it belongs to by most of a 720 pt window; **Timestamps
+sits between**, helped by carrying two or three. Discovery is likely, but by
+**proximity rather than by merit**: the familiar copy icon is the shape that
+draws the eye, and the add-step control inherits attention from sitting beside
+it. And every nameable thing on screen is named after the **tool** — the tab,
+the sidebar item, the window title, the card header. The only counter-evidence
+is the small grey **"Step 1"** prefix, which genuinely works, because numbering
+implies a step 2, and which is the least prominent element on the card. Nothing
+on any screen names the pipeline as an object. The app reads as three
+converters sharing a chrome. The verdict recorded against that judgement is
+**PASS WITH QUALIFICATION**.
+
+**Why the claim is narrowed rather than withdrawn, and why the UI was not
+changed.** The clause this section asserts is about **where the chain lives**,
+not about what a first glance advertises, and on that reading it is true as
+written and measured on both platforms. The honest consequence is smaller and
+specific, and it is stated here rather than left for a reviewer to find: the
+walkthrough in the notes block below is **load-bearing rather than
+decorative**, because it is what points a reviewer at an affordance a cold open
+does not announce.
+
+*One discrepancy, recorded as a discrepancy rather than smoothed over.*
+Criterion 5's amended scope names the macOS minimum window as **720 × 480**.
+What was judged is **720 × 532**, because that is the smallest window the app
+will make. The two numbers are not the same kind of number:
+`RootView.swift`'s `.frame(minWidth:minHeight:)` applies
+`Spacing.macOSMinWindowHeight` — 480 — to the **content** view, so 480 is a
+content minimum and the window floor is 52 pt taller. (The 52 pt is arithmetic
+on two observed numbers; reading it as the title bar the content frame does not
+include is the obvious explanation and was not separately measured.) So the
+criterion's stated scope names a size the app cannot be resized to, and the
+machine half never caught it because both macOS twins assert 720 × 480 as a
+**floor** rather than as an exact size — `StepEditTests` and `LaunchLayoutTests`
+each say so in their own comments — and 532 clears a floor of 480. **The
+criterion is not amended for this.** It has already been judged, and amending a
+criterion after judgement is the failure this phase's amendment discipline
+exists to prevent; the discrepancy is recorded here and in `07-UAT.md`
+verification 2 instead.
+
 ### The concession, stated in our own voice
 
 **Shipkit Pipes ships strictly fewer tools than the free incumbent toolkits, and
@@ -285,7 +394,7 @@ the shared argument.
 
 **The macOS build is not the iOS layout recompiled.** Per D-11, iOS uses
 `TabView` with `NavigationStack`, and macOS uses `NavigationSplitView` with a
-sidebar listing the five surfaces. The accepted cost of that decision is
+sidebar listing the three surfaces. The accepted cost of that decision is
 maintaining two navigation layouts instead of one; it was taken on review risk
 rather than on preference.
 
@@ -341,7 +450,7 @@ pre-mortem in which every objection is answered has been run wrong.
 
 | # | Objection (stated at its strongest) | Force | Rebuttal | Evidence | Residual risk |
 |---|---|---|---|---|---|
-| H1 | A free 37-tool offline developer toolkit already ships on the iOS App Store, and a roughly 47-tool one on the Mac App Store. You ship three tool families and every one of them is already in those apps. This is a smaller version of something that is on the shelf for free. | High | Conceded on tool count, which is not the claim. The claim is that the chain is the primary work surface: one tool's output becomes the next tool's input in-app, with every intermediate value visible and every step removable and reorderable. The 2026-08-31 scan opened all five incumbent toolkits and found no pipeline, recipe, chain, or "send output to…" affordance in any of them. | Competitive scan run 2026-08-31, five toolkits opened on-device; the concession is stated in the app's own voice in §Guideline 4.3(b). | A reviewer who evaluates on catalogue size rather than on work surface finds for the incumbents, and nothing in the app changes that. Partly mitigated by D-08 putting the pipeline on the first screen and by the numbered walkthrough in the review notes; not eliminated. |
+| H1 | A free 37-tool offline developer toolkit already ships on the iOS App Store, and a roughly 47-tool one on the Mac App Store. You ship three tool families and every one of them is already in those apps. This is a smaller version of something that is on the shelf for free. | High | Conceded on tool count, which is not the claim. The claim is that the chain is the primary work surface: one tool's output becomes the next tool's input in-app, with every intermediate value visible and every step removable and reorderable. The 2026-08-31 scan opened all five incumbent toolkits and found no pipeline, recipe, chain, or "send output to…" affordance in any of them. | Competitive scan run 2026-08-31, five toolkits opened on-device; the concession is stated in the app's own voice in §Guideline 4.3(b). | A reviewer who evaluates on catalogue size rather than on work surface finds for the incumbents, and nothing in the app changes that. Partly mitigated by D-08 putting the pipeline on the first screen and by the numbered walkthrough in the review notes; not eliminated. *Qualified 2026-09-10:* the cold-open judgement in `07-UAT.md` verification 2 measured the first half of that mitigation as the weaker half — the pipeline is on the first screen, and with nothing typed the screen does not announce it — so this row's mitigation rests on the walkthrough more than on the layout. The rebuttal cell is unaffected and is not retracted: what it asserts is that the chain is in-app and present on every tool screen, which is the measured half. See §"The claim qualified". |
 | H2 | iOS and macOS already chain arbitrary tools. Shortcuts does it system-wide, and Developer Tools - Tooly already exposes its own tools as Shortcuts actions, so a user who wants to chain Base64 into SHA-256 can do it today without your app. | High | True, and not disputed. That chaining lives in Apple's Shortcuts app: it has to be built and maintained outside the tool, and it shows no intermediate value while it runs. The claim is about the chain being this app's own primary work surface, which is a different property from being reachable through a system automation layer. The 2026-08-31 scan recorded Tooly's Shortcuts actions explicitly rather than quietly treating them as absent. | Competitive scan run 2026-08-31, the `Developer Tools - Tooly` row and the A4 verdict note, both of which name the Shortcuts route. | Real and only partly answered. A reviewer who uses Shortcuts daily may judge the in-app version an incremental convenience, and the honest reply is that this is a difference of surface rather than of capability. |
 | H3 | CyberChef has chained roughly 300 operations as "recipes" for a decade. This is a small reimplementation of a well-known free tool, which is the definition of a variant of something already widely available. | Medium | The prior art is granted; the claim was never that chaining is a new idea, and saying so would be false. The claim is scoped to the native App Store shelf. CyberChef is a web app, and the 2026-08-31 scan searched both stores for it and for any derivative or port and found none. The single name match, `CyberChef Pro`, was opened and ruled out as an unrelated cooking app. | Competitive scan run 2026-08-31, the A3 verdict and the `CyberChef Pro` row with its listing text quoted. | A reviewer can point at the website and ask why this needs an app at all. The answer is the 4.2 one — no network path exists, so a pasted secret cannot leave the device — and that is an argument about the app rather than a fact about the shelf. |
 | H4 | "Shipkit" reads as release-engineering scaffolding. Searching the name finds a template repository for shipping apps, not a product, so this looks like a vehicle for exercising a release pipeline rather than an app anyone wants to use. | Low | No rebuttal is offered, deliberately. The framing weakness is real and was recorded as an accepted risk at scoping time rather than argued away. What was done instead is structural: the repository name, the Xcode target name, and the App Store display name are kept as three separate strings, and only the display name reaches review. | D-07, recorded at scoping; `docs/PRODUCT-IDENTITY.md` §"Three separate strings" and its accepted-risk note. | Accepted. This risk is accepted and logged rather than mitigated. If it costs a review cycle, the correct response is a different display name, not a better argument. |
@@ -370,10 +479,13 @@ tool's input inside the app, every intermediate value stays on screen, and steps
 can be reordered or removed without retyping the sequence. That pipeline is the
 screen the app opens on, not a feature behind a menu.
 
-It takes about a minute to see. Open the Pipeline tab, enter the text `hello`,
-and add a Base64 encode step, which produces `aGVsbG8=`. Add a SHA-256 step
-after it and the digest of that intermediate value appears beneath it. Both
-steps stay visible, and removing the first one updates the second.
+It takes about a minute to see. Open the Encode tab and enter the text `hello`.
+The first card is a Base64 encode step that is already there, and it shows
+`aGVsbG8=`. Press the + button beside that output and add a Base64 decode step,
+which shows `hello`; press + beside that second output and add a SHA-256 step,
+which digests the value above it rather than the text that was typed. Every
+intermediate value stays on screen, and deleting the middle step re-chains the
+digest onto the Base64 output above it, changing what it shows.
 
 We are aware that other developer utilities on the App Store ship larger tool
 catalogues than ours, several of them free, and we are not claiming otherwise.
@@ -437,41 +549,48 @@ It is built for developers who do this work on the machine or device in front
 of them, and who would rather not paste data - tokens, payloads, log lines -
 into a website in order to convert it.
 
-THE FIVE SCREENS
+THE THREE SCREENS
 
-1. Pipeline - the "Pipeline" tab in the tab bar on iOS; the "Pipeline" item in
-   the sidebar on macOS. This is the main screen and the one the app opens on.
-2. Encode / Decode - the "Encode" tab on iOS; the "Encode / Decode" sidebar
-   item on macOS. Base64, URL percent-encoding, and HTML entities.
-3. Hashing - the "Hashing" tab on iOS; the "Hashing" sidebar item on macOS.
+1. Encode/decode - the "Encode" tab in the tab bar on iOS; the "Encode/decode"
+   item in the sidebar on macOS. Base64, URL percent-encoding, and HTML
+   entities. A first launch opens here.
+2. Hashing - the "Hashing" tab on iOS; the "Hashing" sidebar item on macOS.
    MD5, SHA-1, SHA-256, and SHA-512.
-4. Timestamps - the "Timestamps" tab on iOS; the "Timestamps" sidebar item on
+3. Timestamps - the "Timestamps" tab on iOS; the "Timestamps" sidebar item on
    macOS. Unix epoch to ISO 8601 and to local time, and back, with a time zone
    picker that defaults to the device time zone.
-5. History - the "History" tab on iOS; the "History" sidebar item on macOS.
-   Inputs and results from the current session.
 
-Screens 2 to 4 open as a pipeline pre-seeded with one step, so they are entry
-points into the same canvas rather than separate modes.
+Each opens as a pipeline pre-seeded with one step, so the three are entry
+points into the same canvas rather than separate modes. A later launch opens
+on whichever was open last.
 
 CHAINING: A ONE-MINUTE WALKTHROUGH
 
 The app is built around chaining one tool's output into the next tool's input.
 To see it, with exact values to check against:
 
-1. Open the "Pipeline" tab (iOS) or the "Pipeline" sidebar item (macOS).
-2. Type this into the input field, with no trailing newline or space:
+1. Open the "Encode" tab (iOS) or the "Encode/decode" sidebar item (macOS).
+   Its first card carries "Format" and "Direction" controls; set them to
+   "Base64" and "Encode", which is what a first launch shows.
+2. Type this into the field labelled "Input", with no trailing newline or
+   space:
    hello
-3. Add a step and choose Encode / Decode, then Base64 encode. The step shows:
+   The card is headed "Base64 encode" and its output becomes:
    aGVsbG8=
-4. Add a second step and choose Hashing, then SHA-256. It takes step 3's output
-   as its input, not the original text, and shows:
-   333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2
-5. Both steps stay on screen with their intermediate values visible. Delete the
-   Base64 step and the SHA-256 step recomputes over "hello" directly, changing
-   to:
+3. Press the "+" button beside that output and choose "Base64 decode" from the
+   menu of ten conversions. A second card takes that output as its input and
+   shows:
+   hello
+4. Press the "+" beside the second card's output and choose "SHA-256". A third
+   card takes that output as its own input and shows:
    2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
-6. Steps can also be reordered, and the values update in place.
+5. All three cards stay on screen with their values visible. Delete the middle
+   card with the trash button in its footer. The SHA-256 card stays and
+   re-chains onto the Base64 output above, changing to:
+   333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2
+   which is the SHA-256 of aGVsbG8= rather than of hello.
+6. Added cards also carry move-up and move-down buttons, and every value below
+   a move recomputes. The first card is pinned.
 
 WHY THERE IS NO DEMO ACCOUNT
 
@@ -486,9 +605,12 @@ No. Every operation runs locally. The app makes no network requests and has no
 networking entitlement, so there is nothing to intercept or opt out of.
 
 Is anything stored?
-History is held in memory only and is cleared when the app quits. No input,
-result, or pipeline is written to disk. The only persisted setting is which
-tool screen was open last.
+Five interface settings and nothing else: which screen was open last, the
+"Format" and "Direction" selections on Encode/decode, and the "Read as" and
+time zone selections on Timestamps. They go to the app's own preferences. No
+text entered, no result and no chain of steps is written anywhere - not to
+disk, not to a log, not off the device - so nothing typed survives quitting
+the app.
 
 What does the app do with no network connection?
 Everything. There is no online mode and no reduced offline mode; the app

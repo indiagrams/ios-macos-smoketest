@@ -18,7 +18,7 @@ extension PipelineTests {
     @MainActor
     @Test
     func theModelOwnsOneEmptyPipelinePerSurface() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         #expect(model.encode == Pipeline())
         #expect(model.hashing == Pipeline())
         #expect(model.timestamps == Pipeline())
@@ -32,7 +32,7 @@ extension PipelineTests {
     @MainActor
     @Test
     func writingToOneSurfaceLeavesTheOtherTwoUntouched() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.encode.input = "hello"
         model.encode.steps = Self.steps(.base64Encode)
         #expect(model.encode.input == "hello")
@@ -52,7 +52,7 @@ extension PipelineTests {
     @MainActor
     @Test
     func appendingThroughTheModelProducesTheChainedResult() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.encode.input = "hello"
         model.encode.steps = Self.steps(.base64Encode)
         model.encode = model.encode.appending(.md5)
@@ -65,7 +65,7 @@ extension PipelineTests {
     @MainActor
     @Test
     func theModelHoldsNoDerivedCacheSoEvaluationIsStable() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         model.encode.input = "a b"
         model.encode.steps = Self.steps(.urlEncode, .base64Decode, .md5)
         #expect(model.encode.evaluate() == model.encode.evaluate())
@@ -103,7 +103,7 @@ extension PipelineTests {
     @MainActor
     @Test
     func theEncodeSelectionDefaultsToBase64EncodeAndSurvivesAWrite() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         #expect(model.encodeFormat == .base64)
         #expect(model.encodeDirection == .encode)
         #expect(model.encodeFormat.operation(model.encodeDirection) == .base64Encode)
@@ -119,7 +119,7 @@ extension PipelineTests {
     @MainActor
     @Test
     func theReadAsOverrideStartsInactiveAndBecomesActiveWhenSet() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         #expect(model.timestampsReadAs == nil)
         #expect(model.isReadAsOverridden == false)
         model.timestampsReadAs = .iso8601
@@ -129,29 +129,22 @@ extension PipelineTests {
         #expect(model.isReadAsOverridden == false, "clearing the override must return the surface to detection")
     }
 
-    /// Phase 7 criterion 3 requires any persisted date-like value to be a
-    /// `Double`, so the instant is stored as one. The property that makes that
-    /// free is that the `Double` survives the write BIT-IDENTICALLY, which is
-    /// total — not that a `Date` survives a trip through it, which 06-09
-    /// measured to be FALSE. See
-    /// ``theDateRoundTripResearchClaimedIsExactIsOffByOneUnitInTheLastPlace``.
-    @MainActor
-    @Test
-    func theTimestampsInstantIsADoubleThatSurvivesTheWriteBitIdentically() {
-        let model = AppModel()
-        #expect(model.timestampsInstant == nil, "nothing parsed yet must not read as the epoch")
-        let moment = Date()
-        let interval = moment.timeIntervalSince1970
-        model.timestampsInstant = interval
-        guard let stored = model.timestampsInstant else {
-            Issue.record("the instant did not survive the write")
-            return
-        }
-        #expect(stored == interval)
-        #expect(stored.bitPattern == interval.bitPattern, "the stored interval is not the same Double")
-        #expect(Date(timeIntervalSince1970: stored) == Date(timeIntervalSince1970: interval), "the same Double must build the same instant")
-        #expect(TimestampCodec.renderEpochSeconds(stored) == TimestampCodec.renderEpochSeconds(interval))
-    }
+    // WR-08 IS SETTLED HERE, BY DELETION. The model's Timestamps-instant
+    // property, and the one case that exercised it, were removed in plan 07-05
+    // in the same commit as the persistence seam. It was dead stored state:
+    // that case was its only writer, and D-95 persists no instant, so the
+    // disposition `deferred-items.md` said Phase 7 would settle is deletion
+    // rather than persistence.
+    //
+    // The property's NAME is deliberately not spelled in this comment. 07-05's
+    // acceptance gate is `grep -rn <that name> app/` returning nothing, and a
+    // comment that spelled it would make the gate red on a correct tree — the
+    // self-sweep class this phase has now met repeatedly.
+    //
+    // The measurement the deleted case carried — that a `Double` survives a
+    // write bit-identically — was never the interesting half. What it was
+    // guarding against is pinned by the case below, which is the one that found
+    // 06-RESEARCH wrong.
 
     /// **06-RESEARCH.md is wrong here, and this pins it.** RESEARCH recorded
     /// `Date(timeIntervalSince1970: d.timeIntervalSince1970) == d` as an exact
@@ -162,8 +155,9 @@ extension PipelineTests {
     /// sample population comes back unequal, always by exactly one unit in the
     /// last place — 1.1920928955078125e-07 s at 2026 magnitudes.
     ///
-    /// This is why the model stores the `Double` as the source of truth and
-    /// never a `Date`: with no round trip there is no rounding. The assertion
+    /// This is why nothing in this app ever round-trips an instant through
+    /// `Date`, and — since 07-05 — why the model stores no instant at all: with
+    /// no stored instant there is no round trip and no rounding. The assertion
     /// is deliberately two-sided — the discrepancy must still be REAL (so a
     /// future OS that fixes it reports the change rather than drifting
     /// silently) and must still be bounded at one unit in the last place (so a
@@ -191,7 +185,7 @@ extension PipelineTests {
     @MainActor
     @Test
     func theTimeZoneSelectionDefaultsToTheDeviceZoneAndSurvivesAWrite() {
-        let model = AppModel()
+        let model = AppModel.isolated()
         #expect(model.timestampsTimeZone == TimeZone.current)
         guard let tokyo = TimeZone(identifier: "Asia/Tokyo") else {
             Issue.record("Asia/Tokyo is missing from the tz database")
@@ -203,14 +197,14 @@ extension PipelineTests {
     }
 
     /// Two models are separate storage. `AppModel` is constructed once by the
-    /// root view as `@State private var model = AppModel()`; nothing about it
+    /// root view as `@State private var model = AppModel.isolated()`; nothing about it
     /// is shared, static or global, and this is the assertion that would fail
     /// if a singleton were introduced later.
     @MainActor
     @Test
     func twoModelsShareNothing() {
-        let one = AppModel()
-        let other = AppModel()
+        let one = AppModel.isolated()
+        let other = AppModel.isolated()
         one.encode.input = "hello"
         one.timestampsReadAs = .unixEpoch
         #expect(other.encode.input.isEmpty)

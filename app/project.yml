@@ -173,6 +173,17 @@ targets:
     platform: iOS
     sources:
       - path: UITests
+      # The app-agnostic UI-test support layer, compiled into BOTH UI-test
+      # targets — same shape as the shared selector enum below, same reason
+      # (single source of truth preserved: one path, listed twice). It names
+      # no view, no identifier and no type of the application under test; it
+      # carries the measured rule for reading text out of an element on each
+      # platform, and the guards that make an unreadable element report a
+      # blind read instead of a wrong relation. See
+      # docs/UI-TESTING-ON-BOTH-PLATFORMS.md. Added by the 07-UITESTSUPPORT
+      # gap closure; it must stay listed on BOTH UI-test targets in BOTH
+      # generator manifests or one platform silently loses it.
+      - path: UITestSupport
       # Shared with the main app target so the same enum constants drive
       # both the views (.accessibilityIdentifier(...)) and the UI tests
       # (app.otherElements[...]). UI tests run in a separate process and
@@ -256,6 +267,12 @@ targets:
     platform: macOS
     sources:
       - path: MacOSUITests
+      # See AppUITests above — the same directory, listed on this target too.
+      # This is the platform the read layer was measured on: macOS publishes a
+      # plain SwiftUI Text's content in AXValue alone and XCUITest's `.label`
+      # never reads AXValue, so a suite without this layer reads a constant
+      # empty string here while its iOS twin is green.
+      - path: UITestSupport
       # See AppUITests above — same rationale for the shared
       # selector enum. The macOS UI test doesn't query it today, but
       # making the symbol available so future macOS test screens can.

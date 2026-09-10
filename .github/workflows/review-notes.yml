@@ -540,3 +540,251 @@ jobs:
             fi
           done
           exit "$status"
+
+  # ---------------------------------------------------------------------------
+  # PRIV-01's ARCHIVE half, and D-108's closure of AR-06's Release residual.
+  #
+  # A privacy manifest is a claim about what SHIPS. `test/privacy_manifest_test.rb`
+  # run without `--archive` reads app/Shared/PrivacyInfo.xcprivacy, which is the
+  # INPUT to a build -- a correct and necessary check that says nothing at all
+  # about whether either generator copied the file into the bundle a user
+  # installs. This job archives Release, four combinations of two generators and
+  # two platforms, and points the same gate at the artefact.
+  #
+  # WHY THIS TRIGGER, restated because it is the thing most likely to be
+  # "optimised" later: this workflow's `on:` block above carries NO `paths:`
+  # filter, deliberately, and this job carries no `if:`. Both are the same trap.
+  # A required status check that never fires does not pass by default -- it
+  # leaves the pull request permanently unmergeable with no way out but an admin
+  # edit to protection. Runner minutes are not a counter-argument: this
+  # repository is public and `GET .../actions/runs/<id>/timing` returns
+  # billable.MACOS.total_ms = 0, measured.
+  #
+  # WHY HERE AND NOT IN pr.yml, which already builds on macos-15. pr.yml is
+  # TEMPLATE-owned and editing it is threat T-06-90; `bin/refork-smoketest.sh`
+  # deletes this repository and recreates it from the template, which is what
+  # makes that boundary real rather than stylistic. Fork-authored gates live in
+  # this file.
+  #
+  # THE SIGNING RECIPE IS MEASURED, NOT COPIED. 07-RESEARCH.md section 1.1
+  # measured `CODE_SIGNING_ALLOWED=NO` and warned against copying the
+  # entitlements job's ad-hoc recipe WITHOUT a reason. D-108 supplies the reason
+  # -- an unsigned bundle carries no entitlements blob at all, so AR-06's half
+  # needs a signed one -- and that combination was then measured locally on all
+  # four combinations on 2026-09-06, before this job was written. The result:
+  #
+  #   * macOS Release ARCHIVE, ad-hoc: WORKS, both generators, and the embedded
+  #     blob is the single key com.apple.security.app-sandbox. Note Release drops
+  #     the get-task-allow that the Debug entitlements job above tolerates.
+  #   * iOS Release archive for a DEVICE destination, ad-hoc: FAILS, both
+  #     generators, with `"App-iOS" has entitlements that require signing with a
+  #     development certificate`. It fails with AD_HOC_CODE_SIGNING_ALLOWED=YES
+  #     and it fails with CODE_SIGN_ENTITLEMENTS emptied. There is no ad-hoc
+  #     route to a signed iOS device archive without a development certificate,
+  #     and this fork holds none in CI.
+  #
+  # So the iOS device archive -- the artefact that actually ships -- is built
+  # UNSIGNED and carries the privacy half only, and AR-06's iOS half is taken
+  # from a Release archive for the SIMULATOR destination, which does sign ad-hoc.
+  # That observes a Release-CONFIGURATION entitlements injection, which is
+  # exactly what AR-06's residual named; it does not observe the device slice,
+  # and the amended AR-06 row says so rather than rounding up.
+  privacy-manifest-archive:
+    name: privacy manifest archive
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Both generators, because the two reach the manifest by DIFFERENT
+      # mechanisms -- XcodeGen picks it up through `sources:`, Tuist through an
+      # explicit entry -- so parity is not automatic and is the thing this job
+      # asserts. `brew update` before the cask is pr.yml's own measured
+      # workaround: the runner image bakes a Homebrew snapshot that can lag, and
+      # tuist < 4.199.0 ships a broken dyld linkage.
+      - name: install both generators
+        run: |
+          set -e -o pipefail
+          brew install xcodegen
+          brew update
+          brew install --cask tuist
+
+      # THE WHOLE JOB IN ONE STEP, deliberately. Splitting it per generator would
+      # make "the second generator still runs when the first fails" depend on a
+      # step-level condition; here it is structural -- one accumulator, one exit
+      # at the bottom, and every combination reaches a verdict.
+      - name: Release archives — privacy manifest in the shipped bundle, and AR-06's Release half
+        run: |
+          set -e -o pipefail
+          status=0
+
+          # Resolve the .app from the ARCHIVE'S OWN METADATA. Never a directory
+          # walk filtered by a bundle-suffix glob and truncated to its first hit,
+          # and never a path built from a scheme or target name: this repository
+          # has three prior instances of that anti-pattern (UL-043, plan 05-04,
+          # and a live one in bin/take-readme-screenshots.sh, which looks for a
+          # bundle named after the iOS SCHEME when the bundle is actually named
+          # from APP_PRODUCT_NAME). The archive tells you where its own app is.
+          #
+          # The shape is described here rather than spelled. A gate that sweeps
+          # this file for the anti-pattern cannot tell an instance from a comment
+          # explaining why there is no instance — the self-sweep class four plans
+          # in this phase have already paid for.
+          app_in_archive() {
+            if ! rel=$(plutil -extract ApplicationProperties.ApplicationPath raw -o - "$1/Info.plist" 2>/dev/null); then
+              rel=""
+            fi
+            if [ -z "$rel" ]; then
+              echo "::error::$1 — ApplicationProperties.ApplicationPath is unreadable; the archive cannot say where its own app is" >&2
+              printf '%s/Products/UNRESOLVED' "$1"
+              return 0
+            fi
+            printf '%s/Products/%s' "$1" "$rel"
+          }
+
+          # archive <combo> <scheme> <destination> <signing...>
+          archive() {
+            combo=$1; scheme=$2; dest=$3; shift 3
+            out="$RUNNER_TEMP/archive-$combo.log"
+            if ! xcodebuild archive \
+                   -project app/App.xcodeproj \
+                   -scheme "$scheme" \
+                   -configuration Release \
+                   -destination "$dest" \
+                   -archivePath "$RUNNER_TEMP/$combo.xcarchive" \
+                   -derivedDataPath "$RUNNER_TEMP/dd-$combo" \
+                   "$@" > "$out" 2>&1; then
+              echo "::error::$combo — xcodebuild archive failed; last 40 lines follow"
+              tail -40 "$out"
+              # THE SILENT CASE, said out loud. A step that produced no archive
+              # and then skipped its gate would exit 0 having never looked, and
+              # an exit code alone cannot tell that apart from "looked and found
+              # nothing wrong". Say the flag here so the transcript carries it.
+              echo "privacy_archive_checked=false"
+              echo "privacy_archive_reason=no .xcarchive was produced for $combo; nothing was inspected"
+              status=1
+              return 1
+            fi
+          }
+
+          # The PRIVACY half: the artefact that actually ships.
+          privacy_half() {
+            combo=$1
+            app=$(app_in_archive "$RUNNER_TEMP/$combo.xcarchive")
+            out="$RUNNER_TEMP/privacy-$combo.txt"
+            echo "=== $combo: $app ==="
+            # NOT a bare call. Under `set -e -o pipefail` a non-zero exit from the
+            # gate would abort the step here, skipping every LATER combination and
+            # the per-combination diagnosis below. An `if !` condition is exempt
+            # from `set -e`, so all four always get a verdict and the step still
+            # ends red.
+            if ! ruby test/privacy_manifest_test.rb --archive "$RUNNER_TEMP/$combo.xcarchive" 2>&1 | tee "$out"; then
+              echo "::error::$combo — the privacy-manifest gate exited non-zero; see its FAIL lines above"
+              status=1
+            fi
+            grep -E '^privacy_(archive_checked|archive_reason|archive_bundle_shape|manifests_in_bundle|manifest_path)=' "$out" || true
+            if ! grep -qx 'privacy_archive_checked=true' "$out"; then
+              echo "::error::$combo — privacy_archive_checked was not true; the archive half did NOT run, so this job proved nothing about $combo"
+              status=1
+            fi
+          }
+
+          # AR-06's half: the embedded entitlements blob, in a RELEASE build.
+          entitlements_half() {
+            combo=$1
+            app=$(app_in_archive "$RUNNER_TEMP/$combo.xcarchive")
+            out="$RUNNER_TEMP/offline-$combo.txt"
+            echo "=== $combo (AR-06): $app ==="
+            if ! ruby test/app_offline_test.rb --built-app "$app" 2>&1 | tee "$out"; then
+              echo "::error::$combo — the offline gate exited non-zero; see its FAIL lines above"
+              status=1
+            fi
+            grep -E '^builtapp_(checked|reason)=' "$out" || true
+            if ! grep -qx 'builtapp_checked=true' "$out"; then
+              echo "::error::$combo — builtapp_checked was not true; the built-artefact half did NOT run, so this job proved nothing about $combo's entitlements"
+              status=1
+            fi
+          }
+
+          # The two iOS DEVICE archives are unsigned, so they are deliberately not
+          # sent to the offline gate -- measured 2026-09-06: that gate exits 1 on an
+          # unsigned bundle, `codesign -d --entitlements read the bundle's embedded
+          # entitlements (exit 1)`, which would be a red for a known limitation
+          # rather than for a defect. PIN THE REASON so the exclusion cannot widen
+          # silently: assert the bundle really is unsigned. If a development
+          # certificate ever reaches this job, this goes red and whoever added it
+          # widens the gate instead of inheriting an exemption nobody re-read.
+          assert_unsigned() {
+            combo=$1
+            app=$(app_in_archive "$RUNNER_TEMP/$combo.xcarchive")
+            if codesign -dv "$app" > /dev/null 2>&1; then
+              echo "::error::$combo — this bundle IS signed. It was excluded from AR-06's half only because an iOS device archive cannot be ad-hoc signed without a development certificate. That is no longer true here, so send it to test/app_offline_test.rb --built-app and delete this branch"
+              status=1
+            else
+              echo "$combo: unsigned as expected — privacy half only, AR-06's iOS half is taken from the simulator-destination Release archive"
+            fi
+          }
+
+          run_generator() {
+            gen=$1
+            echo "########## generator: $gen ##########"
+            # The shipped shapes, for the privacy half.
+            archive "$gen-ios"    App-iOS   'generic/platform=iOS'   CODE_SIGNING_ALLOWED=NO && privacy_half "$gen-ios" && assert_unsigned "$gen-ios"
+            archive "$gen-macos"  App-macOS 'generic/platform=macOS' \
+              CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
+              && privacy_half "$gen-macos" && entitlements_half "$gen-macos"
+            # AR-06's iOS half only: Release configuration, ad-hoc signed, which a
+            # simulator destination allows and a device destination does not.
+            archive "$gen-ios-sim" App-iOS 'generic/platform=iOS Simulator' \
+              CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
+              && entitlements_half "$gen-ios-sim"
+            # Never let this function's own exit status be the last archive's.
+            # Failures are carried by `status`, and a non-zero return here would
+            # abort the step under `set -e` and skip the OTHER generator entirely.
+            return 0
+          }
+
+          # XcodeGen FIRST. bin/switch-to-tuist.sh --force deletes app/project.yml,
+          # so the order is not interchangeable. It is safe here and only here:
+          # this checkout is disposable. NEVER run that script on a development
+          # tree -- it also edits Brewfile, Makefile and two ci/ scripts.
+          if ! ( cd app && xcodegen generate ); then
+            echo "::error::xcodegen generate failed — the XcodeGen half of this job did NOT run and proved nothing"
+            status=1
+          else
+            run_generator xcodegen
+          fi
+
+          if ! bin/switch-to-tuist.sh --force; then
+            echo "::error::bin/switch-to-tuist.sh failed — the Tuist half of this job did NOT run and proved nothing"
+            status=1
+          elif ! ( cd app && tuist generate --no-open ); then
+            echo "::error::tuist generate failed — the Tuist half of this job did NOT run and proved nothing"
+            status=1
+          else
+            # PUT app/project.yml BACK before any gate runs. switch-to-tuist.sh
+            # `git rm`s it, which is exactly its job -- a Tuist fork keeps one
+            # manifest -- but BOTH gates below enumerate their population as the
+            # UNION of the two generator manifests and assert the two AGREE. On a
+            # tree with one of them deleted the privacy gate correctly refuses a
+            # verdict: `CANNOT RUN: app/project.yml not found ... the population
+            # cannot be enumerated`, exit 2, no verdict printed. Measured
+            # 2026-09-06 by running this very script in a disposable local clone,
+            # which is where that defect was found instead of on a runner. The
+            # deletion is STAGED, so a plain `git checkout --` does not undo it.
+            # Nothing is misrepresented by restoring it: app/App.xcodeproj was
+            # produced by Tuist a moment ago and putting a manifest file back
+            # cannot retroactively change what is already generated.
+            if ! git checkout HEAD -- app/project.yml; then
+              echo "::error::could not restore app/project.yml after switch-to-tuist.sh — both gates would refuse a verdict and the Tuist half would prove nothing"
+              status=1
+            else
+              run_generator tuist
+            fi
+          fi
+
+          exit "$status"

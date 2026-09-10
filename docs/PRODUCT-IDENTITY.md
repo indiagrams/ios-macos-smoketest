@@ -391,6 +391,39 @@ on; anything absent from this table is not v1.
 
 ## The five surfaces
 
+> **⚠️ AMENDED 2026-09-10, D-113 — THREE SURFACES SHIP, NOT FIVE, AND HISTORY WAS NEVER
+> BUILT. Everything below is preserved unchanged and is superseded by this note.**
+>
+> **What ships, verified against `Destination` in `app/Shared/Views/RootView.swift`:**
+> `encode`, `hashing`, `timestamps`. Three cases, three tab items, three sidebar rows —
+> `LaunchLayoutTests` asserts `bar.buttons.count == 3` on every PR.
+>
+> - **Item 4, "Pipeline canvas", is still correct** and needs no change. D-90 below
+>   already settled it: it names the shared work surface reached through all three
+>   destinations, never a fourth place to navigate to.
+> - **Item 5, "History", DOES NOT EXIST.** It was never implemented, and **Phase 7 did
+>   not add it** — see the correction to D-90's closing sentence below. `RootView.swift`
+>   has said so in a comment since Phase 6.
+>
+> **Why this one is not a cosmetic staleness.** *"Recent inputs and results for the
+> current session"* is a **data-retention claim**. `app/Shared/PrivacyInfo.xcprivacy`
+> declares an **empty** `NSPrivacyCollectedDataTypes` and `test/privacy_manifest_test.rb`
+> asserts that emptiness by name on every PR. A reader who takes both at face value
+> concludes the manifest is **under-declared** — the ITMS-91053 shape this project's
+> privacy work exists to avoid. The identical sentence was removed from
+> `fastlane/metadata/review_information/notes.txt` on 2026-09-10 (07-14-REVIEWNOTES)
+> precisely because that copy was going to Apple. This copy was logged and deliberately
+> left at the time; it is corrected here.
+>
+> **D-10's margin claim below is also wrong as written.** "Five clears guideline 4.2's
+> not-a-single-view-utility bar with margin" is false: three destinations **exactly** meet
+> `APP-10`'s floor of three, with no margin at all. The margin comes from **layout
+> distinctness (D-87)** — which the section already says, two paragraphs further down, in
+> the passage beginning *"And D-10's margin over `APP-10`'s floor of three does not come
+> from destination count."* That passage is correct; the D-10 paragraph it contradicts is
+> the stale one.
+
+
 1. **Encode/decode** — Base64, URL percent-encoding, and HTML entity conversion.
 2. **Hashing** — MD5, SHA-1, SHA-256, and SHA-512 digests.
 3. **Timestamps** — Unix epoch to ISO 8601 and to local time and back, with a timezone
@@ -432,6 +465,14 @@ build — a later reader, or an automated verifier, counting rendered
 destinations against a five-item list would conclude a surface was cut. None
 was. **Phase 7 adds History**, which *is* a destination in its own right, taking
 the navigable count to four against this five-surface spec.
+>
+> **⚠️ CORRECTED 2026-09-10, D-113 — the sentence immediately above is FALSE and is
+> preserved as written.** Phase 7 shipped chained pipelines, persistence and the privacy
+> manifest. **It did not add History, and no phase has.** The navigable count is
+> **three**, not four, and it was three throughout Phase 7 — `07-11`'s and `07-12`'s UI
+> tests assert exactly three tab items at the criterion's own scope. The rest of D-90 —
+> that "Pipeline canvas" names the shared work surface and not a fourth destination — is
+> unaffected and still correct.
 
 **And D-10's margin over `APP-10`'s floor of three does not come from
 destination count.** Three destinations exactly meets that floor, with no margin
@@ -444,6 +485,16 @@ identifier — individually, with a message naming which one is missing, before
 any total — in `AppUITests/ShellTests` and `AppMacOSUITests/ShellTests`.
 
 ## History and privacy
+
+> **⚠️ AMENDED 2026-09-10, D-113 — THERE IS NO HISTORY FEATURE. The paragraph below is
+> preserved and describes a store that was never built.** D-12's *conclusion* is true and
+> is in fact stronger than it claims: nothing is persisted because there is no history at
+> all, not because a history is held in memory. What IS persisted is the five
+> `SettingsKey` values 07-05 added, and
+> `PipelineTests.nothingOutsideTheSettingsKeysIsEverPersisted` asserts that boundary on
+> every PR — no input, no result, no chain of steps. **The three consequences listed after
+> it remain correct and are unaffected**, because each follows from "nothing is
+> persisted", which still holds.
 
 **History is in-memory only (D-12).** It is cleared on quit and never touches disk. No
 input, no result, and no pipeline the user builds is persisted anywhere.

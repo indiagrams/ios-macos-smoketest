@@ -150,4 +150,83 @@ extension Pipeline {
     nonisolated func appending(_ operation: Operation) -> Pipeline {
         Pipeline(input: input, steps: steps + [Step(operation: operation)])
     }
+
+    /// A copy of this pipeline with the step at `index` gone — a **splice**,
+    /// not a truncation (APP-09).
+    ///
+    /// The re-chaining is the array edit and nothing else: ``evaluate()``
+    /// already carries each step's output forward to the next, so the step
+    /// below the removed one re-runs on the output of the step above it, and
+    /// every downstream value updates to match. ROADMAP criterion 2's own
+    /// words — *"downstream results updating to match"* — are what settle
+    /// that; 07-CONTEXT.md records it as derived rather than decided. **Do not
+    /// clear downstream steps here, and do not touch ``evaluate()``**: D-84's
+    /// halt rule lives in exactly one place, and removing a failing step takes
+    /// the blocked count to zero in one pass for free because the `halted`
+    /// flag simply never gets set.
+    ///
+    /// Returns a new value rather than mutating in place, for the same reason
+    /// ``appending(_:)`` does — the app-level model assigns it, and assignment
+    /// is what `@Observable` observes.
+    ///
+    /// - Parameter index: A position in `steps`. **Untrusted**: a view derives
+    ///   it from a stack it rendered a frame ago, and between that render and
+    ///   the tap the stack can change.
+    /// - Returns: The pipeline without that step, or `self` unchanged when the
+    ///   index is out of range.
+    /// - Note: A **guard, not a `precondition`**, and the reason is the one
+    ///   ``evaluate()``'s own doc comment gives: *"these test bundles are
+    ///   host-based and a trap takes the whole run with it."* A UI race that
+    ///   removes index 2 from a two-element array must fall on the floor, not
+    ///   kill the test host and post a crash dialog on someone's desktop.
+    ///
+    ///   **Measured, not assumed** (2026-09-05, evidence/07-02-pipeline-mutators.txt).
+    ///   With that one `guard` line deleted, this same file compiled under the
+    ///   project's own `-swift-version 6 -strict-concurrency=complete` flags and
+    ///   asked to remove index 5 from a two-step pipeline dies at
+    ///   `Swift/Array.swift:1350: Fatal error: Index out of range`, exit 133 —
+    ///   SIGTRAP. With it restored, exit 0. The guard is therefore load-bearing
+    ///   rather than decorative, and that was established by driving it red and
+    ///   watching, not by reading it. The control runs OUT of the test host, in a
+    ///   command-line binary, precisely so that proving this does not cost a
+    ///   crash-reporter dialog on a desktop.
+    nonisolated func removing(at index: Int) -> Pipeline {
+        guard steps.indices.contains(index) else { return self }
+        var remaining = steps
+        remaining.remove(at: index)
+        return Pipeline(input: input, steps: remaining)
+    }
+
+    /// A copy of this pipeline with two **adjacent** steps swapped (APP-09).
+    ///
+    /// Deliberately narrower than a general move. The UI offers move-up and
+    /// move-down and nothing else, so a general reorder would be a wider
+    /// contract than anything asserts — and an unasserted contract is where the
+    /// next defect lives. A non-adjacent request is therefore treated exactly
+    /// like an out-of-range one: it returns `self`.
+    ///
+    /// A swap, so `Step.id` values are carried rather than renumbered and the
+    /// identity multiset is unchanged. That is what
+    /// `ForEach(appendedCards, id: \.step.id)` needs in order to animate the
+    /// card that actually moved, and it is why `Step.id` is a `let`.
+    ///
+    /// Returns a new value rather than mutating in place, like
+    /// ``appending(_:)`` and ``removing(at:)``.
+    ///
+    /// - Parameters:
+    ///   - source: The step being moved. **Untrusted**, as in ``removing(at:)``.
+    ///   - destination: Where it lands. Must be `source ± 1`.
+    /// - Returns: The pipeline with the two steps swapped, or `self` unchanged
+    ///   when either index is out of range or the two are not neighbours.
+    /// - Note: Guards rather than preconditions, for ``removing(at:)``'s
+    ///   reason, and with the same measurement behind them: these bundles are
+    ///   host-based and a trap takes the whole run with it. `swapAt` traps on a
+    ///   bad index exactly as `remove(at:)` does.
+    nonisolated func moving(from source: Int, to destination: Int) -> Pipeline {
+        guard steps.indices.contains(source), steps.indices.contains(destination) else { return self }
+        guard abs(source - destination) == 1 else { return self }
+        var reordered = steps
+        reordered.swapAt(source, destination)
+        return Pipeline(input: input, steps: reordered)
+    }
 }

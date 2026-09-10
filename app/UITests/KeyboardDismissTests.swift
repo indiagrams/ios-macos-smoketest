@@ -62,7 +62,11 @@ final class KeyboardDismissTests: XCTestCase {
 
     /// Type, confirm the keyboard is PRESENT, use the Done control, confirm it is ABSENT.
     func testTheDoneControlPutsTheKeyboardAway() {
-        app.launch()
+        // PINNED (07-07). Step 1 below queries the Encode input with no navigation first, so this
+        // test asserts about a SPECIFIC surface from its first line. Since `selection` persists, an
+        // unpinned launch would open on whatever the previous case left — and this suite taps tab 1
+        // at step 5, so it is also a case that leaves something behind.
+        app.launchPinned(showing: LaunchState.encodeDestination)
 
         // 1 — DID IT REACH ITS SUBJECT? A run that never raised the keyboard can say nothing about
         // dismissing one, and must not be allowed to read as a pass.

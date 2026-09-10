@@ -207,4 +207,91 @@ struct TimestampsSurfaceTests {
         let rechained = Pipeline(input: moved ?? "", steps: model.timestamps.steps).evaluate().first
         #expect(rechained != chained, "the chained card kept a digest of input the user no longer has")
     }
+
+    // MARK: - The footer's index mapping on this surface (plan 07-08)
+
+    /// A surface with a chain rooted at the epoch cell and `operations`
+    /// appended below it.
+    ///
+    /// The root card here is the three-cell card, and `model.timestamps.steps`
+    /// holds ONLY appended cards — so both offsets are 0, which is true of this
+    /// surface and of no other. Encode synthesises its root step into the
+    /// states; Hashing keeps its chain root in `steps`.
+    private func chainedSurface(appending operations: [Operation]) -> TimestampsSurface {
+        let model = AppModel.isolated()
+        model.timestamps.input = InputExample.timestamps
+        model.timestampsChainRoot = .epoch
+        model.timestamps = Pipeline(
+            input: InputExample.timestamps,
+            steps: operations.map { Step(operation: $0) }
+        )
+        return TimestampsSurface(model: model)
+    }
+
+    @Test("every appended step is an appended card, and the model index is the appended index")
+    func everyAppendedStepIsAnAppendedCard() {
+        let surface = chainedSurface(appending: [.base64Encode, .md5, .sha1])
+        let cards = surface.appendedCards
+        #expect(surface.model.timestamps.steps.count == 3)
+        #expect(cards.count == 3, "this surface's steps and its appended cards are the same set")
+        #expect(!cards.isEmpty)
+        for card in cards {
+            #expect(card.position.modelOffset == 0)
+            #expect(card.position.modelIndex == card.position.appendedIndex)
+            #expect(card.position.visibleOrdinal == card.position.appendedIndex + 2)
+            #expect(card.position.totalCards == 4)
+        }
+        #expect(cards.first?.position.visibleOrdinal == 2, "the first appended card is Step 2, not Step 1")
+        #expect(cards.last?.position.visibleOrdinal == 4)
+        #expect(cards.first?.position.canMoveUp == false)
+        #expect(cards.last?.position.canMoveDown == false)
+    }
+
+    @Test("removing a middle card is a splice, and every survivor is a step that existed")
+    func removingAMiddleCardIsASplice() {
+        let surface = chainedSurface(appending: [.base64Encode, .md5, .sha1])
+        let before = surface.appendedCards
+        #expect(before.count == 3)
+        let target = before.dropFirst().first
+        #expect(target != nil)
+        #expect(target?.step.operation == .md5)
+        #expect(target?.position.modelIndex == 1)
+
+        if let target {
+            surface.remove(target.position)
+        }
+
+        let after = surface.appendedCards
+        #expect(after.count == 2, "the removal was a truncation rather than a splice")
+        #expect(after.map(\.step.operation) == [.base64Encode, .sha1])
+        #expect(Set(after.map(\.step.id)).isSubset(of: Set(before.map(\.step.id))))
+        // The card below the removal renumbers, which is the feedback that
+        // replaces the animation this phase deliberately does not have.
+        #expect(after.last?.position.visibleOrdinal == 3)
+    }
+
+    @Test("a move swaps exactly the two adjacent cards and carries their identities")
+    func aMoveSwapsExactlyTheTwoAdjacentCards() {
+        let surface = chainedSurface(appending: [.base64Encode, .md5, .sha1])
+        let before = surface.appendedCards
+        #expect(before.count == 3)
+        let identities = Set(before.map(\.step.id))
+        let middle = before.dropFirst().first
+        #expect(middle != nil)
+
+        if let middle {
+            #expect(middle.position.destinationIndex(.up) == 0)
+            surface.move(middle.position, .up)
+        }
+
+        let after = surface.appendedCards
+        #expect(after.map(\.step.operation) == [.md5, .base64Encode, .sha1])
+        // A swap carries `Step.id` rather than renumbering it, which is what
+        // the ForEach identity needs and why `Step.id` is a `let`.
+        #expect(Set(after.map(\.step.id)) == identities)
+        #expect(after.count == before.count)
+        // The bottom card did not move and still cannot sink.
+        #expect(after.last?.step.operation == .sha1)
+        #expect(after.last?.position.canMoveDown == false)
+    }
 }

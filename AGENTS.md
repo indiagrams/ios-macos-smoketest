@@ -298,6 +298,19 @@ editing the existing one.
   `docs/CONTRIBUTING-UPSTREAM.md`; when `git am` rejects a patch because the template's
   context lines say a different name, the change is authored by hand in a separate clone
   against the template's own text, which is the route apple-shipkit #281 took.
+- **UI tests that must pass on BOTH platforms: read `docs/UI-TESTING-ON-BOTH-PLATFORMS.md` before
+  writing an assertion that reads text off an element.** macOS publishes a plain SwiftUI `Text`'s
+  content in `AXValue` alone and XCUITest's `.label` never reads `AXValue`, so `element.label` is a
+  CONSTANT EMPTY STRING on that platform for the three commonest text shapes — and a suite can be
+  green on iOS while its macOS twin has never measured its subject. Read through
+  `XCUIElement.renderedText` and guard with `assertReadable` / `assertDistinctReadable` /
+  `assertRendersText`, all in `app/UITestSupport/`, which is compiled into BOTH UI-test targets via
+  explicit `sources:` entries in `app/project.yml` AND `app/Project.swift` — the same shape as
+  `app/Shared/AccessibilityIdentifiers.swift`, and it must stay listed on both targets in both
+  manifests or one platform silently loses it. **That is a rule about READING, not about FINDING:**
+  element matching is a separate mechanism and is not blind, so do not rewrite a working query on
+  the strength of it. Nothing under `app/UITestSupport/` may name a view, an identifier or a type
+  of this app — it is upstream-bound and its app-agnosticism is the deliverable.
 - **The repo-wide lint disables are inherited DELIBERATELY, decided 2026-09-05 (C-27).**
   `.swiftlint.yml` disables `comma`, `trailing_comma` and `identifier_name` for the whole
   tree, so app code written in `app/Shared/` inherits a looser lint than a freshly generated

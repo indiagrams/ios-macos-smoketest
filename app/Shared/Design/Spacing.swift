@@ -52,11 +52,17 @@ public enum Spacing {
     /// never sits against the safe-area edge.
     public static let xxl: CGFloat = 32
 
-    /// 48 pt — RESERVED, and deliberately unused in Phase 6.
+    /// 48 pt — RESERVED, and still deliberately unused.
     ///
-    /// Declared so Phase 7's History surface has a section-break token to
-    /// reach for rather than inventing a ninth value. Using it in Phase 6
-    /// would mean a section break exists somewhere it was never designed.
+    /// - Note: Forward reference AMENDED 2026-09-05 by plan 07-03. Phase 6
+    ///   declared this for a History surface it expected in the next phase, and
+    ///   07-CONTEXT.md §Phase Boundary puts History at Phase 8+, so naming a
+    ///   phase number here had already gone stale. Restated as a SHAPE, which
+    ///   cannot rot: this is the section-break token for a LIST-LIKE SURFACE
+    ///   that has sections, declared so nobody invents a ninth value. Phase 7
+    ///   has no section break — its step stack is one uninterrupted `VStack` —
+    ///   so the token stays declared and unused. Using it would mean a section
+    ///   break exists somewhere it was never designed.
     public static let xxxl: CGFloat = 48
 
     /// 12 pt — the step card's corner radius.
@@ -67,14 +73,25 @@ public enum Spacing {
 
     /// 8 pt — the corner radius of an icon button's hit shape.
     ///
-    /// - Note: **RESERVED, and unused in Phase 6** (IN-01, 2026-09-05). Phase 6
-    ///   ships no icon button with a visible hit shape: `OutputAccessory`'s
-    ///   copy control and the add-step control are borderless. It is declared,
-    ///   with the same value as ``outputRadius``, so Phase 7's remove-step and
-    ///   reorder affordances have a token to reach for instead of a number —
-    ///   and it is NAMED separately so a later change to one radius does not
-    ///   silently move the other. Reaching for ``outputRadius`` here because
-    ///   the two happen to be 8 is exactly the mistake this token prevents.
+    /// - Note: **RESERVED, and still unused — by DECISION, not by omission**
+    ///   (IN-01, 2026-09-05; AMENDED 2026-09-05 by plan 07-03). Phase 6 ships
+    ///   no icon button with a visible hit shape: `OutputAccessory`'s copy
+    ///   control and the add-step control are borderless. Phase 6 minted this
+    ///   for exactly the controls Phase 7 builds — remove-step and the two
+    ///   reorder affordances — and Phase 7 MEASURED that question and chose
+    ///   BORDERLESS (07-UI-SPEC.md §"Reserved tokens — reconciliation"). Giving
+    ///   the three footer controls a visible hit shape would make them the only
+    ///   bordered icon buttons in the app, when copy and add-step are
+    ///   borderless, and an inconsistency confined to three controls out of
+    ///   five reads as an accident rather than as emphasis. The remove
+    ///   control's legibility is carried by the five separations of the
+    ///   anti-adjacency rule, not by a rectangle. So: read the unused token as
+    ///   a recorded decision, not as an oversight. It stays declared, with the
+    ///   same value as ``outputRadius``, so a future BORDERED control has
+    ///   somewhere to land — and it is NAMED separately so a later change to
+    ///   one radius does not silently move the other. Reaching for
+    ///   ``outputRadius`` here because the two happen to be 8 is exactly the
+    ///   mistake this token prevents.
     public static let iconButtonRadius: CGFloat = 8
 
     /// 44 pt — the iOS icon-button minimum hit target.

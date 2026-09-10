@@ -177,7 +177,12 @@ let iosUITestTarget = Target.target(
     bundleId: "$(BUNDLE_ID).uitests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
-    sources: ["UITests/**", "Shared/AccessibilityIdentifiers.swift"],
+    // UITestSupport/ is the app-agnostic UI-test support layer, compiled into
+    // BOTH UI-test targets — same shape and same reason as the shared selector
+    // enum beside it (one path, listed twice). It must stay listed on both
+    // targets in BOTH manifests, here and in app/project.yml, or one platform
+    // silently loses it. See docs/UI-TESTING-ON-BOTH-PLATFORMS.md.
+    sources: ["UITests/**", "UITestSupport/**", "Shared/AccessibilityIdentifiers.swift"],
     dependencies: [.target(name: "App-iOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "App-iOS",
@@ -196,7 +201,10 @@ let macUITestTarget = Target.target(
     bundleId: "$(BUNDLE_ID).macuitests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
-    sources: ["MacOSUITests/**", "Shared/AccessibilityIdentifiers.swift"],
+    // See AppUITests above. macOS is the platform the read layer was measured
+    // on: a plain SwiftUI Text publishes its content in AXValue alone and
+    // XCUITest's `.label` never reads AXValue.
+    sources: ["MacOSUITests/**", "UITestSupport/**", "Shared/AccessibilityIdentifiers.swift"],
     dependencies: [.target(name: "App-macOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "App-macOS",

@@ -183,12 +183,24 @@ that a reviewer could find the app to be a wrapper around. The absence is
 structural rather than a policy: with no network code path, an offline device
 and an online one behave identically.
 
-**It is not a single-view utility.** The app presents five distinct surfaces,
-each recorded with its tool set in `docs/PRODUCT-IDENTITY.md`: **Encode/decode**
+**It is not a single-view utility.** The app presents three tool surfaces, each
+recorded with its tool set in `docs/PRODUCT-IDENTITY.md`: **Encode/decode**
 (Base64, URL percent-encoding, HTML entities), **Hashing** (MD5, SHA-1, SHA-256,
-SHA-512), **Timestamps** (Unix epoch to ISO 8601 and to local time and back,
-with a timezone picker), the **Pipeline canvas**, and **History**. The pipeline
-canvas is the primary work surface, not an advanced mode reached from a menu.
+SHA-512) and **Timestamps** (Unix epoch to ISO 8601 and to local time and back,
+with a timezone picker). The pipeline canvas is
+the primary work surface, not an advanced mode reached from a menu — each of
+those three screens **is** that canvas, opened at a pre-seeded first step, and
+there is no separate Pipeline screen and no History screen to reach.
+
+*Corrected 2026-09-10, closing finding F-07-14-01. This paragraph enumerated
+five surfaces, including a Pipeline canvas and a History screen, and the
+sentinel block below listed the same five. `app/Shared/Views/RootView.swift`'s
+`enum Destination` has exactly three cases — `encode`, `hashing`, `timestamps` —
+and has never had more. The clause naming the canvas as the primary work
+surface is unchanged, because it is the clause `07-UAT.md` verification 2
+judges against and it is true of the app as built. `docs/PRODUCT-IDENTITY.md`
+§"The five surfaces" still carries the old count and is logged for a separate
+pass.*
 
 **The utility is recurring, not novelty.** Decoding a Base64 payload, checking a
 digest against one somebody else published, and reading a Unix timestamp out of
@@ -285,7 +297,7 @@ the shared argument.
 
 **The macOS build is not the iOS layout recompiled.** Per D-11, iOS uses
 `TabView` with `NavigationStack`, and macOS uses `NavigationSplitView` with a
-sidebar listing the five surfaces. The accepted cost of that decision is
+sidebar listing the three surfaces. The accepted cost of that decision is
 maintaining two navigation layouts instead of one; it was taken on review risk
 rather than on preference.
 
@@ -370,10 +382,13 @@ tool's input inside the app, every intermediate value stays on screen, and steps
 can be reordered or removed without retyping the sequence. That pipeline is the
 screen the app opens on, not a feature behind a menu.
 
-It takes about a minute to see. Open the Pipeline tab, enter the text `hello`,
-and add a Base64 encode step, which produces `aGVsbG8=`. Add a SHA-256 step
-after it and the digest of that intermediate value appears beneath it. Both
-steps stay visible, and removing the first one updates the second.
+It takes about a minute to see. Open the Encode tab and enter the text `hello`.
+The first card is a Base64 encode step that is already there, and it shows
+`aGVsbG8=`. Press the + button beside that output and add a Base64 decode step,
+which shows `hello`; press + beside that second output and add a SHA-256 step,
+which digests the value above it rather than the text that was typed. Every
+intermediate value stays on screen, and deleting the middle step re-chains the
+digest onto the Base64 output above it, changing what it shows.
 
 We are aware that other developer utilities on the App Store ship larger tool
 catalogues than ours, several of them free, and we are not claiming otherwise.
@@ -437,41 +452,48 @@ It is built for developers who do this work on the machine or device in front
 of them, and who would rather not paste data - tokens, payloads, log lines -
 into a website in order to convert it.
 
-THE FIVE SCREENS
+THE THREE SCREENS
 
-1. Pipeline - the "Pipeline" tab in the tab bar on iOS; the "Pipeline" item in
-   the sidebar on macOS. This is the main screen and the one the app opens on.
-2. Encode / Decode - the "Encode" tab on iOS; the "Encode / Decode" sidebar
-   item on macOS. Base64, URL percent-encoding, and HTML entities.
-3. Hashing - the "Hashing" tab on iOS; the "Hashing" sidebar item on macOS.
+1. Encode/decode - the "Encode" tab in the tab bar on iOS; the "Encode/decode"
+   item in the sidebar on macOS. Base64, URL percent-encoding, and HTML
+   entities. A first launch opens here.
+2. Hashing - the "Hashing" tab on iOS; the "Hashing" sidebar item on macOS.
    MD5, SHA-1, SHA-256, and SHA-512.
-4. Timestamps - the "Timestamps" tab on iOS; the "Timestamps" sidebar item on
+3. Timestamps - the "Timestamps" tab on iOS; the "Timestamps" sidebar item on
    macOS. Unix epoch to ISO 8601 and to local time, and back, with a time zone
    picker that defaults to the device time zone.
-5. History - the "History" tab on iOS; the "History" sidebar item on macOS.
-   Inputs and results from the current session.
 
-Screens 2 to 4 open as a pipeline pre-seeded with one step, so they are entry
-points into the same canvas rather than separate modes.
+Each opens as a pipeline pre-seeded with one step, so the three are entry
+points into the same canvas rather than separate modes. A later launch opens
+on whichever was open last.
 
 CHAINING: A ONE-MINUTE WALKTHROUGH
 
 The app is built around chaining one tool's output into the next tool's input.
 To see it, with exact values to check against:
 
-1. Open the "Pipeline" tab (iOS) or the "Pipeline" sidebar item (macOS).
-2. Type this into the input field, with no trailing newline or space:
+1. Open the "Encode" tab (iOS) or the "Encode/decode" sidebar item (macOS).
+   Its first card carries "Format" and "Direction" controls; set them to
+   "Base64" and "Encode", which is what a first launch shows.
+2. Type this into the field labelled "Input", with no trailing newline or
+   space:
    hello
-3. Add a step and choose Encode / Decode, then Base64 encode. The step shows:
+   The card is headed "Base64 encode" and its output becomes:
    aGVsbG8=
-4. Add a second step and choose Hashing, then SHA-256. It takes step 3's output
-   as its input, not the original text, and shows:
-   333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2
-5. Both steps stay on screen with their intermediate values visible. Delete the
-   Base64 step and the SHA-256 step recomputes over "hello" directly, changing
-   to:
+3. Press the "+" button beside that output and choose "Base64 decode" from the
+   menu of ten conversions. A second card takes that output as its input and
+   shows:
+   hello
+4. Press the "+" beside the second card's output and choose "SHA-256". A third
+   card takes that output as its own input and shows:
    2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
-6. Steps can also be reordered, and the values update in place.
+5. All three cards stay on screen with their values visible. Delete the middle
+   card with the trash button in its footer. The SHA-256 card stays and
+   re-chains onto the Base64 output above, changing to:
+   333d6b3a3c1f5db6c9bdda5939b136986d170f4649172a68368d54ecb44c2ff2
+   which is the SHA-256 of aGVsbG8= rather than of hello.
+6. Added cards also carry move-up and move-down buttons, and every value below
+   a move recomputes. The first card is pinned.
 
 WHY THERE IS NO DEMO ACCOUNT
 
@@ -486,9 +508,12 @@ No. Every operation runs locally. The app makes no network requests and has no
 networking entitlement, so there is nothing to intercept or opt out of.
 
 Is anything stored?
-History is held in memory only and is cleared when the app quits. No input,
-result, or pipeline is written to disk. The only persisted setting is which
-tool screen was open last.
+Five interface settings and nothing else: which screen was open last, the
+"Format" and "Direction" selections on Encode/decode, and the "Read as" and
+time zone selections on Timestamps. They go to the app's own preferences. No
+text entered, no result and no chain of steps is written anywhere - not to
+disk, not to a log, not off the device - so nothing typed survives quitting
+the app.
 
 What does the app do with no network connection?
 Everything. There is no online mode and no reduced offline mode; the app

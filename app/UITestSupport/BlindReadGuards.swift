@@ -18,7 +18,7 @@ import XCTest
 //      empty string to the empty string. A gate that has stopped measuring its subject and says so
 //      to nobody is worse than one that fails: a loud failure announces itself on the next run.
 //
-// THE RULE THESE ENCODE: assert READABILITY first, as its own assertion with its own message, then
+// THE RULE THEY CARRY: assert READABILITY first, as its own assertion with its own message, then
 // assert the RELATION. Two assertions where there was one. Nothing is weakened — every original
 // assertion survives verbatim as the second half — and the two opposite findings can no longer
 // wear each other's words.

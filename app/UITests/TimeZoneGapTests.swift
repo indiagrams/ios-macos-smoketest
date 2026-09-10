@@ -62,7 +62,19 @@ final class TimeZoneGapTests: XCTestCase {
         // wrote would still be on disk and the relaunch assertion below would pass on a broken app.
         // That is this phase's signature defect exactly: a check correct in form, satisfied by the
         // wrong source. So the pre-existing value is read, recorded, and excluded from the choice.
-        launch(zone: Self.gapZone, pinning: [])
+        // THE SURFACE IS PINNED HERE AND THE ZONE IS NOT, AND THE DIFFERENCE IS THE WHOLE POINT.
+        // This launch's job is to read what the STORE holds for the zone, so pinning the zone would
+        // defeat it — but the app has to be ON Timestamps for the control to exist at all, and with
+        // NOTHING pinned it opens whereever the store's `selection` says, which on a store that has
+        // never been written is the declared default `.encode`.
+        //
+        // THAT IS NOT HYPOTHETICAL: it is how this test first failed. It passed on this machine and
+        // failed on BOTH CI simulator jobs — "the time-zone control is not rendered at all" — because
+        // the local simulator had `selection` left at `timestamps` by earlier runs and CI's was
+        // clean. A check that was green only because of state an earlier run left behind, pointed at
+        // a surface that was not on screen. Reproduced locally by uninstalling the app first, which
+        // is the only way to make this machine resemble a runner.
+        launch(zone: Self.gapZone, pinning: LaunchState.onlySurface(LaunchState.timestampsDestination))
         let preexisting = closedSelection()
         record("cr02_preexisting=\(preexisting)")
         app.terminate()

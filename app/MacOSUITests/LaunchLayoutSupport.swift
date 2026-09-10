@@ -59,9 +59,28 @@ extension LaunchLayoutTests {
 
     /// Which of the three surfaces is showing, asserted to be exactly one.
     func surfaceShowing() -> String {
+        // THE WAIT IS FOR "ANY SURFACE", NOT FOR "ENCODE", AND THAT IS THE WHOLE CHANGE.
+        //
+        // The previous shape walked `Self.surfaces` IN ORDER and gave the FIRST probe 30 s and the
+        // rest 1 s. Encode is first, so every call made while the app was on Timestamps paid the
+        // full 30 s before it was allowed to look at the probe that would have answered
+        // immediately. Measured: `testCorruptPersistedValues…` and `testCriterion3…` each open on
+        // Timestamps once and each spent ~30 s here — about 60 s of a 1139 s iOS suite, spent
+        // waiting for an element that was never going to appear.
+        //
+        // THE CLAIM IS UNCHANGED. Still "exactly one surface is showing", still a 30 s ceiling, and
+        // still with a grace period in which a SECOND surface may appear — which is what makes the
+        // count-of-one assertion able to fail. That grace was the old shape's 1 s on the non-first
+        // probes and it is kept explicitly, because dropping it would take an instantaneous reading
+        // the moment one probe resolves and quietly weaken the assertion into "at least one".
+        let deadline = Date().addingTimeInterval(30)
         var found: [String] = []
-        for surface in Self.surfaces where element(surface.probe).waitForExistence(timeout: found.isEmpty ? 30 : 1) {
-            found.append(surface.name)
+        while found.isEmpty, Date() < deadline {
+            found = Self.surfaces.filter { element($0.probe).exists }.map(\.name)
+        }
+        if !found.isEmpty {
+            Thread.sleep(forTimeInterval: 1)
+            found = Self.surfaces.filter { element($0.probe).exists }.map(\.name)
         }
         XCTAssertEqual(found.count, 1, "\(found.count) surfaces are showing at once: \(found)")
         return found.first ?? ""

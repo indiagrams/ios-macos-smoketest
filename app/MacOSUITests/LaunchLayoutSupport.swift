@@ -236,11 +236,25 @@ extension LaunchLayoutTests {
     func visit(_ row: String, expecting identifier: String, named name: String) {
         let entry = element(row)
         XCTAssertTrue(entry.waitForExistence(timeout: 20), "the sidebar carries no row identified \(row)")
+        // THE TWIN OF THE iOS DIAGNOSTIC, AND CARRIED HERE FOR THE SAME REASON. The observed red was
+        // on iOS, but macOS xcresult activities are unretrievable on this project's runners, so the
+        // failure MESSAGE is the only channel a macOS red has at all — the case for putting the
+        // state into it is stronger here, not weaker. These reads assert nothing.
+        let before = whereAmINow()
+        let described = "row=\(entry.label) selected=\(entry.isSelected) hittable=\(entry.isHittable)"
         entry.click()
         XCTAssertTrue(
             element(identifier).waitForExistence(timeout: 20),
-            "cannot reach the \(name) surface — the \(row) row does not show \(identifier)"
+            "cannot reach the \(name) surface — the \(row) row does not show \(identifier). "
+                + "before=\(before) after=\(whereAmINow()) \(described)"
         )
+    }
+
+    /// Which surfaces are on screen RIGHT NOW, without waiting for any of them. `surfaceShowing()`
+    /// is the asserting version and waits; a failure message must not.
+    func whereAmINow() -> String {
+        let showing = Self.surfaces.filter { element($0.probe).exists }.map(\.name)
+        return showing.isEmpty ? "no surface at all" : showing.joined(separator: "+")
     }
 
     /// One evidence line, emitted twice — the file header says why.

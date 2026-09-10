@@ -183,11 +183,31 @@ extension LaunchLayoutTests {
         let bar = app.tabBars.firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 20), "the app presents no tab bar at all")
         XCTAssertEqual(bar.buttons.count, 3, "the tab bar carries \(bar.buttons.count) items, expected 3")
-        bar.buttons.element(boundBy: index).tap()
+        // WHAT THE FAILURE MESSAGE CARRIES, AND WHY IT CARRIES IT. Run 34506852127 failed here on
+        // `app (iOS Simulator)` while the same commit passed the same test on three other jobs, and
+        // the message — "tab item 0 does not show Encode.input" — could not distinguish a tap that
+        // never landed from a surface that never rendered from a navigation that went somewhere
+        // else entirely. One intermittent red that cannot be diagnosed without a second occurrence
+        // is barely evidence. These reads are taken on the FAILURE PATH only and assert nothing.
+        let before = whereAmINow()
+        let item = bar.buttons.element(boundBy: index)
+        let described = "item=\(item.label) selected=\(item.isSelected) hittable=\(item.isHittable)"
+        item.tap()
         XCTAssertTrue(
             element(identifier).waitForExistence(timeout: 20),
-            "cannot reach the \(name) surface — tab item \(index) does not show \(identifier)"
+            "cannot reach the \(name) surface — tab item \(index) does not show \(identifier). "
+                + "before=\(before) after=\(whereAmINow()) \(described)"
         )
+    }
+
+    /// Which surfaces are on screen RIGHT NOW, without waiting for any of them.
+    ///
+    /// `surfaceShowing()` is the asserting version and waits up to 30 s on its first probe, which is
+    /// correct when the answer is the claim and wrong when the answer is going into a failure
+    /// message — there it would add half a minute to a red that has already been decided.
+    func whereAmINow() -> String {
+        let showing = Self.surfaces.filter { element($0.probe).exists }.map(\.name)
+        return showing.isEmpty ? "no surface at all" : showing.joined(separator: "+")
     }
 
     /// One evidence line, emitted twice — the file header says why.

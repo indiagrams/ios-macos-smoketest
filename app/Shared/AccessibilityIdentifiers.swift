@@ -72,6 +72,24 @@ public enum AccessibilityIdentifiers {
 
         /// The macOS sidebar row for the timestamps destination.
         public static let sidebarTimestamps = "Shell.sidebar.timestamps"
+
+        /// The control that hands the privacy policy URL to the system browser
+        /// — `app/Shared/Views/PrivacyPolicyLink.swift` (META-06, D-117).
+        ///
+        /// **Population: THREE on iOS, one per destination; ONE on macOS,
+        /// app-wide.** Written down because the counts differ per platform and
+        /// an invariant counted against an unnamed population asserts nothing
+        /// — the same reason ``Input/done`` names its platform. On iOS the
+        /// control is a navigation-bar item attached inside `RootView`'s
+        /// `ForEach`, so every surface carries exactly one and a total of
+        /// three with two on one surface is a DIFFERENT defect that a single
+        /// total cannot tell apart; assert per surface first. On macOS it is
+        /// one app-menu item after About, and menus are closed in a window
+        /// capture, so its only proof is a test that opens the menu.
+        ///
+        /// No platform suffix, like every other constant here: one selector
+        /// serves both, which is what lets one sweep run against both targets.
+        public static let privacyPolicy = "Shell.privacyPolicy"
     }
 
     /// The encode/decode surface — a single in→out block (D-87).

@@ -363,3 +363,54 @@ platform :mac do
     UI.success("Submitted macOS for App Review from fastlane/metadata-macos/.")
   end
 end
+
+# ─── The iOS half, and a defect that is not a path but a TYPE ────────────────
+#
+# DEFECT 4, measured 2026-09-11 by running the lane: `fastlane ios
+# upload_screenshots` CANNOT RUN AT ALL. It dies in 1.1 seconds, before any
+# network call, with:
+#
+#   [!] 'platform' value must be a String! Found Symbol instead.
+#   Called from Fastfile at line 1967
+#
+# fastlane/Fastfile:1970 passes `platform: :ios` -- a SYMBOL -- to `deliver`.
+# deliver's own option declares no `type:` (deliver/lib/deliver/options.rb:95-103),
+# so FastlaneCore::ConfigItem defaults `is_string: true` (config_item.rb:104,158)
+# and rejects anything that is not a String at config-parse time
+# (config_item.rb:204).
+#
+# THE ASYMMETRY IS THE DEFECT, exactly as it was for UL-069. Every OTHER deliver
+# call site in the same file passes a String: `platform.to_s` at :705 and :883,
+# the literal "osx" at :2018, "ios"/"macos" at :1823 and :1839. The iOS
+# screenshot lane is the ONE Symbol in the file, and its own macOS twin twenty
+# lines further down gets it right.
+#
+# It is not this fork's accident: `git show upstream/main:fastlane/Fastfile`
+# carries the identical pair, `platform: :ios` at :2059 against `platform: "osx"`
+# at :2107. And it is reachable on the documented path -- ci/take-screenshots.sh:193
+# and ci/bump-asc-version.sh:143 both invoke it, and docs/SCREENSHOTS.md:145 tells
+# a forker to. See docs/UPSTREAM-LEDGER.md UL-075.
+#
+# THIS OVERRIDE CHANGES EXACTLY ONE TOKEN and nothing else. Every other argument
+# is byte-identical to the template's lane, `overwrite_screenshots: true`
+# included -- that flag was separately authorised for this upload after the live
+# set counts were measured at 0, and quietly dropping it here would be a second
+# change hiding inside a fix for the first.
+platform :ios do
+  override_lane :upload_screenshots do
+    deliver(
+      api_key:                  asc_api_key,
+      app_identifier:           APP_IDENTIFIER,
+      platform:                 "ios",
+      skip_metadata:            true,
+      skip_binary_upload:       true,
+      skip_screenshots:         false,
+      overwrite_screenshots:    true,
+      force:                    true,
+      submit_for_review:        false,
+      automatic_release:        false,
+      precheck_include_in_app_purchases: false
+    )
+    UI.success("iOS screenshots uploaded from fastlane/screenshots/en-US/ through the fork override (UL-075).")
+  end
+end

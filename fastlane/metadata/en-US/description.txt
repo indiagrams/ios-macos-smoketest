@@ -1,5 +1,26 @@
-TODO: replace with your App Store description (up to 4000 characters).
+Shipkit Pipes is an offline developer utility for converting and inspecting text.
 
-Replace this file before running `fastlane ios upload_metadata` /
-`fastlane mac upload_metadata`. App Store Review will reject submissions whose
-description still contains the literal "TODO".
+One tool's output becomes the next tool's input. Type a value, convert it, and add a second
+conversion that takes the first one's result. Every intermediate value stays on screen, and any
+step can be removed or reordered with the values below it recomputing rather than renumbering.
+
+Three tools ship:
+
+Encode/decode. Base64, URL percent-encoding, and HTML entities, in both directions.
+
+Hashing. MD5, SHA-1, SHA-256, and SHA-512.
+
+Timestamps. Unix epoch to ISO 8601 and to local time, and back, with a time zone picker that
+defaults to the device time zone.
+
+Each one opens ready to extend, so there is no separate mode to find. Open the Encode/decode
+screen, enter a value, and add the next step from the button beside the output.
+
+Everything runs on the device. There is no network code path and no networking entitlement on
+either platform, so nothing you enter can leave the device. There are no accounts and no sign-in,
+because there is nothing to sign in to. Nothing you type, no result, and no sequence of steps is
+written to disk, to a log, or off the device. Five interface selections are remembered between
+launches and nothing else.
+
+Built for developers who do this work on the machine or device in front of them, and who would
+rather not paste a token, a payload, or a log line into a website in order to convert it.

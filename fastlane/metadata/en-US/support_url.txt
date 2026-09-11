@@ -1,1 +1,1 @@
-https://example.com/support
+https://indiagrams.github.io/ios-macos-smoketest/support/

@@ -1,1 +1,6 @@
-TODO: per-release notes go here. Replaced for every new App Store version.
+First release.
+
+Shipkit Pipes converts and inspects text offline: Base64, URL percent-encoding and HTML entities;
+MD5, SHA-1, SHA-256 and SHA-512; and Unix epoch to ISO 8601 and local time, with a time zone
+picker. Each tool's output can be taken as the next tool's input, every intermediate value stays
+visible, and steps can be removed or reordered.

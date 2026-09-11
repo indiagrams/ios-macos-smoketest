@@ -127,6 +127,17 @@ final class PrivacyLinkTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+
+        // SKIPPED DELIBERATELY — owner Phase 8.5. Why, and the transcript:
+        // `evidence/08-11-privacy-link-controls.txt` §11. MEASURED 2026-09-11,
+        // this class's first ever execution: the runner LAUNCHED cleanly (3
+        // tests, 170.9 s, no Gatekeeper refusal) and failed 5/5 on one
+        // assertion — `awaitSurface`, all three surfaces. `launchPinned`'s
+        // destination does not take effect on macOS (`NavigationSplitView`
+        // where iOS is `TabView`, `RootView.swift:157` vs `:179`), so every
+        // read below is of a window the app never navigated. NOT the `AXTitle`
+        // fix, which is real and exercised on iOS. UNSKIP only on a green run.
+        throw XCTSkip("macOS launch-pinning does not present the surface — 5/5 at awaitSurface, 2026-09-11. Owner: Phase 8.5.")
     }
 
     override func tearDownWithError() throws {

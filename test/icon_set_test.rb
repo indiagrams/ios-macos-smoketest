@@ -142,6 +142,38 @@ APPLE_ALPHA = "images can't include alpha channels or transparencies"
 # third state rather than being trusted.
 ICNS_ARGB_SIDES = { "ic04" => 16, "ic05" => 32 }.freeze
 
+# THE 2.3.8 PROXY. This threshold MIRRORS ci/check-app-icon.sh:85 and the four
+# sampling constants mirror its icon_spread() at :101-130. It is NOT imported:
+# that script is template-owned (AGENTS.md), a fork gate that sourced it would
+# break the moment upstream moved a line, and a silent duplicate is worse than a
+# labelled one. If upstream changes its threshold, this constant and that line
+# are ONE UNIT and both get re-measured.
+#
+# What it measures: quantise the icon to 8 levels per channel, keep the colour
+# clusters covering at least 3% of the canvas, and take the largest distance
+# between any two of them. Artwork puts distant clusters on the canvas; a flat
+# fill or a bare gradient does not. Measured upstream: placeholder 0, real icon
+# 282. The gap is wide enough that 40 is not a knife edge.
+#
+# This is Guideline 2.3.8, and upstream learned it from Apple the expensive way:
+# a placeholder icon came back as a rejection, one full review cycle spent
+# (ci/check-app-icon.sh:4-13, C-29).
+SPREAD_FLOOR      = 40
+SPREAD_SAMPLE     = 64
+SPREAD_QUANTISE   = 32
+SPREAD_MIN_SHARE  = 0.03
+
+# Below this size an icon legitimately carries no detail to measure -- the
+# 16/32/64 slots are redrawn as a simplified mark by ci/gen-macos-icons.swift
+# precisely because the 1024 artwork turns to mush there. Printed as
+# icon_spread_min_pixels= so the exclusion is a number rather than a silence.
+SPREAD_MIN_PIXELS = 128
+
+# The escape-hatch environment variable, SPACED and joined at run time so this
+# file never spells it. A file that configures a content gate is also swept by
+# that gate.
+OVERRIDE_VAR = asm("A L L O W _ P L A C E H O L D E R _ I C O N")
+
 PNG_MAGIC  = "\x89PNG\r\n\x1a\n".b
 ARGB_MAGIC = "ARGB".b
 
@@ -270,6 +302,77 @@ def icns_rle(data, want)
   out
 end
 
+# Pixel reads go through sips -s format bmp and a stdlib parse, NEVER Pillow.
+# ci/check-app-icon.sh:37-40 records why, and the reason is not stylistic: icons
+# inside a built .ipa are CgBI PNGs (Apple crushed variant) and Pillow refuses
+# them with a broken-data-stream error, which would make this check SILENTLY SKIP
+# exactly the artefact that matters most. sips reads them.
+def bmp_spread(bmp_path)
+  d = File.binread(bmp_path)
+  return [nil, "BMP is #{d.bytesize} bytes, shorter than a header"] if d.bytesize < 54
+  return [nil, "no BM magic (starts #{d.byteslice(0, 2).inspect})"] unless d.byteslice(0, 2) == "BM".b
+
+  off = d.byteslice(10, 4).unpack1("V")
+  w   = d.byteslice(18, 4).unpack1("l<")
+  h   = d.byteslice(22, 4).unpack1("l<").abs
+  bpp = d.byteslice(28, 2).unpack1("v")
+  return [nil, "#{w}x#{h} at #{bpp}bpp is not a shape this parser reads"] unless [24, 32].include?(bpp) && w > 0 && h > 0
+
+  step   = bpp / 8
+  stride = ((bpp * w + 31) / 32) * 4
+  counts = Hash.new(0)
+  total  = 0
+  h.times do |y|
+    base = off + y * stride
+    w.times do |x|
+      i = base + x * step
+      b = d.getbyte(i)
+      g = d.getbyte(i + 1)
+      r = d.getbyte(i + 2)
+      return [nil, "pixel data runs past the end of the BMP"] if b.nil? || g.nil? || r.nil?
+      counts[[r / SPREAD_QUANTISE * SPREAD_QUANTISE,
+              g / SPREAD_QUANTISE * SPREAD_QUANTISE,
+              b / SPREAD_QUANTISE * SPREAD_QUANTISE]] += 1
+      total += 1
+    end
+  end
+  return [nil, "the BMP carried no pixels"] if total.zero?
+
+  big = counts.select { |_c, n| n.to_f / total >= SPREAD_MIN_SHARE }.keys
+  return [0, nil] if big.length < 2
+
+  best = 0.0
+  big.combination(2).each do |a, c|
+    dist = Math.sqrt(((a[0] - c[0])**2) + ((a[1] - c[1])**2) + ((a[2] - c[2])**2))
+    best = dist if dist > best
+  end
+  [best.to_i, nil]
+end
+
+SPREAD_TMP = []
+def spread_of(abs)
+  SPREAD_TMP << mktmp("icon-set-bmp") if SPREAD_TMP.empty?
+  bmp = File.join(SPREAD_TMP.first, "probe-#{rand(1 << 32).to_s(16)}.bmp")
+  _out, status = capture("/usr/bin/sips", "-s", "format", "bmp",
+                         "--resampleHeightWidth", SPREAD_SAMPLE.to_s, SPREAD_SAMPLE.to_s,
+                         abs, "--out", bmp)
+  # sips exits 0 on input it could not read, so the ARTEFACT is the signal.
+  return [nil, "sips wrote no BMP (exit #{status.inspect})"] unless File.file?(bmp)
+  bmp_spread(bmp)
+end
+
+# The exit code is captured on the statement AFTER the call, and the output goes
+# to a FILE rather than a pipe. 08-RESEARCH Pitfall 4, measured: piping the
+# template gate and then reading the status yields the PIPE's status -- EXIT=0
+# printed for a gate that exited 1. A cross-check read that way cannot fail.
+def run_to_file(env, argv, out_path, chdir: ROOT)
+  pid = Process.spawn(env, *argv, out: [out_path, "w"], err: [:child, :out], chdir: chdir)
+  _pid, status = Process.wait2(pid)
+  [status.exitstatus, File.read(out_path, encoding: "UTF-8")]
+rescue SystemCallError => e
+  [nil, "could not run #{argv.inspect}: #{e.message}"]
+end
+
 def mktmp(prefix)
   base = ENV["TMPDIR"] || "/tmp"
   dir  = File.join(base, "#{prefix}-#{Process.pid}-#{rand(1 << 32).to_s(16)}")
@@ -301,7 +404,8 @@ puts "==> Icon set (META-01, criterion 1) — population: four named sources"
 puts
 
 # A member of the population. path is what a FAIL line names.
-Member = Struct.new(:source, :path, :abs, :nominal, :kind, :chunk, keyword_init: true)
+Member = Struct.new(:source, :path, :abs, :nominal, :kind, :chunk, :measured,
+                    keyword_init: true)
 
 population = []
 
@@ -579,6 +683,8 @@ population.each do |m|
     next
   end
 
+  m.measured = w.to_i
+
   if m.nominal
     assert w == m.nominal.to_s && h == m.nominal.to_s, "dimension", m.path,
            "the member measures #{m.nominal}x#{m.nominal} as its declaration implies; it is #{w}x#{h}"
@@ -604,6 +710,104 @@ population.each do |m|
            "ghost in the Dock"
   end
 end
+
+# ─── SPREAD: the Guideline 2.3.8 proxy, over every member big enough ─────────
+
+spread_checked = 0
+spread_values  = {}
+population.each do |m|
+  side = m.measured.to_i
+  next if side < SPREAD_MIN_PIXELS
+
+  value, why = spread_of(m.abs)
+  spread_checked += 1
+  if value.nil?
+    # Could not read the pixels. Evidence for NEITHER side, failed as its own
+    # thing rather than folded into either -- an unreadable icon is not an icon
+    # that passed.
+    assert false, "spread", m.path,
+           "the pixels could be read at all: #{why}. A member whose pixels never arrived has not " \
+           "been shown to be artwork and has not been shown to be a placeholder"
+    next
+  end
+
+  spread_values[m.path] = value
+  assert value >= SPREAD_FLOOR, "spread", m.path,
+         "spread #{value}, need >= #{SPREAD_FLOOR} -- this measures as a flat colour or a bare " \
+         "gradient, which is Guideline 2.3.8 (Accurate Metadata). Upstream learned this one from " \
+         "Apple rather than from a check: a placeholder icon came back as a rejection and cost a " \
+         "full review cycle (C-29, ci/check-app-icon.sh:4-13). Nothing objects on the way out -- " \
+         "the asset is a valid PNG, CI is green and App Store Connect accepts the upload"
+end
+
+assert spread_checked.positive?, "spread", "(population)",
+       "at least one member was large enough (>= #{SPREAD_MIN_PIXELS}px) to measure for detail. " \
+       "A spread clause that measured nothing reports compliance it never looked for"
+
+# ─── THE TEMPLATE GATE, as a separate source of truth ────────────────────────
+#
+# This gate's population is strictly WIDER than ci/check-app-icon.sh's two files.
+# Wider must not mean "instead of": the template gate keeps its own verdict here,
+# visible and separately asserted, so a fork-side mistake cannot quietly replace
+# upstream's answer with its own.
+
+template_gate_abs  = File.join(ROOT, TEMPLATE_GATE_REL)
+template_gate_exit = "absent"
+template_gate_env  = "not-run"
+if !File.file?(template_gate_abs)
+  assert false, "template-gate", TEMPLATE_GATE_REL,
+         "the template gate exists and can be cross-checked. It does not, so upstream's own verdict " \
+         "on the two files it owns was not obtained and this run is narrower than it claims"
+else
+  gate_dir = mktmp("icon-set-tmplgate")
+  TMP_DIRS << gate_dir
+  gate_out_path = File.join(gate_dir, "check-app-icon.out")
+  # The override is REMOVED from the child environment. An escape hatch that can
+  # talk the template gate into exit 0 would launder this cross-check into
+  # agreement with nothing, so the verdict obtained here is always the honest one
+  # and the route is printed as icon_template_gate_env=.
+  template_gate_env = "sanitised"
+  # ci/check-app-icon.sh, invoked as an ARGV ARRAY with its output redirected to a
+  # FILE and its status read on the statement after the call. Never piped.
+  template_gate_exit, gate_output = run_to_file({ OVERRIDE_VAR => nil },
+                                                ["/bin/bash", template_gate_abs],
+                                                gate_out_path)
+  quoted = gate_output.to_s.lines.map(&:chomp).reject(&:empty?).join(" | ")
+
+  case template_gate_exit
+  when 0
+    assert true, "template-gate", TEMPLATE_GATE_REL,
+           "the template gate passes on the two files it owns (exit 0), read from a file with the " \
+           "status captured before anything touched the output"
+  when 1
+    assert false, "template-gate", TEMPLATE_GATE_REL,
+           "the template gate passes on the two files it owns. It exited 1, and its own words are: " \
+           "#{quoted}"
+  else
+    assert false, "template-gate", TEMPLATE_GATE_REL,
+           "the template gate returned #{template_gate_exit.inspect}, which is neither its pass (0) " \
+           "nor its documented failure (1). That is evidence for NEITHER side and is reported as " \
+           "its own failure rather than folded into the pass -- output: #{quoted}"
+  end
+end
+
+# ─── THE OVERRIDE THAT CANNOT HIDE ───────────────────────────────────────────
+#
+# ci/check-app-icon.sh:86-93 honours an escape hatch that downgrades the 2.3.8
+# failure to a warning. That is a reasonable option for a design that really is
+# one flat colour. It is NOT a state in which this gate may report icon
+# compliance: a green that depends on a variable suppressing the check it rests
+# on is a green about the environment, not about the icon. So the variable is
+# read, printed either way, and its presence is a failure in itself.
+
+override_raw = ENV[OVERRIDE_VAR]
+override_set = !override_raw.nil? && !override_raw.to_s.strip.empty?
+assert !override_set, "override", "(environment)",
+       "no placeholder escape hatch is suppressing the 2.3.8 proxy this verdict rests on. " \
+       "It is set to #{override_raw.inspect}. Any non-empty value fails here, not just the one " \
+       "value the template gate acts on -- setting it at all states an intent to suppress, and a " \
+       "compliance verdict rendered in that environment would mean nothing. Unset it and re-run, " \
+       "or accept that this gate has no opinion while it is set"
 
 # ─── what is deliberately OUTSIDE the population, as a number ────────────────
 #
@@ -659,6 +863,15 @@ puts "icon_icns_chunks_other=#{other_chunks.length}"
 puts "icon_alpha_checked=#{alpha_via_hasalpha + alpha_via_argb}"
 puts "icon_alpha_via_hasalpha=#{alpha_via_hasalpha}"
 puts "icon_alpha_via_argb_decode=#{alpha_via_argb}"
+puts "icon_spread_checked=#{spread_checked}"
+puts "icon_spread_floor=#{SPREAD_FLOOR}"
+puts "icon_spread_min_pixels=#{SPREAD_MIN_PIXELS}"
+puts "icon_spread_worst=#{spread_values.empty? ? 'none' : spread_values.values.min}"
+spread_values.keys.sort.each { |k| puts "icon_spread #{k}=#{spread_values[k]}" }
+puts "icon_template_gate_exit=#{template_gate_exit}"
+puts "icon_template_gate_env=#{template_gate_env}"
+puts "icon_placeholder_override=#{override_set ? 'set' : 'unset'}"
+puts "icon_override_token=assembled"
 puts "icon_built_app_route=#{built_route}"
 puts "icon_built_app_reason=#{built_reason}"
 puts "icon_measured_on=#{MEASURED_ON}"

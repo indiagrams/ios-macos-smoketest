@@ -40,6 +40,15 @@
 #                `name` above all -- must NOT diverge: `appInfos` on record
 #                6807393045 is total = 1, so name and subtitle are one object
 #                (D-129, measured read-only 2026-09-10, 08-RESEARCH.md 3).
+#   shared       AMENDED 2026-09-11 (plan 08-08). The shared set -- name,
+#                subtitle, privacy_url -- is asserted PRESENT in the tree that
+#                owns the one record and ABSENT from the other, two assertions
+#                pointing in opposite directions. The original shape demanded all
+#                three from BOTH trees, which the macOS tree cannot satisfy
+#                without shipping a second copy of a one-record field; that made
+#                the two halves of this gate's own reasoning contradict each
+#                other, and the contradiction is resolved in favour of the
+#                measurement. See the SPLIT BY SCOPE comment on the constants.
 #   url         The three listing URLs are https and are not under the reserved
 #                example domain. `precheck` reports that host as an advisory
 #                HTTP-404 `warn` only, so an unreplaced URL still lands in App
@@ -158,14 +167,44 @@ REVIEW_NOTES       = "fastlane/metadata/review_information/notes.txt"
 CATALOG            = "app/Shared/Localizable.xcstrings"
 METADATA_ROOTS     = ["fastlane/metadata", "fastlane/metadata-macos"].freeze
 
-# The stems swept for placeholder copy. `name` and the three URL files are in
-# the trees and are NOT swept here -- they are asserted by the shared-field and
-# URL clauses below, which ask different questions of them. The count of those
-# deliberately-unswept files is printed as `store_copy_excluded` so it moves the
-# day somebody adds a file to either tree.
-COPY_STEMS  = %w[description keywords subtitle release_notes].freeze
-URL_STEMS   = %w[privacy_url support_url marketing_url].freeze
-SHARED_STEM = "name"
+# The stems this gate reads by name, SPLIT BY SCOPE rather than by file kind.
+#
+# AMENDED 2026-09-11 by plan 08-08, and it is a CORRECTION, not a relaxation. The
+# original split carried an unstated premise -- that both trees hold the same file
+# set -- and measurement falsifies it. The macOS tree carries ONLY the per-platform
+# fields (D-122), so the original shape demanded `subtitle.txt`, `privacy_url.txt`
+# and `name.txt` from a tree that must not have them: three assertions satisfiable
+# only by shipping a second copy of a one-record field, which is the very drift the
+# shared clause exists to refuse. The deliverable count goes UP rather than down --
+# the ABSENCE of each shared stem from the macOS tree is now asserted POSITIVELY,
+# so this gate refuses a missing per-platform field AND a duplicated shared one.
+#
+#   PER PLATFORM -- description, keywords, release_notes, support_url,
+#     marketing_url. TWO records, one per platform: two
+#     `appStoreVersionLocalizations` on record 6807393045, deliver's
+#     LOCALISED_VERSION_VALUES, and `GET /v1/apps/6807393045/searchKeywords`
+#     REFUSING to answer without `filter[platform]` (HTTP 400, measured
+#     read-only). These live in BOTH trees.
+#   SHARED -- name, subtitle, privacy_url. ONE record, app-wide:
+#     `appInfoLocalizations` is total = 1 (D-129), deliver's LOCALISED_APP_VALUES.
+#     These live in the SHARED tree only.
+#
+# `support_url` sits in the same directory as `privacy_url` and looks like the same
+# family. MEASURED, IT IS NOT -- LOCALISED_VERSION_VALUES against
+# LOCALISED_APP_VALUES. That surprise is why the split below is written from the
+# measurement rather than inferred from where a file happens to sit.
+#
+# The count of files present in a tree but swept by no copy clause there is printed
+# as `store_copy_excluded` so it moves the day somebody adds a file to either tree.
+COPY_STEMS        = %w[description keywords release_notes].freeze
+URL_STEMS         = %w[support_url marketing_url].freeze
+SHARED_COPY_STEMS = %w[subtitle].freeze
+SHARED_URL_STEMS  = %w[privacy_url].freeze
+SHARED_STEM       = "name"
+SHARED_STEMS      = (SHARED_COPY_STEMS + SHARED_URL_STEMS + [SHARED_STEM]).freeze
+# Which platform tree owns the one shared record. Named ONCE and never inferred
+# from a path, so a second tree cannot become the shared one by being listed first.
+SHARED_TREE       = "ios"
 
 # App Store Connect's budgets. The 30 is stated by the tracked subtitle
 # placeholder itself; the 100 is the keyword-field limit named in META-04.
@@ -302,11 +341,20 @@ assert !macos_files.nil?, "population", MACOS_METADATA_DIR,
        "the macOS metadata tree is absent, so META-05's population is empty and every " \
        "macOS assertion below it would be about nothing. Plan 08-08 creates this tree; " \
        "until it does, the divergence clause is UNRUNNABLE rather than passing"
-assert ios_files.length >= COPY_STEMS.length + URL_STEMS.length + 1, "population", IOS_METADATA_DIR,
+IOS_NAMED_STEMS   = (COPY_STEMS + URL_STEMS + SHARED_STEMS).sort.freeze
+MACOS_NAMED_STEMS = (COPY_STEMS + URL_STEMS).sort.freeze
+
+assert ios_files.length >= IOS_NAMED_STEMS.length, "population", IOS_METADATA_DIR,
        "the iOS listing tree holds #{ios_files.length} .txt file(s), at or above the " \
-       "#{COPY_STEMS.length + URL_STEMS.length + 1} this gate reads by name " \
-       "(#{(COPY_STEMS + URL_STEMS + [SHARED_STEM]).sort.join(', ')}); a shorter list means " \
-       "a clause below is asking about a file that is not there"
+       "#{IOS_NAMED_STEMS.length} this gate reads by name (#{IOS_NAMED_STEMS.join(', ')}); " \
+       "a shorter list means a clause below is asking about a file that is not there"
+unless macos_files.nil?
+  assert macos_files.length >= MACOS_NAMED_STEMS.length, "population", MACOS_METADATA_DIR,
+         "the macOS listing tree holds #{macos_files.length} .txt file(s), at or above the " \
+         "#{MACOS_NAMED_STEMS.length} this gate reads by name " \
+         "(#{MACOS_NAMED_STEMS.join(', ')}). Asserted APART from the iOS floor, because the " \
+         "two trees do not hold the same file set and one shared floor would hide a short one"
+end
 assert notes_text.length > 500, "population", REVIEW_NOTES,
        "the review notes hold #{notes_text.length} characters; a stub file would make the " \
        "surface-name clause vacuous while looking like a source"
@@ -324,14 +372,18 @@ excluded = []
 
 present_trees.each do |platform, dir, files|
   values[platform] = {}
+  shared_here      = platform == SHARED_TREE
+  copy_stems_here  = COPY_STEMS + (shared_here ? SHARED_COPY_STEMS : [])
+  url_stems_here   = URL_STEMS  + (shared_here ? SHARED_URL_STEMS  : [])
 
-  COPY_STEMS.each do |stem|
+  copy_stems_here.each do |stem|
+    scope   = SHARED_STEMS.include?(stem) ? "shared" : "per-platform"
     rel     = "#{dir}/#{stem}.txt"
     present = files.include?("#{stem}.txt")
     assert present, "copy", rel,
-           "the #{platform} listing #{stem} exists on disk. deliver's `load_from_filesystem` " \
-           "reads these five fields off disk only -- there is no env route for them " \
-           "(08-RESEARCH 372) -- so a missing file is a field nobody set"
+           "the #{platform} listing #{stem} (#{scope}) exists on disk. deliver's " \
+           "`load_from_filesystem` reads these fields off disk only -- there is no env " \
+           "route for them (08-RESEARCH 372) -- so a missing file is a field nobody set"
     next unless present
 
     value = read_text(rel)
@@ -363,10 +415,11 @@ present_trees.each do |platform, dir, files|
            "here and one character to App Store Connect"
   end
 
-  URL_STEMS.each do |stem|
+  url_stems_here.each do |stem|
+    scope   = SHARED_STEMS.include?(stem) ? "shared" : "per-platform"
     rel     = "#{dir}/#{stem}.txt"
     present = files.include?("#{stem}.txt")
-    assert present, "url", rel, "the #{platform} #{stem} exists on disk"
+    assert present, "url", rel, "the #{platform} #{stem} (#{scope}) exists on disk"
     next unless present
 
     value = read_text(rel).strip
@@ -383,18 +436,34 @@ present_trees.each do |platform, dir, files|
            "what App Review clicks"
   end
 
-  rel     = "#{dir}/#{SHARED_STEM}.txt"
-  present = files.include?("#{SHARED_STEM}.txt")
-  assert present, "shared", rel, "the #{platform} app #{SHARED_STEM} exists on disk"
-  if present
-    value = read_text(rel).strip
-    values[platform][SHARED_STEM] = value
-    assert !value.include?(PLACEHOLDER), "placeholder", rel,
-           "the app #{SHARED_STEM} carries no placeholder copy; it is the first string App " \
-           "Review reads"
+  # The app name. Asserted PRESENT in the tree that owns the one shared record, and
+  # asserted ABSENT from every other tree by the second-copy clause in P5 -- two
+  # assertions pointing in OPPOSITE directions, so neither a missing name nor a
+  # duplicated one can pass.
+  if shared_here
+    rel     = "#{dir}/#{SHARED_STEM}.txt"
+    present = files.include?("#{SHARED_STEM}.txt")
+    assert present, "shared", rel,
+           "the #{platform} app #{SHARED_STEM} exists on disk, in the tree that owns the one " \
+           "shared record (SHARED_TREE = #{SHARED_TREE.inspect})"
+    if present
+      value = read_text(rel).strip
+      values[platform][SHARED_STEM] = value
+      assert !value.include?(PLACEHOLDER), "placeholder", rel,
+             "the app #{SHARED_STEM} carries no placeholder copy; it is the first string App " \
+             "Review reads"
+    end
+  elsif files.include?("#{SHARED_STEM}.txt")
+    # Read it even though it should not be here, so the cross-tree equality clause in
+    # P5 still has both values and a wrong tree reports TWICE: once as a second copy,
+    # and once as a value that disagrees, if it does.
+    values[platform][SHARED_STEM] = read_text("#{dir}/#{SHARED_STEM}.txt").strip
   end
 
-  excluded.concat(files.reject { |file| COPY_STEMS.include?(File.basename(file, ".txt")) }
+  # Swept-by-no-copy-clause, computed PER TREE against that tree's OWN stems. The two
+  # trees do not sweep the same set, and one global reject would report the shared
+  # stems as excluded in the very tree that sweeps them.
+  excluded.concat(files.reject { |file| copy_stems_here.include?(File.basename(file, ".txt")) }
                        .map { |file| "#{dir}/#{file}" })
 end
 
@@ -418,6 +487,23 @@ if ios_description && macos_description
          "#{macos_description.strip.length} bytes / #{fingerprint(macos_description.strip)}). " \
          "D-121 requires the macOS listing to lean on the 4.3(b) case, which the iOS " \
          "paragraph does not make"
+end
+
+# The shared record has exactly ONE home on disk, and this is the clause that says
+# so. It is the MIRROR of the presence clause above: that one refuses a missing
+# shared field in the tree that owns it, this one refuses a SECOND copy anywhere
+# else. A gate that only checked presence would be satisfied by duplicating the
+# record into both trees, which is the drift it exists to catch.
+unless macos_files.nil?
+  second_copies = SHARED_STEMS.select { |stem| macos_files.include?("#{stem}.txt") }
+  assert second_copies.empty?, "shared", MACOS_METADATA_DIR,
+         "the macOS tree carries NO second copy of a shared record (shared set: " \
+         "#{SHARED_STEMS.sort.join(', ')}; found: " \
+         "#{second_copies.empty? ? 'none' : second_copies.sort.join(', ')}). " \
+         "`appInfoLocalizations` is total = 1 on record 6807393045 (D-129, measured " \
+         "read-only #{MEASURED_ON}), so app name, subtitle and the privacy policy URL are " \
+         "ONE object each. A file per tree is two values behind one label, and deliver " \
+         "writes whichever lane ran last -- a divergence nobody chose and no run reports"
 end
 
 ios_name   = values.dig("ios", SHARED_STEM)
@@ -589,6 +675,10 @@ puts "store_copy_excluded=#{excluded.length}"
 puts "store_copy_excluded_names=#{excluded.map { |rel| File.basename(rel) }.uniq.sort.join(',')}"
 puts "store_copy_outside_locale=#{outside_locale.length}"
 puts "store_copy_macos_tree=#{macos_files.nil? ? 'absent' : 'present'}"
+puts "store_copy_per_platform_stems=#{(COPY_STEMS + URL_STEMS).sort.join(',')}"
+puts "store_copy_shared_stems=#{SHARED_STEMS.sort.join(',')}"
+puts "store_copy_shared_tree=#{SHARED_TREE}"
+puts "store_copy_shared_second_copies=#{macos_files.nil? ? 'unrunnable' : SHARED_STEMS.count { |s| macos_files.include?("#{s}.txt") }}"
 puts "store_copy_ios_description_bytes=#{ios_description.to_s.strip.length}"
 puts "store_copy_ios_description_fnv1a64=#{ios_description ? fingerprint(ios_description.strip) : 'none'}"
 puts "store_copy_macos_description_bytes=#{macos_description.to_s.strip.length}"

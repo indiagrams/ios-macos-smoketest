@@ -382,6 +382,87 @@ rescue SystemCallError => e
   [nil, "could not run #{argv.inspect}: #{e.message}"]
 end
 
+# ONE reading of an .icns, used for EVERY .icns this gate opens -- the one in the
+# repository and the one inside a built .app alike. The ARGB fact below is a
+# property of the CONTAINER FORMAT, so a second .icns arriving by another route
+# must get the same treatment; source D failing the alpha clause on its own 16pt
+# entry, while the identical repository entry passed, is exactly how this was
+# found.
+IcnsReading = Struct.new(:path, :label, :route, :png_count, :argb_count, :other_count,
+                         :members, :dir, :argb_by_side, :issues, :fatal, :status,
+                         keyword_init: true)
+
+def read_icns(abs, label)
+  r = IcnsReading.new(path: abs, label: label, route: "none", png_count: 0, argb_count: 0,
+                      other_count: 0, members: [], dir: nil, argb_by_side: {}, issues: [],
+                      fatal: nil, status: nil)
+  unless File.file?(abs)
+    r.fatal = "#{abs} is not a readable file"
+    return r
+  end
+
+  chunks, err = icns_chunks(abs)
+  if chunks.nil?
+    r.fatal = "#{label} could not be walked as an icns container: #{err}"
+    return r
+  end
+
+  png   = chunks.select { |_t, pay| pay.start_with?(PNG_MAGIC) }
+  argb  = chunks.select { |_t, pay| pay.byteslice(0, 4) == ARGB_MAGIC }
+  other = chunks.reject { |c| png.include?(c) || argb.include?(c) }
+  r.png_count   = png.length
+  r.argb_count  = argb.length
+  r.other_count = other.length
+
+  other.each do |type, payload|
+    # info is a binary plist iconutil writes; it is not an icon entry. Anything
+    # else that is neither PNG nor ARGB is an image this gate cannot read, and
+    # that is evidence for neither side.
+    next if type == "info".b
+    r.issues << ["#{label}##{type}",
+                 "icns entry #{type.inspect} (#{payload.bytesize} bytes) is stored in neither a PNG " \
+                 "nor a raw ARGB container, so its transparency could not be read at all. That is " \
+                 "evidence for neither side and is reported as its own failure rather than folded " \
+                 "into a pass"]
+  end
+
+  argb.each do |type, payload|
+    side = ICNS_ARGB_SIDES[type]
+    if side.nil?
+      r.issues << ["#{label}##{type}",
+                   "icns raw entry #{type.inspect} is an ARGB container type this gate has no " \
+                   "decoded pixel side for, so its transparency could not be read. Third state, " \
+                   "failed as one"]
+      next
+    end
+    want    = side * side * 4
+    decoded = icns_rle(payload.byteslice(4, payload.bytesize - 4), want)
+    if decoded.bytesize != want
+      r.issues << ["#{label}##{type}",
+                   "icns raw entry #{type.inspect} decodes to #{decoded.bytesize} bytes, not the " \
+                   "#{want} an #{side}x#{side} ARGB image must hold. The assumed pixel side is " \
+                   "VERIFIED here rather than trusted, and it did not hold"]
+      next
+    end
+    r.argb_by_side[side] = [type, decoded.byteslice(0, side * side)]
+  end
+
+  dir = mktmp("icon-set-icns")
+  TMP_DIRS << dir
+  out = File.join(dir, "Extracted.iconset")
+  _o, status = capture("/usr/bin/iconutil", "-c", "iconset", abs, "-o", out)
+  r.status = status
+  if status == 0 && File.directory?(out)
+    r.route = "iconset"
+    r.dir   = out
+    # Directory listing is legitimate HERE: iconutil just created this directory
+    # and its contents ARE the extraction result. The catalog populations are
+    # parsed, never listed.
+    r.members = Dir.children(out).select { |f| f.end_with?(".png") }.sort
+  end
+  r
+end
+
 def mktmp(prefix)
   base = ENV["TMPDIR"] || "/tmp"
   dir  = File.join(base, "#{prefix}-#{Process.pid}-#{rand(1 << 32).to_s(16)}")
@@ -413,7 +494,10 @@ puts "==> Icon set (META-01, criterion 1) — population: four named sources"
 puts
 
 # A member of the population. path is what a FAIL line names.
-Member = Struct.new(:source, :path, :abs, :nominal, :kind, :chunk, :measured,
+# icns: the IcnsReading this member was extracted from, or nil for a plain PNG.
+# It is what lets the ARGB-container fact follow the member instead of being
+# looked up in whichever container happened to be read first.
+Member = Struct.new(:source, :path, :abs, :nominal, :kind, :icns, :measured,
                     keyword_init: true)
 
 population = []
@@ -438,7 +522,7 @@ if ios_json_ok
     next unless img.is_a?(Hash) && img["filename"]
     rel = File.join(IOS_SET_REL, img["filename"])
     population << Member.new(source: "ios_appiconset", path: rel, abs: File.join(ROOT, rel),
-                             nominal: nominal_side(img), kind: "png", chunk: nil)
+                             nominal: nominal_side(img), kind: "png", icns: nil)
   end
 end
 from_ios = population.count { |m| m.source == "ios_appiconset" }
@@ -464,7 +548,7 @@ if mac_json_ok
     next unless img.is_a?(Hash) && img["filename"]
     rel = File.join(MACOS_SET_REL, img["filename"])
     population << Member.new(source: "macos_appiconset", path: rel, abs: File.join(ROOT, rel),
-                             nominal: nominal_side(img), kind: "png", chunk: nil)
+                             nominal: nominal_side(img), kind: "png", icns: nil)
   end
 end
 from_macos = population.count { |m| m.source == "macos_appiconset" }
@@ -481,38 +565,20 @@ unless File.file?(ICNS_PATH)
              "open it must not report on a smaller population as though it had")
 end
 
-chunks, chunk_err = icns_chunks(ICNS_PATH)
-no_verdict("#{icns_rel_for_msg} could not be walked as an icns container: #{chunk_err}") if chunks.nil?
+c1 = read_icns(ICNS_PATH, icns_rel_for_msg)
+no_verdict(c1.fatal) if c1.fatal
 
-png_chunks   = chunks.select { |_t, p| p.start_with?(PNG_MAGIC) }
-argb_chunks  = chunks.select { |_t, p| p.byteslice(0, 4) == ARGB_MAGIC }
-other_chunks = chunks.reject { |c| png_chunks.include?(c) || argb_chunks.include?(c) }
-
-icns_dir = mktmp("icon-set-icns")
-TMP_DIRS << icns_dir
-iconset_out = File.join(icns_dir, "AppIcon.iconset")
-_out, iconutil_status = capture("/usr/bin/iconutil", "-c", "iconset", ICNS_PATH, "-o", iconset_out)
-icns_route = "none"
-icns_members = []
-if iconutil_status == 0 && File.directory?(iconset_out)
-  icns_route = "iconset"
-  # Directory listing is legitimate HERE: iconutil just created this directory and
-  # its contents ARE the extraction result. The catalog populations above are
-  # parsed, never listed.
-  icns_members = Dir.children(iconset_out).select { |f| f.end_with?(".png") }.sort
-end
-
-if icns_members.empty?
+if c1.members.empty?
   no_verdict("#{icns_rel_for_msg} yielded no members (iconutil -c iconset exit " \
-             "#{iconutil_status.inspect}), so every assertion about the icon that actually ships " \
+             "#{c1.status.inspect}), so every assertion about the icon that actually ships " \
              "would be about nothing. A zero-member extraction is not a smaller population, it is " \
              "no population at all")
 end
 
-icns_members.each do |name|
-  abs = File.join(iconset_out, name)
-  population << Member.new(source: "icns", path: "#{icns_rel_for_msg}!#{name}", abs: abs,
-                           nominal: nominal_side_from_name(name), kind: "icns_member", chunk: nil)
+c1.members.each do |name|
+  population << Member.new(source: "icns", path: "#{icns_rel_for_msg}!#{name}",
+                           abs: File.join(c1.dir, name),
+                           nominal: nominal_side_from_name(name), kind: "icns_member", icns: c1)
 end
 from_icns = population.count { |m| m.source == "icns" }
 assert from_icns >= 1, "population", icns_rel_for_msg,
@@ -523,23 +589,14 @@ assert from_icns >= 1, "population", icns_rel_for_msg,
 
 # The container walk and the extraction are two independent readings of the same
 # artefact. If they disagree, one of them is not seeing the whole file.
-assert (png_chunks.length + argb_chunks.length) == icns_members.length,
+assert (c1.png_count + c1.argb_count) == c1.members.length,
        "population", icns_rel_for_msg,
        "the container walk and iconutil agree on how many image entries this .icns holds " \
-       "(#{png_chunks.length} PNG + #{argb_chunks.length} ARGB = " \
-       "#{png_chunks.length + argb_chunks.length} vs #{icns_members.length} extracted). " \
+       "(#{c1.png_count} PNG + #{c1.argb_count} ARGB = " \
+       "#{c1.png_count + c1.argb_count} vs #{c1.members.length} extracted). " \
        "A disagreement means one reading is blind to part of the icon that ships"
 
-other_chunks.each do |type, payload|
-  # info is a binary plist iconutil writes; it is not an icon entry. Anything
-  # else that is neither PNG nor ARGB is an image this gate cannot read, and that
-  # is evidence for neither side.
-  next if type == "info".b
-  assert false, "alpha", "#{icns_rel_for_msg}##{type}",
-         "icns entry #{type.inspect} (#{payload.bytesize} bytes) is stored in neither a PNG nor a " \
-         "raw ARGB container, so its transparency could not be read at all. That is evidence for " \
-         "neither side and is reported as its own failure rather than folded into a pass"
-end
+c1.issues.each { |where, message| assert false, "alpha", where, message }
 
 # ─── SOURCE C2: the 1024 source the ten slots are generated FROM ─────────────
 
@@ -550,7 +607,7 @@ assert src_present, "population", ICNS_SRC_REL,
        "from this one file, so a defect here is a defect in every slot at once"
 if src_present
   population << Member.new(source: "macos_resources", path: ICNS_SRC_REL, abs: icns_src_abs,
-                           nominal: 1024, kind: "png", chunk: nil)
+                           nominal: 1024, kind: "png", icns: nil)
 end
 from_resources = population.count { |m| m.source == "macos_resources" }
 
@@ -602,20 +659,25 @@ if built_app
              "The name resolving to nothing is the defect this source exists to catch"
       if cand
         built_icns = cand
-        bdir = mktmp("icon-set-built")
-        TMP_DIRS << bdir
-        bout = File.join(bdir, "Built.iconset")
-        _o, bstatus = capture("/usr/bin/iconutil", "-c", "iconset", cand, "-o", bout)
-        bmembers = (bstatus == 0 && File.directory?(bout)) ? Dir.children(bout).select { |f| f.end_with?(".png") }.sort : []
-        assert !bmembers.empty?, "built-app", cand,
-               "the .icns inside the built bundle yielded members (iconutil exit #{bstatus.inspect}). " \
-               "Zero members is not a smaller population, it is no population at all"
-        bmembers.each do |m|
+        # The SAME reader as source C1, deliberately. The ARGB-container fact is a
+        # property of the .icns format, not of where the file happens to live.
+        d = read_icns(cand, cand)
+        assert d.fatal.nil?, "built-app", cand,
+               "the .icns inside the built bundle could be opened: #{d.fatal}"
+        assert !d.members.empty?, "built-app", cand,
+               "the .icns inside the built bundle yielded members (iconutil exit " \
+               "#{d.status.inspect}). Zero members is not a smaller population, it is no " \
+               "population at all"
+        assert (d.png_count + d.argb_count) == d.members.length, "built-app", cand,
+               "the container walk and iconutil agree on the built bundle's .icns " \
+               "(#{d.png_count} PNG + #{d.argb_count} ARGB vs #{d.members.length} extracted)"
+        d.issues.each { |where, message| assert false, "alpha", where, message }
+        d.members.each do |m|
           population << Member.new(source: "built_app", path: "#{cand}!#{m}",
-                                   abs: File.join(bout, m), nominal: nominal_side_from_name(m),
-                                   kind: "icns_member", chunk: nil)
+                                   abs: File.join(d.dir, m), nominal: nominal_side_from_name(m),
+                                   kind: "icns_member", icns: d)
         end
-        built_reason = "source D inspected #{cand} (#{bmembers.length} members), resolved from " \
+        built_reason = "source D inspected #{cand} (#{d.members.length} members), resolved from " \
                        "CFBundleIconFile=#{icon_key.inspect} via #{built_route}"
       end
     end
@@ -654,27 +716,6 @@ assert !population.empty?, "alpha", "(population)",
 
 alpha_via_hasalpha  = 0
 alpha_via_argb      = 0
-argb_sides_by_side  = {}
-argb_chunks.each do |type, payload|
-  side = ICNS_ARGB_SIDES[type]
-  if side.nil?
-    assert false, "alpha", "#{icns_rel_for_msg}##{type}",
-           "icns raw entry #{type.inspect} is an ARGB container type this gate has no decoded pixel " \
-           "side for, so its transparency could not be read. Third state, failed as one"
-    next
-  end
-  want    = side * side * 4
-  decoded = icns_rle(payload.byteslice(4, payload.bytesize - 4), want)
-  if decoded.bytesize != want
-    assert false, "alpha", "#{icns_rel_for_msg}##{type}",
-           "icns raw entry #{type.inspect} decodes to #{decoded.bytesize} bytes, not the " \
-           "#{want} an #{side}x#{side} ARGB image must hold. The assumed pixel side is VERIFIED " \
-           "here rather than trusted, and it did not hold"
-    next
-  end
-  argb_sides_by_side[side] = [type, decoded.byteslice(0, side * side)]
-end
-
 population.each do |m|
   props, status = sips_props(m.abs, "pixelWidth", "pixelHeight", "hasAlpha", "format")
   w     = props["pixelWidth"]
@@ -699,10 +740,12 @@ population.each do |m|
            "the member measures #{m.nominal}x#{m.nominal} as its declaration implies; it is #{w}x#{h}"
   end
 
-  if alpha == "yes" && m.source == "icns" && argb_sides_by_side.key?(w.to_i)
+  if alpha == "yes" && m.icns && m.icns.argb_by_side.key?(w.to_i)
     # The container mandates the channel for this entry. Read it HARDER: every
-    # alpha byte must be 0xFF. Real transparency still fails.
-    type, achan = argb_sides_by_side[w.to_i]
+    # alpha byte must be 0xFF. Real transparency still fails. The map comes from
+    # THIS member's own container, so a second .icns arriving through --built-app
+    # is read the same way rather than being judged against the first one's.
+    type, achan = m.icns.argb_by_side[w.to_i]
     worst = achan.bytes.min
     alpha_via_argb += 1
     assert worst == 255, "alpha", m.path,
@@ -864,11 +907,11 @@ puts "icon_unenumerated=#{unenumerated.length}"
 puts "icon_unenumerated_route=#{unenum_route}"
 puts "icon_unenumerated_paths=#{unenumerated.join(',')}"
 puts "icon_appiconsets_found=#{appiconsets.length}"
-puts "icon_icns_route=#{icns_route}"
+puts "icon_icns_route=#{c1.route}"
 puts "icon_icns_source=#{icns_rel_for_msg}"
-puts "icon_icns_chunks_png=#{png_chunks.length}"
-puts "icon_icns_chunks_argb=#{argb_chunks.length}"
-puts "icon_icns_chunks_other=#{other_chunks.length}"
+puts "icon_icns_chunks_png=#{c1.png_count}"
+puts "icon_icns_chunks_argb=#{c1.argb_count}"
+puts "icon_icns_chunks_other=#{c1.other_count}"
 puts "icon_alpha_checked=#{alpha_via_hasalpha + alpha_via_argb}"
 puts "icon_alpha_via_hasalpha=#{alpha_via_hasalpha}"
 puts "icon_alpha_via_argb_decode=#{alpha_via_argb}"

@@ -179,7 +179,13 @@ forwarding — with `BLIND READ: 3 of 3 reads of the step ordinals on screen cam
 ["", "", ""]`. The mutation's landing was confirmed by sha256 before the exit code was
 trusted, and the file's sha256 was confirmed restored afterwards.
 
-## 3. Gatekeeper blocks local macOS UI tests, and you must not work around it
+## 3. Gatekeeper blocks local macOS UI tests — and the cause is NOT what this section first said
+
+> **AMENDED 2026-09-11 (UTC). The 2026-09-06 measurement below is preserved verbatim and is
+> still accurate FOR THE CONFIGURATION IT MEASURED. What was wrong is the GENERALISATION and
+> the PRESCRIPTION. Read §3.1 before acting on anything in §3.0.**
+
+### 3.0 The original measurement, preserved
 
 **MEASURED HERE**, attended, 2026-09-06. Running the macOS UI scheme on a developer Mac dies
 with:
@@ -213,6 +219,58 @@ turns the **local** run green while changing nothing about what CI measures, and
 the verdict counts. Scope local runs to the unit bundle; `xcodebuild build` and
 `build-for-testing` are fine on both platforms. Record the macOS UI result as
 `PENDING-CI executed=none` — deliberately matching no success pattern — rather than guessing.
+
+### 3.1 AMENDMENT — the runner has TWO states, and the one above is not the common one
+
+**MEASURED 2026-09-11**, twice on the same Mac, hours apart, with one variable between them.
+
+The section above assumes ONE runner state. There are two, and **which one you get depends on
+the build configuration**, so a reader who checks `codesign` and sees something different has
+not found a contradiction — they have found the other state.
+
+| | §3.0's state (2026-09-06) | Under `CODE_SIGNING_ALLOWED=NO` (2026-09-11) |
+|---|---|---|
+| `codesign -dvvv` authority | Apple **Development** cert, this fork's Team ID | `Software Signing / Apple Code Signing CA / Apple Root CA`, `TeamIdentifier=59GAB85EFG` — **Apple's own**, `Identifier=com.apple.XCTRunner` |
+| Sealed resources | present | **`Sealed Resources=none`**, no `Contents/_CodeSignature` |
+| `xattr -lr` | `com.apple.macl` | **ZERO lines — not one extended attribute anywhere in the bundle** |
+| `spctl -a -vv -t exec` | `rejected`, execution policy | fails **structurally**: *"code has no resources but signature indicates they must be present"* |
+| kernel log | — | `(AppleSystemPolicy) ASP: Security policy would not allow process` |
+
+**THE MECHANISM, in the second state:** the runner is not Development-signed at all. It is
+Apple's **stock `XCTRunner.app`** with the fork's test bundle injected and **never re-sealed** —
+so it carries an Apple-authority signature that *structurally cannot validate*. The refusal is
+about a broken seal, not about Developer ID or notarisation.
+
+**CONSEQUENCE — two things this page previously told you are wrong:**
+
+1. **`xattr -cr` is a NO-OP here.** There is no quarantine bit, and §3.0 is right that there is
+   nothing to remove — but it is then wrong to treat clearing it as the thing that would help.
+2. **The ad-hoc re-sign is the OPERATIVE step.** `codesign --force --deep --sign - <runner>`
+   replaces the broken seal with a valid one, and the runner then launches. Controlled
+   comparison, same machine:
+
+   | run | `xattr -cr` | ad-hoc re-sign | outcome |
+   |---|---|---|---|
+   | with the template's script | yes | **yes** | launched, exit 0, real window capture on disk, **no dialog** |
+   | without either | no | **no** | kernel refusal, *"damaged"* modal on the desktop, exit 65 |
+
+**WHAT "DO NOT WORK AROUND IT" STILL MEANS, AND WHAT IT NO LONGER MEANS.**
+
+- **For a TEST VERDICT it stands, unchanged.** A locally-green macOS UI run still says nothing
+  about what CI measures. Scope local runs to the unit bundle and record `PENDING-CI
+  executed=none`. That advice in §3.0 was right and is not weakened here.
+- **For SCREENSHOT CAPTURE it does not apply.** There the artefact on disk *is* the deliverable,
+  not a pass/fail claim — and the template's own `ci/take-screenshots.sh` performs the
+  `xattr -cr` + ad-hoc re-sign itself, between `build-for-testing` and `test-without-building`.
+  Running it is therefore not a workaround at all; it is the supported path.
+
+**IF YOU DO NEED A LOCAL macOS UI RUN**, reproduce that same split —
+`build-for-testing` → `codesign --force --deep --sign - <runner>` → `test-without-building`,
+scoped with `-only-testing:` — and make sure **nothing relinks the runner between the re-sign
+and the test**, or you execute a binary you did not sign. Never run a bare full-scheme
+`xcodebuild test`: it puts a modal on a human's physical desktop, and if they click
+*Move to Trash* the runner is deleted from DerivedData and the next build silently rebuilds
+it, so the failure then presents as intermittent. **Cancel, never Move to Trash.**
 
 **If the dialog appears, click Cancel. Never "Move to Trash."** Trashing deletes the runner
 out of DerivedData, the next build silently rebuilds it, and the failure then presents as

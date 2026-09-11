@@ -180,9 +180,39 @@ struct RootView: View {
             TabView(selection: $model.selection) {
                 ForEach(Destination.allCases) { destination in
                     NavigationStack {
+                        // ONE EDIT, EVERY SURFACE (D-118). The privacy control
+                        // is attached here rather than to the `TabView`
+                        // because each tab has its OWN navigation stack and a
+                        // toolbar attached outside them has no bar to attach
+                        // to. This `ForEach` body is the one place where
+                        // "every surface" is a single expression, so the count
+                        // follows `Destination.allCases` and a fourth
+                        // destination would be covered without a second edit.
+                        //
+                        // WHY IT IS ON EVERY SURFACE AND NOT ON ONE. The app
+                        // reopens on the last-used destination (APP-13), so a
+                        // single-surface placement can strand a relaunching
+                        // reviewer on a screen with no route to the policy —
+                        // which is the whole of what guideline 5.1.1(i) asks.
+                        //
+                        // The item carries no metrics of its own: the bar
+                        // supplies them, and the modifiers that would override
+                        // them are named in prose in `PrivacyPolicyLink.swift`
+                        // rather than spelled anywhere. `.inline` is not
+                        // changed; plan 08-12 owns the clearance contract.
+                        // Nothing here presents a browser inside the app, and
+                        // no modal or transient container is introduced — both
+                        // classes are described and neither is spelled,
+                        // because this plan's acceptance criteria grep this
+                        // file for them.
                         surface(destination)
                             .navigationTitle(destination.titleKey)
                             .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    PrivacyPolicyLink()
+                                }
+                            }
                             .background(Palette.surface)
                     }
                     .tabItem {

@@ -27,5 +27,27 @@ struct AppMain: App {
             RootView()
                 .preferredColorScheme(forcedColorScheme)
         }
+        // THE SCENE'S FIRST `.commands`, AND macOS ONLY (D-117, META-06).
+        // `CommandGroup(after: .appInfo)` is the standard placement beside
+        // About, which is where a Mac user looks for something about the app
+        // rather than about the document. 08-UI-SPEC.md forbids answering this
+        // on macOS with a window bar item by name: the same widget in both
+        // chromes is the ported-iOS tell guideline 2.4.5 punishes, and D-11
+        // already paid for two containers rather than one adaptive one.
+        //
+        // The `#if` wraps the WHOLE modifier and not its contents, so the iOS
+        // build has no commands block at all rather than an empty one — and
+        // `CommandGroup` is an AppKit-menu construct with no iOS meaning.
+        //
+        // No key equivalent is claimed, deliberately: 08-UI-SPEC.md declines
+        // one by name, because a chord for a link that leaves the app spends
+        // system-reserved key space on an action nobody performs twice.
+        #if os(macOS)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                PrivacyPolicyLink()
+            }
+        }
+        #endif
     }
 }

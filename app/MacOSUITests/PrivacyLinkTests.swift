@@ -20,10 +20,14 @@ import XCTest
 //
 // THE MENU IS OPENED POSITIONALLY, NEVER BY ITS VISIBLE NAME. Index 0 of the
 // menu bar is the Apple menu, so the application's own menu is index 1; that is
-// an ordinal and not a query by visible text. `app.menuBarItems[<the app's
-// display name>]` is forbidden here — the one such query in this target
-// (`AppStoreScreenshotTests.swift:69-75`) is a headless-runner window fallback
-// kept for its own reason and must not be extended.
+// an ordinal and not a query by visible text. SUBSCRIPTING the menu-bar query
+// with the app's display name is forbidden here, and the forbidden shape is
+// named in prose rather than written because `evidence/08-11-controls.rb` greps
+// this file for it — a file that spells what a gate scans for sweeps that gate
+// green by existing, which is the defect six Phase 5 plans hit in a row. The one
+// such query in this target (`AppStoreScreenshotTests.swift:69-75`) is a
+// headless-runner window fallback kept for its own reason and must not be
+// extended.
 //
 // EVERY TEXT READ GOES THROUGH THE SHARED LAYER, AND ON THIS PLATFORM THAT IS
 // NOT A FORMALITY. `app/UITestSupport/ElementText.swift:23-28`: macOS publishes
@@ -119,7 +123,17 @@ final class PrivacyLinkTests: XCTestCase {
 
     /// The app menu carries the privacy item while EACH surface is showing —
     /// asserted per surface, each failure naming its surface, before any total.
+    ///
+    /// **THIS ONE CASE CONTINUES AFTER A FAILURE, AND THE REASON IS THE CLAIM.**
+    /// Every other case in this target stops at the first failure because it
+    /// DRIVES something and a later step would measure wreckage. Nothing is
+    /// driven here: each surface gets its own pinned launch, so the three
+    /// measurements are independent, and stopping at the first would report one
+    /// surface when three were available. "missing while Timestamps is showing"
+    /// and "missing everywhere" are different defects with different causes, and
+    /// a suite that can only ever name the first surface cannot tell them apart.
     func testOnePrivacyControlOnEverySurface() {
+        continueAfterFailure = true
         var perSurface: [(name: String, found: Int)] = []
 
         for surface in Self.surfaces {

@@ -199,6 +199,43 @@ extension VisibleStringSweep {
             XCTAssertTrue(destination.waitForExistence(timeout: 20), "cannot reach the destination \(identifier)")
         }
         destination.click()
+        privacyControlOnThisSurface(identifier)
+    }
+
+    /// STEP 15 — the privacy control, as this platform can see it from the surface just arrived at.
+    ///
+    /// APPENDED TO THE INHERITED WALK RATHER THAN RESTRUCTURING IT, and appended HERE because
+    /// ``visit(_:)`` is the one expression every surface arrival goes through — so the step covers
+    /// all three surfaces without a fourth copy of the surface list and without touching
+    /// `VisibleStringSweep.swift`, where the FLOOR lives.
+    ///
+    /// **IT DOES NOT OPEN THE MENU, AND THAT IS A DELIBERATE RISK ALLOCATION RATHER THAN AN
+    /// OMISSION.** On macOS the control is an app-menu item, so seeing it means CLICKING the menu
+    /// bar — and nothing has ever measured whether a menu-bar click works on the headless runner
+    /// this sweep executes on. `AppStoreScreenshotTests` is the only file in this target that
+    /// clicks a menu, and it SKIPS on headless, so it is not evidence. Putting an unproven
+    /// interaction inside a SHIPPED criterion-6 gate risks turning a green gate red for a reason
+    /// that has nothing to do with its subject; the click therefore lives in `PrivacyLinkTests`,
+    /// which is new, whose arbiter is CI, and where a red is a finding rather than a regression.
+    ///
+    /// WHAT IS ASSERTED HERE IS THE PRECONDITION THAT FILE DEPENDS ON: the menu bar carries more
+    /// than one item, so the application's own menu at index 1 is addressable at all. That is
+    /// falsifiable — a run where the menu bar did not populate fails it — and it is the fact
+    /// `productName` already leans on when it falls back to `menuBarItems[1]`. The identifier's
+    /// presence in the tree is RECORDED beside it rather than asserted, because whether a
+    /// `CommandGroup` button reaches a CLOSED menu's tree is exactly the `[OPEN]` this phase is
+    /// measuring and not something to bake into a gate before it has an answer.
+    func privacyControlOnThisSurface(_ surface: String) {
+        let items = app.menuBarItems.count
+        let inTree = count(Ident.Shell.privacyPolicy)
+        recordCounter("step15_privacy_surface=\(surface) step15_menubar_items=\(items) "
+            + "step15_privacy_in_tree=\(inTree)")
+        XCTAssertGreaterThan(
+            items,
+            1,
+            "step 15: the menu bar carries \(items) item(s), so the application's own menu — index 1, "
+                + "the Apple menu being index 0 — is not addressable and the privacy item cannot be reached"
+        )
     }
 
     /// Every string 07-UI-SPEC's copywriting delta adds, looked for BY NAME in the harvest.

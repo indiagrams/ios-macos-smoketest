@@ -236,6 +236,36 @@ extension VisibleStringSweep {
             element(identifier).waitForExistence(timeout: 20),
             "tab item \(index) does not show \(identifier)"
         )
+        privacyControlOnThisSurface(identifier)
+    }
+
+    /// STEP 15 — the privacy control, on the surface the walk has just arrived at.
+    ///
+    /// APPENDED TO THE INHERITED WALK RATHER THAN RESTRUCTURING IT, and appended HERE because
+    /// ``visit(_:expecting:)`` is the one expression every surface arrival goes through: the walk
+    /// calls it for Hashing and Timestamps, and `footerEditsAndTheRoot` calls it for Encode, so
+    /// hanging the step off it covers all three without a fourth copy of the surface list and
+    /// without touching `VisibleStringSweep.swift`, where the two FLOORS live.
+    ///
+    /// PER SURFACE, AND THERE IS NO TOTAL HERE ON PURPOSE. The walk arrives at one surface at a
+    /// time, so this assertion IS the per-surface half of D-118; the total belongs to
+    /// `PrivacyLinkTests`, which launches each surface fresh and can hold three numbers at once.
+    ///
+    /// THE PRESSABLE POPULATION, AND THE SCOPE IS A MEASUREMENT. A SwiftUI navigation-bar item
+    /// publishes the SAME control twice on iOS — a wrapper and the control, at byte-identical
+    /// frames — so an unscoped count answers 2 for ONE control (measured on iOS 18.6, element types
+    /// `other` and `button`; `evidence/08-11-privacy-link-controls.txt` §2). Counting the pressable
+    /// population is what makes "exactly one" a statement about this app rather than about the
+    /// platform's tree shape.
+    func privacyControlOnThisSurface(_ surface: String) {
+        let found = app.buttons.matching(identifier: Ident.Shell.privacyPolicy).count
+        recordCounter("step15_privacy_surface=\(surface) step15_privacy_controls=\(found)")
+        XCTAssertEqual(
+            found,
+            1,
+            "step 15: the surface carrying \(surface) has \(found) elements pressable as "
+                + "\(Ident.Shell.privacyPolicy), expected exactly 1"
+        )
     }
 
     /// Every string 07-UI-SPEC's copywriting delta adds, looked for BY NAME in the harvest.

@@ -112,7 +112,18 @@ final class PrivacyLinkTests: XCTestCase {
 
     /// Exactly one privacy control on EACH surface, each asserted on its own,
     /// each failure naming its surface, all three before any total.
+    ///
+    /// **THIS ONE CASE CONTINUES AFTER A FAILURE, AND THE REASON IS THE CLAIM.**
+    /// Every other case in this target stops at the first failure because it
+    /// DRIVES something and a later step would measure wreckage. Nothing is
+    /// driven here: each surface gets its own pinned launch, so the three
+    /// measurements are independent, and stopping at the first would report one
+    /// surface when three were available. D-118's claim is about all three — "the
+    /// control is missing on Timestamps" and "the control is missing everywhere"
+    /// are different defects with different causes, and a suite that can only
+    /// ever name the first surface cannot tell them apart.
     func testOnePrivacyControlOnEverySurface() {
+        continueAfterFailure = true
         var perSurface: [(name: String, found: Int)] = []
 
         for surface in Self.surfaces {

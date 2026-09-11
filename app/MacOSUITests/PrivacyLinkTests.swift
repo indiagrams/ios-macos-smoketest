@@ -7,16 +7,30 @@ import XCTest
 // two containers: iOS answers 5.1.1(i) with a navigation-bar item on every
 // surface, macOS with one app-menu item after About.
 //
-// THE `[OPEN]` THIS FILE EXISTS TO SETTLE. 08-UI-SPEC.md §Accessibility records,
-// as a first-class `[OPEN]`, that nobody knows whether a SwiftUI `CommandGroup`
-// button carries its `accessibilityIdentifier` into the macOS menu bar — no
-// primary source says either way, and 06-13 measured the analogous NEGATIVE for
-// `Menu` containers. So this suite MEASURES it and emits the number on every
-// run, whatever its value, and then asserts in a way that holds either way:
-// the identifier branch when the identifier survives, and a POSITIONAL fallback
-// comparing the item's rendered text against the catalog value when it does not.
-// A plan that turned that `[OPEN]` into a confident sentence without running it
-// would have done the thing this project keeps paying for.
+// THE `[OPEN]` THIS FILE WAS WRITTEN TO SETTLE — AND IT IS NOW SETTLED, NEGATIVE.
+// 08-UI-SPEC.md §Accessibility recorded as a first-class `[OPEN]` whether a
+// SwiftUI `CommandGroup` button carries its `accessibilityIdentifier` into the
+// macOS menu bar. **Plan 08-14 measured it on a running macOS app: it does not.**
+// `privacy_by_identifier=0` on all eight screenshot shots, the same answer 06-13
+// measured for `Menu` containers. So the branch this suite actually takes is the
+// POSITIONAL fallback, and that is now the expected path rather than a contingency.
+//
+// BOTH BRANCHES SURVIVE ANYWAY, and that is deliberate: the identifier count is
+// still emitted on every run, so the day a SwiftUI release starts propagating it
+// the number moves and somebody sees it, instead of the fallback quietly covering
+// a changed platform forever.
+//
+// READING THE ITEM NEEDED A THIRD ATTRIBUTE, ADDED TO THE SHARED LAYER RATHER
+// THAN WORKED AROUND HERE. A macOS menu item publishes its text in **AXTitle** —
+// `type=54 label="" value="" title=<text>`, measured by 08-14 — which is in
+// neither of the two attributes `renderedText` asked for when this file was
+// written. On its first execution this suite would have failed with a BLIND READ,
+// and it would have been RIGHT to: the guard was correctly detecting a read that
+// could not see its subject. The fix belongs in `app/UITestSupport/ElementText.swift`,
+// which now asks `label`, then `value`, then `title`, as three NAMED attributes
+// each measured against a named shape — not as "try everything until something is
+// non-empty". An element publishing in none of the three still reads "" and still
+// trips the guard.
 //
 // THE MENU IS OPENED POSITIONALLY, NEVER BY ITS VISIBLE NAME. Index 0 of the
 // menu bar is the Apple menu, so the application's own menu is index 1; that is
@@ -277,11 +291,13 @@ final class PrivacyLinkTests: XCTestCase {
             return 1
         }
 
-        // THE FALLBACK, AND THE FINDING IT CARRIES. A zero here is not a failure
-        // of this app — it is the `[OPEN]` resolving NEGATIVE, the same answer
-        // 06-13 measured for `Menu` containers — so it is recorded as a named
-        // fact rather than hidden behind a green, and the item is then resolved
-        // by its ORDINAL inside the menu that was just opened.
+        // THE FALLBACK, WHICH IS THE EXPECTED PATH. A zero here is not a failure of
+        // this app — it is the `[OPEN]` resolved NEGATIVE, measured by 08-14 on a
+        // running app and by 06-13 for `Menu` containers before it — so it is
+        // recorded as a named fact rather than hidden behind a green, and the item
+        // is then resolved by its ORDINAL inside the menu that was just opened.
+        // The read below reaches the item's text through `title`, which is where
+        // AppKit publishes a menu item's string; see this file's header.
         record("macos_privacy_identifier_survives=false reason=no-menu-item-carries-\(AccessibilityIdentifiers.Shell.privacyPolicy)")
         let entries = menu.descendants(matching: .menuItem)
         let population = entries.count

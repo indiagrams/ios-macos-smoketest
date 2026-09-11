@@ -27,6 +27,72 @@ that file, not this one, is the durable record of identity.
 
 ## Competitive scan (run 2026-08-31)
 
+> **⚠️ RE-AFFIRMED 2026-09-11, plan 08-08 — the 2026-08-31 date STANDS and is deliberately NOT
+> refreshed. ROADMAP Phase 8 criterion 6 offers two outcomes — re-run and refresh the date, or
+> explicitly re-affirm the existing one as still current. This is the second outcome, and the
+> reason is the method.**
+>
+> **What was re-checked, and how.** Five of the six surveyed apps carry an App Store id, and
+> every one of those five was re-read today by that id through Apple's public listing lookup, and all four
+> protocol search terms plus the step-4 terms were re-run through Apple's public search
+> endpoint. All five listings still exist. No description among them contains chain, pipeline,
+> recipe, or send-output-into-another vocabulary, with two exceptions already accounted for:
+> `Developer Tools - Tooly` says "workflow" twice, once as generic marketing and once in the
+> Shortcuts sentence this table already records and H2 already answers; and `CyberChef Pro`'s
+> "recipes" are still food — its store genre reads Lifestyle, and its description is
+> byte-consistent with the sentence quoted in its row below.
+>
+> **What was NOT re-checked, and why it matters more than what was.** **No app was opened.** The
+> protocol below (step 3) is explicit that a listing read is not evidence — *"Do not trust the
+> listing copy. … Screenshots and the in-app UI are the evidence; marketing text is not"* — and
+> a chaining affordance can exist without being described. Nor is the public search endpoint the
+> App Store's own search: it is a different index, so an app absent from today's results is not
+> an app absent from the store. **A weaker method does not inherit a stronger method's date.**
+> Rewriting the 29 occurrences of 2026-08-31 across 19 lines (measured today; this plan
+> inherited a claim of twelve and it was wrong) to today would lend an on-device sweep's
+> credibility to a desk read, which is precisely the reasoning failure this document was built to
+> refuse. The heading, all seven table rows and every one of the seven `Scanned` cells are
+> byte-unchanged, verified by diffing every date-carrying line against the pre-edit file.
+>
+> **The sixth row could not be answered.** `DevToys (macOS)` is the one row that carries no app
+> id, so it cannot be re-checked by id — by anyone, ever. Three name searches with
+> `entity=macSoftware` returned 21, 20 and 17 results and none of them was it. That is *not*
+> evidence of delisting, for the index reason above; it is a durable weakness in how the row was
+> written, and it is recorded rather than resolved.
+>
+> **⚠️ ONE MATERIAL FINDING, AND IT IS H5 ARRIVING RATHER THAN A NEW RISK. `Blissum`
+> (`id6464085978`, a Mac App Store Developer Tools title from a German limited company, free,
+> version 3.1.2 released 2026-05-27) ADVERTISES A NAMED CHAINING FEATURE.** Its own listing, in
+> full: *"Chain Transformations: Process your text, copy the output, and push it into another
+> tool for further transformations—all through intuitive keyboard commands."* It surfaced today
+> under this protocol's own term `developer tools`, and its current version predates the
+> 2026-08-31 sweep by three months — so it was on the shelf on the day of the scan and the scan
+> did not surface it. That is H5's objection, word for word, demonstrating itself.
+> **What it does not settle.** Its four tools — line prefix/suffix editing, a name generator,
+> text-case conversion, and HTML-to-Swift — share no family with this app's encode/decode,
+> hashing and timestamps, so it is not one of the five toolkits A4 names. Its own words describe
+> a keyboard-driven *hand-off* — "copy the output, and push it into another tool" — filed under
+> "Ease of use", and nothing in the listing describes intermediate values persisting on screen,
+> a step being removed, or steps being reordered, which is what §"The claim qualified" measures
+> "primary work surface" to mean. **But that paragraph is itself a listing read, which is the
+> reasoning step 3 forbids**, so it is recorded as a reading and explicitly not as a verdict.
+> `Blissum` was not opened. It is entered in this phase's `deferred-items.md` as a blocking input
+> to the 4.3(b) argument.
+>
+> **Two stale cells, neither touching a chaining verdict.** `Hex: Dev Tools` now advertises a
+> larger catalogue than its row records — 21 utilities across five categories, against the row's
+> three families — and it is now $2.99 rather than free. Deep links into a tool are navigation,
+> not chaining, so the row's `No` stands; a larger incumbent catalogue strengthens H1's objection
+> and says nothing about the claim, which was never about tool count. `Tooly`'s listing also
+> advertises a macOS command-line interface, a second out-of-app route beside the Shortcuts one
+> the row already names.
+>
+> **Verdict: the 2026-08-31 scan is re-affirmed as still current on the evidence of a
+> listing-level re-check, with all three limits above on the record.** The standing action in H5
+> is unchanged and now sharper: re-run the full on-device protocol before submission, and open
+> `Blissum` first. Full transcript:
+> `.planning/phases/08-submission-artifacts-store-metadata/evidence/08-08-scan-reaffirmation.txt`.
+
 This scan exists because the differentiation claim this file will make is
 checkable only against the actual App Store shelf. App Store search results are
 region-, device-, and account-specific and cannot be reproduced from a build

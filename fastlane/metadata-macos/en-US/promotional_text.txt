@@ -1,0 +1,1 @@
+Convert and inspect text without leaving the machine. One tool's output feeds the next, every intermediate value stays visible, and any step can be removed.

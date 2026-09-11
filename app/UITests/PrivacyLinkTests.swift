@@ -41,10 +41,9 @@ import XCTest
 // application under test down with it. Nothing below waits for an element that
 // is expected to be ABSENT, and nothing below walks the whole tree.
 //
-// NOTHING HERE FOLLOWS THE LINK OUT OF THE APP. Whether the system browser comes
-// forward on the policy page is verified once, attended, on a real build; an
-// XCUITest that chases the app into Safari asserts something the system owns and
-// fails for reasons that are not about this app.
+// NOTHING HERE FOLLOWS THE LINK OUT OF THE APP. The hand-off is measured once, by
+// a throwaway probe on a real build; an XCUITest that chases the app into Safari
+// asserts something the system owns and flakes for reasons that are not this app's.
 //
 // C-25 BOUNDS WHAT THIS PROVES: Swift 5.9 / `SWIFT_STRICT_CONCURRENCY: minimal`,
 // like every file in this target, so this is META-06 evidence and never
@@ -114,14 +113,12 @@ final class PrivacyLinkTests: XCTestCase {
     /// each failure naming its surface, all three before any total.
     ///
     /// **THIS ONE CASE CONTINUES AFTER A FAILURE, AND THE REASON IS THE CLAIM.**
-    /// Every other case in this target stops at the first failure because it
-    /// DRIVES something and a later step would measure wreckage. Nothing is
-    /// driven here: each surface gets its own pinned launch, so the three
-    /// measurements are independent, and stopping at the first would report one
-    /// surface when three were available. D-118's claim is about all three — "the
-    /// control is missing on Timestamps" and "the control is missing everywhere"
-    /// are different defects with different causes, and a suite that can only
-    /// ever name the first surface cannot tell them apart.
+    /// Every other case here stops at the first failure because it DRIVES
+    /// something and a later step would measure wreckage. Nothing is driven here:
+    /// each surface gets its own pinned launch, so the three measurements are
+    /// independent. "Missing on Timestamps" and "missing everywhere" are
+    /// different defects with different causes, and a suite that can only ever
+    /// name the first surface cannot tell them apart.
     func testOnePrivacyControlOnEverySurface() {
         continueAfterFailure = true
         var perSurface: [(name: String, found: Int)] = []
@@ -132,27 +129,39 @@ final class PrivacyLinkTests: XCTestCase {
 
             // ONE `count` READ per population. The control is either there or it
             // is not; waiting could only turn an absence into a slower absence.
-            let found = controlCount(AccessibilityIdentifiers.Shell.privacyPolicy)
-            let nodes = count(AccessibilityIdentifiers.Shell.privacyPolicy)
-            let frames = Set(rects(AccessibilityIdentifiers.Shell.privacyPolicy))
-            record("privacy_control_\(surface.name)=\(found) privacy_nodes_\(surface.name)=\(nodes) "
-                + "privacy_frames_\(surface.name)=\(frames.count)")
+            let ident = AccessibilityIdentifiers.Shell.privacyPolicy
+            let found = controlCount(ident)
+            let drawn = frames(ident).filter { !$0.isEmpty }
+            let span = drawn.dropFirst().reduce(drawn.first ?? .zero) { $0.union($1) }
+            let largest = drawn.max { $0.width * $0.height < $1.width * $1.height } ?? .zero
+            record("privacy_control_\(surface.name)=\(found) privacy_nodes_\(surface.name)=\(drawn.count) "
+                + "privacy_frames_\(surface.name)=\(Set(drawn.map(describeRect)).count) "
+                + "privacy_span_\(surface.name)=\(describeRect(span)) "
+                + "privacy_largest_\(surface.name)=\(describeRect(largest))")
 
             XCTAssertEqual(
                 found,
                 1,
-                "the \(surface.name) surface carries \(found) privacy controls, expected exactly 1 — "
-                    + "no pressable element on \(surface.name) carries \(AccessibilityIdentifiers.Shell.privacyPolicy)"
+                "the \(surface.name) surface carries \(found) privacy controls, expected exactly 1 "
+                    + "pressable element carrying \(ident)"
+            )
+            // IT OCCUPIES SPACE. An element published with an empty frame renders
+            // nothing a reviewer can reach, and the clause below would then be
+            // comparing two zero rects and passing about nothing.
+            XCTAssertFalse(
+                drawn.isEmpty,
+                "\(surface.name): every element carrying \(ident) has an empty frame — the control occupies no space"
             )
             // AND THEY ARE ONE CONTROL, not two that happen to be pressable once.
-            // This clause is type-agnostic where the one above is not, so a
-            // runtime that publishes the wrapper as something else still fails
-            // here if a SECOND control ever appears on a surface.
-            XCTAssertEqual(
-                frames.count,
-                1,
-                "\(surface.name): the \(nodes) elements carrying \(AccessibilityIdentifiers.Shell.privacyPolicy) "
-                    + "occupy \(frames.count) distinct frames \(frames.sorted()) — that is \(frames.count) controls, not one"
+            // Type-agnostic where the clause above is not, so a runtime that
+            // publishes the wrapper as something other than a button still fails
+            // here the moment a SECOND control appears on a surface.
+            XCTAssertTrue(
+                Self.isOneControl(span: span, largest: largest),
+                "\(surface.name): the \(drawn.count) elements carrying \(ident) span "
+                    + "\(describeRect(span)), which exceeds the largest single node "
+                    + "\(describeRect(largest)) by more than \(Self.frameTolerance) pt on some edge "
+                    + "— that is more than one control"
             )
             perSurface.append((surface.name, found))
         }
@@ -301,18 +310,16 @@ final class PrivacyLinkTests: XCTestCase {
     /// The PRESSABLE elements carrying `identifier` — the controls themselves.
     ///
     /// **Scoped to one element type, and the scope is a measurement.** A SwiftUI
-    /// navigation-bar item publishes the SAME control twice here: a wrapper and
-    /// the control, at byte-identical frames. Measured on iOS 18.6 with a
-    /// throwaway probe (`evidence/08-11-probe.swift`,
-    /// `evidence/08-11-privacy-link-controls.txt` §2): two nodes of element types
-    /// `other` and `button`, one frame, both hittable and both enabled. So an
-    /// unscoped count answers 2 for ONE control, and an invariant reading
-    /// "exactly one" over that population is an invariant about the platform's
-    /// tree shape rather than about this app. The control is the pressable one;
-    /// 08-09's probe reached the same element on iOS 17.5, 18.6 and 26.1 through
-    /// this same population. The unscoped count is recorded beside it, and the
-    /// clause that actually refuses a SECOND control is the frame one, which is
-    /// type-agnostic.
+    /// navigation-bar item publishes the SAME control twice here — a wrapper and
+    /// the control, element types `other` and `button`, both hittable and both
+    /// enabled (`evidence/08-11-probe.swift`, and §2 of that plan's transcript).
+    /// So an unscoped count answers 2 for ONE control, and "exactly one" over
+    /// that population would be an invariant about the platform's tree shape
+    /// rather than about this app. The control is the pressable one; 08-09's
+    /// probe reached it on 17.5, 18.6 and 26.1 through this same population. The
+    /// unscoped count is recorded beside it, and the type-agnostic clause that
+    /// also refuses a SECOND control is ``isOneControl(span:largest:)`` — read
+    /// the amendment there before trusting anything about those two frames.
     private func controls(_ identifier: String) -> XCUIElementQuery {
         app.buttons.matching(identifier: identifier)
     }
@@ -322,16 +329,58 @@ final class PrivacyLinkTests: XCTestCase {
         controls(identifier).count
     }
 
-    /// Every frame occupied by an element carrying `identifier`, as text.
+    /// Every frame occupied by an element carrying `identifier`.
     ///
-    /// A bounded loop over a `count` already taken, never a wait. `describeRect`
-    /// is `LaunchLayoutSupport.swift:250`'s, so a frame reads the same here as in
-    /// every other evidence line in this target.
-    private func rects(_ identifier: String) -> [String] {
+    /// A bounded loop over a `count` already taken, never a wait. Evidence lines
+    /// render these through `describeRect`, which is `LaunchLayoutSupport.swift:250`'s,
+    /// so a frame reads the same here as everywhere else in this target.
+    private func frames(_ identifier: String) -> [CGRect] {
         let query = all(identifier)
         let matched = query.count
         guard matched > 0 else { return [] }
-        return (0 ..< matched).map { describeRect(query.element(boundBy: $0).frame) }
+        return (0 ..< matched).map { query.element(boundBy: $0).frame }
+    }
+
+    /// How far the union of every node's frame may exceed the largest single node
+    /// before those nodes have stopped being ONE control, in points.
+    ///
+    /// One point, bounded from both sides by measurements rather than chosen.
+    /// Below it: the frames this app publishes are not integers —
+    /// `(352.3333333333333, 61.00000000000002, …)` on iOS 18.6 — so zero tolerance
+    /// compares floating-point noise. Above it: the NARROWEST node measured for
+    /// this control is 30 pt wide, so a tolerance thirty times smaller than the
+    /// thing it detects cannot hide a second bar item.
+    private static let frameTolerance: CGFloat = 1
+
+    /// Do these nodes describe ONE control?
+    ///
+    /// **THE INVARIANT, AND IT IS THE SECOND ATTEMPT — AMENDED 2026-09-11.** The
+    /// first version asserted that the matched elements occupy exactly one DISTINCT
+    /// frame, on the strength of a measurement taken on iOS 18.6 where the wrapper
+    /// and the button were byte-identical. That is a RUNTIME-SPECIFIC ACCIDENT.
+    /// On iOS 26.1 SwiftUI publishes them 3 pt apart in x and 6 pt apart in width —
+    /// `(319.0,24.0,36.0,36.0)` and `(322.0,24.0,30.0,36.0)` on a 375 pt window,
+    /// `(346.0,66.0,36.0,36.0)` and `(349.0,66.0,30.0,36.0)` on an iPhone 17 Pro —
+    /// so the old clause read one control as two and the suite exited 65 on an
+    /// UNTOUCHED tree. Worse, plan 08-12 measured that it INVERTED: the
+    /// contract-forbidden 88 pt box collapses the two frames onto one and turns the
+    /// clause GREEN under the very regression it exists to refuse.
+    ///
+    /// What actually holds on every runtime measured is not sameness but
+    /// CONTAINMENT: however many nodes the platform publishes, they all sit inside
+    /// the bounds of ONE of them. So the union of every node's frame must be no
+    /// bigger than the largest single node's frame. Two real controls anywhere
+    /// apart on a bar produce a union far wider than either, and fail.
+    ///
+    ///     runtime   nodes   distinct frames   union == largest
+    ///     17.5      2       1                 yes
+    ///     18.6      2       1                 yes
+    ///     26.1      2       2                 yes
+    private static func isOneControl(span: CGRect, largest: CGRect) -> Bool {
+        abs(span.minX - largest.minX) <= frameTolerance
+            && abs(span.minY - largest.minY) <= frameTolerance
+            && abs(span.maxX - largest.maxX) <= frameTolerance
+            && abs(span.maxY - largest.maxY) <= frameTolerance
     }
 
     /// The first element carrying `identifier`.

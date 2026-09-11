@@ -29,11 +29,19 @@
 #      half is not redundant, and this is the sharpest thing in the file:
 #      `//` opens a comment at ANY position in an xcconfig value, so a plainly
 #      written `PRIVACY_POLICY_URL = https://host/privacy/` resolves — in Xcode,
-#      measured 2026-09-11 on 26.1.1 — to the four characters `https:`. That
-#      value is NON-EMPTY, so a presence check passes it, and it parses with
-#      scheme `https` (`URI.parse("https:").scheme` is `"https"` and its `.host`
-#      is nil), so a scheme check passes it too. An app shipping it opens
-#      nothing. The host assertion is the only one of the three that fails.
+#      measured 2026-09-11 on 26.1.1 — to the six characters `https:`. That
+#      value is NON-EMPTY, so a presence check passes it. And measured on Ruby
+#      3.3.12, `URI.parse("https:")` does NOT raise: it answers
+#      `scheme="https"`, `host=nil`, `path=""`. So a gate built on URI that
+#      checked only the scheme would pass it too, while the app opens nothing.
+#      This gate DECOMPOSES instead (see `decompose_url`), and `"https:"` has no
+#      `scheme://authority` shape at all, so it fails the decomposition, the
+#      scheme check and the authority check together. That last part is MEASURED,
+#      NOT PREDICTED — the first draft of this comment claimed the authority
+#      check would be the only one to fire, and `control=url-truncated` in
+#      evidence/08-06-built-plist.txt showed otherwise, printing red/green per
+#      assertion. The control corrected the comment; the comment did not survive
+#      on plausibility.
 #   3. It EQUALS `Xcconfig.value(app/Identity.xcconfig, PRIVACY_POLICY_URL)`.
 #      Presence alone would pass on a hardcoded Swift or manifest literal, which
 #      `PROJECT.md`'s parameterization constraint forbids; equality with the one
@@ -331,8 +339,8 @@ assert plist.key?(URL_PLIST_KEY) && !bundle_url.to_s.empty?, "builtplist", REL,
 parts = decompose_url(bundle_url)
 
 assert !parts.nil?, "builtplist", REL,
-       "#{URL_PLIST_KEY} decomposes into scheme + authority + path. It is " \
-       "#{bundle_url.inspect}, which has no `scheme://authority` shape at all"
+       "#{URL_PLIST_KEY} decomposes into scheme + authority + path — " \
+       "#{parts.nil? ? "#{bundle_url.inspect} has no `scheme://authority` shape at all" : "#{bundle_url.inspect} does"}"
 
 assert !parts.nil? && parts[:scheme] == REQUIRED_SCHEME, "builtplist", REL,
        "#{URL_PLIST_KEY}'s scheme is exactly #{REQUIRED_SCHEME.inspect} — found " \

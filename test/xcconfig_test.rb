@@ -58,6 +58,7 @@ require "fileutils"
 require "open3"
 require "rbconfig"
 require "tmpdir"
+require "uri"
 
 ROOT   = File.expand_path("..", __dir__)
 PARSER = File.join(ROOT, "bin", "lib", "xcconfig.rb")
@@ -339,6 +340,79 @@ assert code.zero? && out.b.include?("\xC2\xA9".b),
 _out, err, code = cli(LIVE, "DEFINITELY_NOT_A_KEY")
 assert_eq code, 3, "an undefined key in the live file exits 3"
 assert err.include?("DEFINITELY_NOT_A_KEY"), "the live-file failure names the key"
+
+# ─── URL-shaped values: the `//` truncation, live rather than on a fixture ────
+#
+# PROBE_URL above already proves the CONTRACT — `https://example.com/x` resolves
+# to the four characters `https:`, because `//` opens a comment at any position.
+# What that assertion cannot see is whether the TRACKED file walked into it, and
+# the truncated form is the dangerous one: `https:` is non-empty, so the
+# preflight passes it; it parses with scheme `https`, so a scheme check passes
+# it; and the app ships a link that opens nothing. Every check upstream of the
+# artefact says yes.
+#
+# Measured 2026-09-11 on Xcode 26.1.1 — this is Xcode's behaviour, not a quirk
+# of bin/lib/xcconfig.rb. `xcodebuild -showBuildSettings -target App-macOS
+# -configuration Release -xcconfig <probe>` on a two-row probe file:
+#
+#     PROBE_PLAIN   = https://example.com/privacy/          ->  https:
+#     PROBE_SLASHED = https:$(S)$(S)example.com/privacy/    ->  https://example.com/privacy/
+#
+# So the tracked file spells no literal `//` in any value and reassembles URLs
+# through URL_SLASH. Both halves are asserted: the mechanism works, and the file
+# uses it.
+
+puts
+puts "xcconfig — URL-shaped values in the live file (the `//` truncation, UL-035's neighbour):"
+
+with_tree("Main.xcconfig" => %(S = /\nWHOLE = https:$(S)$(S)example.com/a/b/\nBROKEN = https://example.com/a/b/\n)) do |root|
+  f = File.join(root, "Main.xcconfig")
+  assert_eq Xcconfig.value(f, "BROKEN"), "https:",
+            "the plainly-written URL is truncated to its scheme — non-empty, still a `https` scheme, and useless"
+  assert_eq Xcconfig.value(f, "WHOLE"), "https://example.com/a/b/",
+            "the $(SLASH)$(SLASH) indirection reassembles the whole URL — the mechanism app/Identity.xcconfig relies on"
+end
+
+# The population, enumerated and counted BEFORE anything iterates it: every
+# assignment the live file owns whose resolved value looks like a URL. `own` is
+# the right question here — this is about what THIS tracked file says, not what
+# Xcode would resolve after following the gitignored include.
+live_own      = Xcconfig.own(LIVE)
+live_resolved = live_own.keys.to_h { |k| [k, Xcconfig.value(LIVE, k).to_s] }
+url_keys      = live_resolved.select { |_k, v| v.start_with?("http") }.keys.sort
+puts "  live_url_keys=#{url_keys.length} (#{url_keys.join(', ')})"
+assert !url_keys.empty?,
+       "the live file assigns at least one URL-shaped value — an empty population would make every assertion below vacuous"
+
+url_keys.each do |key|
+  resolved = live_resolved[key]
+  parsed   = begin
+    URI.parse(resolved)
+  rescue URI::InvalidURIError
+    nil
+  end
+  assert !parsed.nil? && parsed.scheme == "https",
+         "the live #{key} parses as a URL with scheme https (got #{resolved.inspect})"
+  assert !parsed.nil? && !parsed.host.to_s.empty?,
+         "the live #{key} has a non-empty HOST — this is the assertion `https:` fails and a scheme check does not (got #{resolved.inspect})"
+  assert !parsed.nil? && !parsed.path.to_s.empty?,
+         "the live #{key} has a non-empty path (got #{resolved.inspect})"
+  assert !resolved.include?("$("),
+         "the live #{key} resolves with no `$(` left in it — every reference expanded (got #{resolved.inspect})"
+end
+
+# The rule that keeps the defect out, asserted over every value line rather than
+# over the URL keys alone: a future key added with a literal `//` is the same
+# defect wearing a different name.
+value_lines = File.read(LIVE, encoding: "UTF-8").lines.map(&:chomp).each_with_index
+                  .select { |line, _i| Xcconfig::ASSIGN.match(line) }
+puts "  live_value_lines=#{value_lines.count}"
+assert value_lines.count >= LIVE_KEYS.length,
+       "the value-line population (#{value_lines.count}) covers at least the #{LIVE_KEYS.length} required keys — a smaller one would not be looking at the file"
+offenders = value_lines.select { |line, _i| Xcconfig::ASSIGN.match(line)[3].to_s.include?("//") }
+                       .map { |line, i| "#{i + 1}: #{line}" }
+assert offenders.empty?,
+       "no value line in app/Identity.xcconfig contains a literal `//` — everything after it is a comment to Xcode#{offenders.empty? ? '' : " — offending: #{offenders.join(' | ')}"}"
 
 # ─── The stdlib-only promise review-notes.yml:77 makes on this file's behalf ──
 

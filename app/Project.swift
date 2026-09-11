@@ -51,6 +51,13 @@ let iosInfoPlist: [String: Plist.Value] = [
     // plist is this dictionary (GENERATE_INFOPLIST_FILE = NO), so the setting
     // resolved in -showBuildSettings but the built plist had no key.
     "NSHumanReadableCopyright": "$(COPYRIGHT)",
+    // The URL the in-app privacy control opens, read by the app out of its OWN
+    // bundle (D-120). Here as a plist key for the same measured reason
+    // NSHumanReadableCopyright is: INFOPLIST_KEY_* is inert under
+    // GENERATE_INFOPLIST_FILE = NO. It expands because
+    // INFOPLIST_EXPAND_BUILD_SETTINGS = YES. The value has no literal `//` in
+    // Identity.xcconfig — see URL_SLASH there, and do not inline it.
+    "PrivacyPolicyURL": "$(PRIVACY_POLICY_URL)",
     "UILaunchScreen": .dictionary([:]),
     "UIApplicationSceneManifest": .dictionary([
         "UIApplicationSupportsMultipleScenes": false,
@@ -95,7 +102,14 @@ let iosTarget = Target.target(
         "PRODUCT_BUNDLE_IDENTIFIER": "$(BUNDLE_ID)",
         "TARGETED_DEVICE_FAMILY": "1,2",
         "SUPPORTS_MACCATALYST": "NO",
-        "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
+        // INERT ON THIS TARGET and kept for cross-generator parity only: an
+        // INFOPLIST_KEY_* setting reaches the bundle only under
+        // GENERATE_INFOPLIST_FILE = YES, and this target's plist is
+        // iosInfoPlist above (= NO), so the setting resolves in
+        // -showBuildSettings and the built iOS plist has no key. It still
+        // carries the D-123 value, because a site left saying Utilities is a
+        // site the next reader believes.
+        "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.developer-tools",
     ])
 )
 
@@ -106,8 +120,15 @@ let macInfoPlist: [String: Plist.Value] = [
     "CFBundleShortVersionString": "$(MARKETING_VERSION)",
     "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
     "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
-    "LSApplicationCategoryType": "public.app-category.utilities",
+    // LIVE — this is the one that ships. Apple requires the key for Mac App
+    // Store distribution and requires it to match the category actually
+    // selected in App Store Connect; D-123 locks Developer Tools, no secondary,
+    // and ROADMAP criterion 3(c) requires the bundle key to agree with it. A
+    // disagreement here is a submission-time mismatch.
+    "LSApplicationCategoryType": "public.app-category.developer-tools",
     "NSHumanReadableCopyright": "$(COPYRIGHT)",
+    // See iosInfoPlist above — same key, same mechanism, same source.
+    "PrivacyPolicyURL": "$(PRIVACY_POLICY_URL)",
     "NSPrincipalClass": "NSApplication",
     // CFBundleIconName intentionally NOT set — its presence makes Sonoma+
     // prefer Assets.car AppIcon (which has actool's broken 4-size set).

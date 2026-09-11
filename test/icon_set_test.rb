@@ -206,8 +206,17 @@ end
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 # argv array, never a shell string.
+#
+# The child's output is read with its encoding PINNED. A subprocess read inherits
+# Encoding.default_external, so with LANG and LC_ALL unset the String comes back
+# tagged US-ASCII and the first strip, concatenation or regex over non-ASCII bytes
+# raises Encoding::CompatibilityError -- UL-048's class, arriving on the
+# subprocess side rather than the file side. sips echoes the PATH it was given
+# back on its first line, so a repository checked out under a non-ASCII path is
+# all it takes. test/encoding_test.rb caught this on its first run against this
+# file.
 def capture(*argv, chdir: ROOT)
-  out = IO.popen(argv, chdir: chdir, err: File::NULL, &:read)
+  out = IO.popen(argv, "r:UTF-8", chdir: chdir, err: File::NULL, &:read)
   [out.to_s, $?&.exitstatus]
 rescue SystemCallError => e
   ["", "unavailable: #{e.message}"]
@@ -227,7 +236,7 @@ def sips_props(path, *props)
   args << path
   out, status = capture(*args)
   found = {}
-  out.to_s.each_line do |line|
+  out.to_s.split("\n").each do |line|
     m = line.match(/\A\s+([A-Za-z0-9_]+):\s*(.*?)\s*\z/)
     found[m[1]] = m[2] if m
   end

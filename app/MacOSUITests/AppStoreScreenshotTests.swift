@@ -18,22 +18,22 @@ import XCTest
 /// re-run independently.
 @MainActor
 final class AppStoreScreenshotTests: XCTestCase {
-    private var app: XCUIApplication!
+    var app: XCUIApplication!
 
     /// The POINT size `-UITestWindowSize` is asked for. **The target PIXEL pair is named in prose
     /// and never spelled here, because the gate on this file greps for it and a comment stating
     /// it would turn that gate red by existing** (`.continue-here.md`, blocking). The rule under
     /// that: pixels are the MEASUREMENT, taken from the produced PNG in the evidence file, and a
     /// test hardcoding them would pass on a machine whose backing scale makes them wrong.
-    private static let captureWindowSize = "1440x900"
+    static let captureWindowSize = "1440x900"
 
     /// `Operation.allCases.count`, asserted before any menu index is taken, and this chain's two
     /// indices — each proven at capture time against that operation's own catalog string.
-    private static let operationCount = 10
-    private static let base64EncodeItem = 0
-    private static let sha256Item = 8
-    private static let base64EncodeTitle = "Base64 encode"
-    private static let sha256Title = "SHA-256"
+    static let operationCount = 10
+    static let base64EncodeItem = 0
+    static let sha256Item = 8
+    static let base64EncodeTitle = "Base64 encode"
+    static let sha256Title = "SHA-256"
 
     /// The two `EncodeFormat` raw values `LaunchState` does not spell.
     private static let htmlFormat = "encode.format.html"
@@ -50,8 +50,12 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// finds an element by this string (`PrivacyLinkTests.swift:80-89`).
     private static let privacyPolicyTitle = "Privacy Policy"
 
+    /// Attempts ``scrollValuesIntoFrame(_:)`` may take, and the slack it settles for.
+    static let scrollAttempts = 6
+    static let scrollMargin: CGFloat = 12
+
     /// What the last ``contentBounds()`` call found, for the evidence line.
-    private var chrome = "none"
+    var chrome = "none"
 
     /// Hashing's four cells and Timestamps' three, from the shipped identifier enum.
     private static let hashingCells = [
@@ -104,12 +108,10 @@ final class AppStoreScreenshotTests: XCTestCase {
     private func chainShot(_ named: String, _ appearance: String) -> String {
         launch(Self.pinning(LaunchState.encodeDestination, format: Self.htmlFormat), appearance)
         fillFromExample(AccessibilityIdentifiers.Encode.useExample, reading: AccessibilityIdentifiers.Encode.input)
-        addStep(Self.base64EncodeItem, Self.base64EncodeTitle)
-        addStep(Self.sha256Item, Self.sha256Title)
-        // THE ROOT CARD'S OUTPUT CARRIES `Encode.output`, NOT `Step.output` — `EncodeSurface.swift:169`
-        // passes `valueIdentifier: Encode.output` into the seeded card and only the APPENDED cards
-        // keep the default. A gate counting three `Step.output` would be a correct check pointed at
-        // the wrong population (08-13 measured `[1, 2]`), so each contribution is asserted alone.
+        addStep(Self.base64EncodeItem, Self.base64EncodeTitle, landingAt: 1)
+        addStep(Self.sha256Item, Self.sha256Title, landingAt: 2)
+        // The root card's output carries `Encode.output`, NOT `Step.output`, so the population is
+        // [1, 2] and each contribution is asserted alone — `ScreenshotContract.swift` §"population".
         gate(named, cards: 3, sources: [
             ValueSource(AccessibilityIdentifiers.Encode.output, 1),
             ValueSource(AccessibilityIdentifiers.Step.output, 2)
@@ -149,11 +151,8 @@ final class AppStoreScreenshotTests: XCTestCase {
 
     // MARK: - The six capture-time preconditions
 
-    /// Assertions 1-6, all of them, before any tile is filed.
-    ///
-    /// **EVERYTHING IS MEASURED AND RECORDED BEFORE ANYTHING IS JUDGED.** `continueAfterFailure`
-    /// is false, so an assertion placed above the evidence line takes the evidence line with it —
-    /// and the numbers that would explain the failure are exactly the ones lost.
+    /// Assertions 1-6, all of them, before any tile is filed — everything measured and RECORDED
+    /// before anything is judged (`ScreenshotContract.swift` §"measured before judged").
     @discardableResult
     private func gate(_ shot: String, cards: Int, sources: [ValueSource], surface: String) -> [String] {
         let rendered = count(surface)
@@ -163,6 +162,7 @@ final class AppStoreScreenshotTests: XCTestCase {
         // The menu is opened, counted and closed FIRST, so every geometry read below is taken with
         // the window back in the state it will be photographed in.
         let controls = privacyItemsInTheAppMenu(shot)
+        scrollValuesIntoFrame(sources)
         let visible = contentBounds()
         let seen = values(sources)
         let texts = seen.map(\.text)
@@ -233,17 +233,22 @@ final class AppStoreScreenshotTests: XCTestCase {
         // `CommandGroup` button carry its accessibility identifier into the macOS menu bar?
         let byIdentifier = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy).count
         var found = byIdentifier
-        var title = ""
+        var read = "", entries = 0
         if byIdentifier == 0 {
-            let entries = menu.descendants(matching: .menuItem)
-            let population = entries.count
-            if population > Self.privacyItemIndex {
-                title = entries.element(boundBy: Self.privacyItemIndex).renderedText
-                found = title == Self.privacyPolicyTitle ? 1 : 0
+            // MEASURED: the `[OPEN]` resolves NEGATIVE, so fall back to the ordinal and read the
+            // item through renderedText UNIONED WITH `title` — AXTitle is where AppKit publishes a
+            // menu item's text and the shared read layer does not ask for it. Every component is
+            // recorded, so a zero here is a named measurement rather than a silent absence.
+            let all = menu.descendants(matching: .menuItem)
+            entries = all.count
+            if entries > Self.privacyItemIndex {
+                let item = all.element(boundBy: Self.privacyItemIndex)
+                read = item.renderedText.isEmpty ? item.title : item.renderedText
+                found = read == Self.privacyPolicyTitle ? 1 : 0
             }
         }
         record("\(shot) privacy_by_identifier=\(byIdentifier) privacy_found=\(found) "
-            + "privacy_positional_title=\"\(title)\" menubar_items=\(items)")
+            + "privacy_read=\"\(read)\" app_menu_items=\(entries) menubar_items=\(items)")
 
         app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
         app.activate()
@@ -254,7 +259,7 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// Measured rather than assumed — on this platform the title bar does not overlay content, so
     /// subtracting it is conservative, and what was found lands in ``chrome`` and comes out of the
     /// run rather than out of this sentence.
-    private func contentBounds() -> CGRect {
+    func contentBounds() -> CGRect {
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 30),
                       "no window resolved, so 'inside the frame' would be a comparison against nothing")
@@ -272,7 +277,7 @@ final class AppStoreScreenshotTests: XCTestCase {
     }
 
     /// Every value in `sources`, in source order, with the frame and the text read in ONE pass.
-    private func values(_ sources: [ValueSource]) -> [(frame: CGRect, text: String)] {
+    func values(_ sources: [ValueSource]) -> [(frame: CGRect, text: String)] {
         var found: [(frame: CGRect, text: String)] = []
         for source in sources {
             let query = all(source.identifier)
@@ -284,99 +289,19 @@ final class AppStoreScreenshotTests: XCTestCase {
         return found
     }
 
-    // MARK: - Driving, all of it by identifier and never by visible text
-
-    /// All five settings keys; surface and encode format chosen by the caller.
-    private static func pinning(_ surface: String, format: String) -> [String] {
-        [
-            LaunchState.selectionKey, surface,
-            LaunchState.encodeFormatKey, format,
-            LaunchState.encodeDirectionKey, LaunchState.forwardDirection,
-            LaunchState.timestampsReadAsKey, LaunchState.epochReadAs,
-            LaunchState.timestampsTimeZoneKey, LaunchState.fixedTimeZone
-        ]
-    }
-
-    /// A fresh application, pinned, in the requested appearance, at the requested POINT size.
-    ///
-    /// `activate()` so the window comes to front: without it the window may launch behind others
-    /// and XCUITest's window queries return nothing on a real Mac with other GUI apps running.
-    private func launch(_ pinning: [String], _ appearance: String) {
-        app = XCUIApplication()
-        app.launchArguments += ["UI_TESTING"]
-        app.launchArguments += ["-UITestColorScheme", appearance]
-        app.launchArguments += ["-UITestWindowSize", Self.captureWindowSize]
-        app.launchArguments += pinning
-        app.launch()
-        app.activate()
-
-        // The pre-existing File → New Window fallback, KEPT UNCHANGED AND NOT EXTENDED: it is the
-        // one by-visible-text menu query in this target and `evidence/08-11-controls.rb` counts them.
-        if !app.windows.firstMatch.waitForExistence(timeout: 8) {
-            let fileMenu = app.menuBarItems["File"]
-            if fileMenu.waitForExistence(timeout: 3) {
-                fileMenu.click()
-                let newWindow = app.menuItems["New Window"]
-                if newWindow.waitForExistence(timeout: 3) {
-                    newWindow.click()
-                }
-            }
-        }
-        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5), "App window must be visible")
-    }
-
-    /// Fill a surface's input from its worked-value control and hand back what the field holds.
-    ///
-    /// **This is also the per-shot RENDER GUARD**, using THAT surface's own identifier rather than
-    /// shot 01's: a window can exist before SwiftUI has drawn into it, which is how a screenshot
-    /// of an empty frame gets captured and uploaded.
-    @discardableResult
-    private func fillFromExample(_ control: String, reading field: String) -> String {
-        let button = element(control)
-        XCTAssertTrue(button.waitForExistence(timeout: 30), "no worked-value control carries \(control)")
-        XCTAssertTrue(element(field).waitForExistence(timeout: 30),
-                      "the window appeared but nothing carries \(field) — SwiftUI has not drawn this surface")
-        button.click()
-        let text = (element(field).value as? String) ?? ""
-        XCTAssertFalse(text.isEmpty, "the worked-value control left \(field) empty, so every value below this "
-            + "would be about the empty string")
-        return text
-    }
-
-    /// Open an add-step control and choose the item at `menuIndex` — having first proven the
-    /// menu's population is `Operation.allCases.count` AND that the index resolves to `title`.
-    private func addStep(_ menuIndex: Int, _ title: String) {
-        let controls = all(AccessibilityIdentifiers.Step.addStep)
-        XCTAssertTrue(controls.element(boundBy: 0).waitForExistence(timeout: 20), "no add-step control on the surface")
-        controls.element(boundBy: 0).click()
-
-        let items = all(AccessibilityIdentifiers.Step.addStepMenu)
-        XCTAssertTrue(items.element(boundBy: menuIndex).waitForExistence(timeout: 20),
-                      "the add-step menu presented no item at index \(menuIndex)")
-        let population = items.count
-        XCTAssertEqual(population, Self.operationCount,
-                       "the menu presented \(population) items, expected Operation.allCases.count "
-                           + "= \(Self.operationCount)")
-        let item = items.element(boundBy: menuIndex)
-        XCTAssertEqual(assertReadable(item, "the add-step menu item at index \(menuIndex)"), title,
-                       "menu index \(menuIndex) resolves to something other than \(title) — `Operation.allCases` "
-                           + "has been reordered and this chain is not the chain it says it is")
-        item.click()
-    }
-
     // MARK: - Queries, the capture, and the evidence channel
 
     /// Every element carrying `identifier`, whatever kind of element it is.
-    private func all(_ identifier: String) -> XCUIElementQuery {
+    func all(_ identifier: String) -> XCUIElementQuery {
         app.descendants(matching: .any).matching(identifier: identifier)
     }
 
     /// How many elements carry `identifier` right now — one round trip, never a doomed wait.
-    private func count(_ identifier: String) -> Int {
+    func count(_ identifier: String) -> Int {
         all(identifier).count
     }
 
-    private func element(_ identifier: String) -> XCUIElement {
+    func element(_ identifier: String) -> XCUIElement {
         all(identifier).firstMatch
     }
 
@@ -393,7 +318,7 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// One measured line, emitted twice. A `print` from this bundle does NOT reach xcodebuild's
     /// pipe on macOS (06-01) — the runner is launched by `testmanagerd`, whose stdout is not
     /// connected to it — so every number also rides an `XCTContext` activity, which does cross.
-    private func record(_ line: String) {
+    func record(_ line: String) {
         print(line)
         XCTContext.runActivity(named: line) { _ in }
     }

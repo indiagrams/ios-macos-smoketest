@@ -80,6 +80,71 @@ import XCTest
 // `app (macOS)` matrix cells in pr.yml already compile this file and run `AppMacOSTests`.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// THE MENU ITEM IS UNREADABLE ON THIS PLATFORM — MEASURED 2026-09-11, NOT PREDICTED
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+//
+// The first execution of this harness FAILED, by name, on both test methods:
+//
+//     BLIND READ: the add-step menu item at index 0 renders nothing this test can read
+//
+// The iOS twin asserts that the menu index it takes resolves to that operation's own catalog
+// string, so a reordered `Operation.allCases` cannot silently build a different chain. On macOS
+// that read is blind: the add-step menu presented its full population of TEN items, each carrying
+// `Step.addStepMenu`, and item 0's text came back empty through BOTH `label` and `value`. This is
+// the same class 06-13 measured for `Menu` containers, one level further in — MATCHING works,
+// READING does not. `assertReadable` did exactly its job: it named a blind instrument instead of
+// letting `"" == ""` pass, which is the shape `BlindReadGuards.swift` exists for.
+//
+// SO THE CLAIM MOVED TO WHERE IT CAN BE MEASURED, RATHER THAN BEING DELETED. The assertion is now
+// on the card that LANDED: `Step.header` is `Text(title).accessibilityAddTraits(.isHeader)`
+// (`StepCard.swift:182-185`), and the six-shape measurement in
+// `evidence/07-UITESTSUPPORT-ax-shapes.swift` records that exact shape publishing its content in
+// AXDescription — which `.label` DOES read. That is strictly stronger than the iOS check: it
+// asserts the step that exists rather than the menu row that was clicked. The menu item's whole
+// attribute set is still RECORDED on every run, so the finding is on the record rather than in
+// this comment alone.
+//
+// THE SAME UNCERTAINTY REACHES ASSERTION 4, and it is handled the same way. `AppMacOSUITests/`'s
+// `PrivacyLinkTests` had COMPILED BUT NEVER EXECUTED anywhere when this was written (08-11's own
+// summary says so), so whether a `CommandGroup` button carries its accessibility identifier into
+// the macOS menu bar is still open. The count is taken by IDENTIFIER first — matching is not the
+// blind half — and only the fallback reads text, through renderedText UNIONED WITH `title`,
+// because AXTitle is where AppKit publishes a menu item's text and the shared read layer does not
+// ask for it. Every component is recorded, so a zero is a measurement and not an absence.
+//
+// NOT FIXED IN `app/UITestSupport/`: adding an AXTitle fallback to the shared read rule would
+// change every read on both platforms, which is a decision for a plan that owns that file.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// AND THEN THE RUN ANSWERED BOTH, 2026-09-11 — recorded here because they are expensive to
+// re-derive and because one of them falsifies a live file
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+//
+//   addstep index=0 population=10 type=54 label="" value="" title="Base64 encode"
+//   addstep index=8 population=10 type=54 label="" value="" title="SHA-256"
+//   01-chain-light privacy_by_identifier=0 privacy_found=1 privacy_read="Privacy Policy"
+//                  app_menu_items=19 menubar_items=7
+//
+// 1  A macOS MENU ITEM (elementType 54) PUBLISHES ITS TEXT IN **AXTitle** AND IN NEITHER OF THE
+//    TWO ATTRIBUTES THE SHARED READ RULE ASKS FOR. `label` and `value` are both empty on an item
+//    whose title is plainly "Base64 encode". `ElementText.swift`'s rule is `label` then `value`,
+//    measured over six IN-WINDOW shapes; a menu item is a seventh shape it never covered, and on
+//    that shape the rule is structurally blind. This is a finding ABOUT THE READ LAYER, not about
+//    this app.
+//
+// 2  A SwiftUI `CommandGroup` BUTTON DOES **NOT** CARRY ITS ACCESSIBILITY IDENTIFIER INTO THE
+//    macOS MENU BAR. `08-UI-SPEC.md`'s Open Item 2 resolves NEGATIVE — the same answer 06-13
+//    measured for `Menu` containers. The item is reached by its ordinal instead, and its title
+//    reads correctly through the union above.
+//
+//    **THIS FALSIFIES A LIVE FILE.** `app/MacOSUITests/PrivacyLinkTests.swift` takes exactly this
+//    fallback and then calls `assertReadable` / `assertRendersText` on the item — reads that go
+//    through `label` then `value`, both of which are empty here. That suite HAS NEVER EXECUTED
+//    ANYWHERE (08-11's own summary says so), and on its first execution it will fail with a BLIND
+//    READ on the branch it was written to take. Not fixed here: that file is outside this plan's
+//    scope. It is recorded in `deferred-items.md` with the numbers.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT THIS HARNESS DELIBERATELY DOES NOT CARRY
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 //

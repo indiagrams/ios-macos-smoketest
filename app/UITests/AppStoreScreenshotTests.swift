@@ -5,11 +5,10 @@ import XCTest
 // `deliver` re-orders every set in App Store Connect by the NATURAL SORT OF THE FILE NAME
 // (`deliver/lib/deliver/upload_screenshots.rb:242-260`), and an iOS file name is
 // `"\(simulator)-\(name).png"` (`SnapshotHelper.swift:185`). The ordinal below IS the sort key, so
-// D-125's "lead with the chained pipeline" is checkable on disk without uploading anything. LIGHT
-// TAKES 01-04 AND DARK 05-08 DELIBERATELY: both appearances land in ONE set, so a `01-…-light` /
-// `01-…-dark` pairing would sort the dark tile first and the lead tile would be decided
-// alphabetically. That lead tile is the 4.3(b) argument made visual — three values in three
-// alphabets at three lengths, so a reviewer who does not read the strings still sees one change.
+// D-125's "lead with the chained pipeline" is checkable on disk without uploading. LIGHT TAKES 01-04
+// AND DARK 05-08 DELIBERATELY: both appearances land in ONE set, so a `01-…-light` / `01-…-dark`
+// pairing would sort the dark tile first and the lead tile would be alphabetical accident. That lead
+// tile is the 4.3(b) argument made visual — three values in three alphabets at three lengths.
 //
 // NOTHING IS FILED UNTIL SIX PRECONDITIONS HOLD. The capture takes the RESULT of the function that
 // drove and gated the shot, so those six assertions are the capture's own argument expression and
@@ -42,8 +41,8 @@ import XCTest
 final class AppStoreScreenshotTests: XCTestCase {
     private var app: XCUIApplication!
 
-    /// `Operation.allCases.count`, asserted before any menu index is taken, and the two indices this
-    /// chain uses — each proven at capture time against that operation's own catalog string.
+    /// `Operation.allCases.count`, asserted before any menu index is taken, and this chain's two
+    /// indices — each proven at capture time against that operation's own catalog string.
     private static let operationCount = 10
     private static let base64EncodeItem = 0
     private static let sha256Item = 8
@@ -51,20 +50,18 @@ final class AppStoreScreenshotTests: XCTestCase {
     private static let sha256Title = "SHA-256"
 
     /// The two `EncodeFormat` raw values `LaunchState` does not spell. Neither is trusted: the root
-    /// card is compared against this process's own encoding, so an unresolvable raw value fails
-    /// rather than capturing Base64 in silence.
+    /// card is compared against this process's own encoding, so an unresolvable one fails here.
     private static let htmlFormat = "encode.format.html"
     private static let urlFormat = "encode.format.url"
 
     private static let light = "light", dark = "dark"
 
-    /// Drags ``scrollValuesIntoFrame(_:)`` may take, and the slack it leaves below the last value.
-    private static let scrollAttempts = 3
+    /// Drags ``scrollValuesIntoFrame(_:)`` may take, and its slack below the last value.
+    private static let scrollAttempts = 4
     private static let scrollMargin: CGFloat = 12
 
     /// What the last ``contentBounds()`` call found at the window's edges, for the evidence line.
     private var chrome = "none"
-
     /// Hashing's four cells and Timestamps' three, from the shipped identifier enum.
     private static let hashingCells = [
         AccessibilityIdentifiers.Hashing.digestMD5,
@@ -298,9 +295,13 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// contract's stated fallback ("reduce to two appended steps") is a no-op here, because two
     /// appended steps IS this shot.
     ///
-    /// **Centring is not cosmetic.** A drag carries momentum, so aiming the span at an edge lands
-    /// past it — the first attempt at this overshot by 68 pt and pushed the ROOT card's value up
-    /// under the navigation bar. Centring leaves the slack on both sides. Bounded, and it loosens
+    /// **Centring is not cosmetic, and NEITHER IS THE HOLD.** A drag carries momentum, so aiming the
+    /// span at an edge lands past it — the first attempt at this overshot by 68 pt and pushed the
+    /// ROOT card's value under the navigation bar. Centring leaves slack on both sides; it was still
+    /// not enough. A capture run then failed on its first pass and passed on fastlane's retry with
+    /// the root value at y=5.3, which is a corrected drag OVERSHOOTING BACK — an oscillation, not a
+    /// shortfall. `thenHoldForDuration` is the fix: the finger stays down after the drag, so the
+    /// scroll view sees zero velocity at release and no fling is thrown. Bounded, and it loosens
     /// nothing: a span taller than the band returns immediately and assertion 2 reports it with the
     /// frames that prove it.
     private func scrollValuesIntoFrame(_ sources: [ValueSource]) {
@@ -314,7 +315,8 @@ final class AppStoreScreenshotTests: XCTestCase {
             let delta = top - (visible.minY + (visible.height - span) / 2)
             let step = max(-visible.height * 0.8, min(visible.height * 0.8, delta))
             let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -step)))
+            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -step)),
+                       withVelocity: .slow, thenHoldForDuration: 0.4)
         }
     }
 

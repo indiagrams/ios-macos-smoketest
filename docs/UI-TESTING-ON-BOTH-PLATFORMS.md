@@ -241,18 +241,41 @@ Apple's **stock `XCTRunner.app`** with the fork's test bundle injected and **nev
 so it carries an Apple-authority signature that *structurally cannot validate*. The refusal is
 about a broken seal, not about Developer ID or notarisation.
 
-**CONSEQUENCE — two things this page previously told you are wrong:**
+**CONSEQUENCE — §3.0's stated cause does not hold for this configuration.** Its diagnosis
+(a Development-signed bundle refused by execution policy) describes a runner this configuration
+does not produce.
 
-1. **`xattr -cr` is a NO-OP here.** There is no quarantine bit, and §3.0 is right that there is
-   nothing to remove — but it is then wrong to treat clearing it as the thing that would help.
-2. **The ad-hoc re-sign is the OPERATIVE step.** `codesign --force --deep --sign - <runner>`
-   replaces the broken seal with a valid one, and the runner then launches. Controlled
-   comparison, same machine:
+> **⚠ CORRECTED AGAIN, LATER THE SAME DAY. An earlier version of this subsection asserted that
+> `xattr -cr` is a no-op and that the ad-hoc re-sign is THE operative step. A third run
+> falsified that, and the wrong sentence is preserved here rather than deleted because the way
+> it was reached is the reusable lesson: it was written off TWO data points, and the third
+> disagreed.**
+>
+> The falsified claim: *"`xattr -cr` is a NO-OP here… the ad-hoc re-sign is the OPERATIVE step."*
+>
+> What refuted it: a run in which the re-sign **landed and was valid** — `Signature=adhoc`,
+> `TeamIdentifier=not set`, `codesign --verify --deep --strict` exit 0 *"valid on disk"*,
+> signed path identical to the path the kernel named, executable and `_CodeSignature` sharing
+> an mtime so nothing relinked — **and the runner was refused anyway**.
+>
+> The one difference from the morning's measurement: `xattr -lr` returned **`com.apple.macl`**,
+> where the same path had returned zero lines hours earlier. The `macl` appeared when the bundle
+> was refused once. So "zero extended attributes" was measured on a **never-launched** runner and
+> wrongly generalised — **`xattr -cr` is not a no-op once a bundle has been launched.**
 
-   | run | `xattr -cr` | ad-hoc re-sign | outcome |
-   |---|---|---|---|
-   | with the template's script | yes | **yes** | launched, exit 0, real window capture on disk, **no dialog** |
-   | without either | no | **no** | kernel refusal, *"damaged"* modal on the desktop, exit 65 |
+**WHAT IS ACTUALLY ESTABLISHED, and what is not.** Three runs on one machine, two variables:
+
+| run | `com.apple.macl` present | ad-hoc re-sign | outcome |
+|---|---|---|---|
+| via the template's script | no | **yes** | **launched**, exit 0, real window capture, no dialog |
+| neither step | no | no | kernel refusal, modal, exit 65 |
+| re-sign only, on a bundle already refused once | **yes** | **yes** | kernel refusal, modal, exit 65 |
+
+This is **consistent with both steps being necessary. It does not establish it** — no run has
+yet combined `xattr -cr` with the re-sign by hand, and derived-data freshness is not excluded
+either, because the script also `rm -rf`s DerivedData. The discriminating experiment is
+`xattr -cr` → re-sign → the same scoped test, one variable against the third row. Until someone
+runs it, the honest statement is the practical one below.
 
 **WHAT "DO NOT WORK AROUND IT" STILL MEANS, AND WHAT IT NO LONGER MEANS.**
 
@@ -264,10 +287,13 @@ about a broken seal, not about Developer ID or notarisation.
   `xattr -cr` + ad-hoc re-sign itself, between `build-for-testing` and `test-without-building`.
   Running it is therefore not a workaround at all; it is the supported path.
 
-**IF YOU DO NEED A LOCAL macOS UI RUN**, reproduce that same split —
-`build-for-testing` → `codesign --force --deep --sign - <runner>` → `test-without-building`,
-scoped with `-only-testing:` — and make sure **nothing relinks the runner between the re-sign
-and the test**, or you execute a binary you did not sign. Never run a bare full-scheme
+**IF YOU DO NEED A LOCAL macOS UI RUN: run `ci/take-screenshots.sh`, or reproduce ALL of what
+it does.** It is the only sequence measured to work here. It `rm -rf`s the derived-data path,
+runs `build-for-testing`, then **`xattr -cr` AND `codesign --force --deep --sign -`** on the
+runner, then `test-without-building`. Doing only the re-sign is measured to FAIL on a bundle
+that has been refused before. Do not drop a step because this page once called it a no-op.
+Ensure **nothing relinks the runner between the signing step and the test**, or you execute a
+binary you did not sign. Never run a bare full-scheme
 `xcodebuild test`: it puts a modal on a human's physical desktop, and if they click
 *Move to Trash* the runner is deleted from DerivedData and the next build silently rebuilds
 it, so the failure then presents as intermittent. **Cancel, never Move to Trash.**

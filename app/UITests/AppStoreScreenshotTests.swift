@@ -10,10 +10,13 @@ import XCTest
 // pairing would sort the dark tile first and the lead tile would be alphabetical accident. That lead
 // tile is the 4.3(b) argument made visual — three values in three alphabets at three lengths.
 //
-// NOTHING IS FILED UNTIL SIX PRECONDITIONS HOLD. The capture takes the RESULT of the function that
-// drove and gated the shot, so those six assertions are the capture's own argument expression and
+// NOTHING IS FILED UNTIL SEVEN PRECONDITIONS HOLD. The capture takes the RESULT of the function that
+// drove and gated the shot, so those seven assertions are the capture's own argument expression and
 // cannot be skipped while leaving a tile behind. Criterion 2 forbids "a launch or title screen", and
-// a test that captures whatever is on screen is how one ships.
+// a test that captures whatever is on screen is how one ships. THE SEVENTH IS THE ONE THIS GATE WENT
+// WITHOUT: assertion 2 judged the OUTPUT VALUES and only those, so four of eight iPhone tiles shipped
+// with the input field and the "Step 1 <name>" header scrolled off the top and every check green.
+// `ScreenshotFraming.swift` carries ASSERTION 7 and the arithmetic that makes it satisfiable.
 //
 // THE THREE VALUES OF SHOT 01 ARE THE SURFACE'S OWN. The root card is compared against an HTML
 // encoding THIS PROCESS computes — which is what proves the `encodeFormat` pin took, since a raw
@@ -39,7 +42,12 @@ import XCTest
 /// re-run independently (`--only_testing AppUITests/AppStoreScreenshotTests/testLightMode`).
 @MainActor
 final class AppStoreScreenshotTests: XCTestCase {
-    private var app: XCUIApplication!
+    /// The application under test.
+    ///
+    /// INTERNAL RATHER THAN PRIVATE, and not an oversight: `ScreenshotFraming.swift` is an extension in
+    /// another file and an extension cannot see a `private` member. The macOS twin declares this and
+    /// `chrome` internal for exactly the same reason.
+    var app: XCUIApplication!
 
     /// `Operation.allCases.count`, asserted before any menu index is taken, and this chain's two
     /// indices — each proven at capture time against that operation's own catalog string.
@@ -56,12 +64,25 @@ final class AppStoreScreenshotTests: XCTestCase {
 
     private static let light = "light", dark = "dark"
 
-    /// Drags ``scrollValuesIntoFrame(_:)`` may take, and its slack below the last value.
-    private static let scrollAttempts = 4
-    private static let scrollMargin: CGFloat = 12
+    /// Drags ``scrollValuesIntoFrame(_:head:)`` may take, and the room it keeps above the head.
+    ///
+    /// SIX RATHER THAN FOUR, and not a loosening of anything: the framing is BIDIRECTIONAL since the
+    /// chain began retracting, so one shot can need a descent to un-clip the head AND a rise to bring
+    /// the tail in. Four was the bound the one-way version needed; the macOS twin has been at six
+    /// since it was written. `scrollMargin` is the room ASSERTION 7 refuses to spend.
+    static let scrollAttempts = 6
+    static let scrollMargin: CGFloat = 12
+
+    /// How many steps the chain shot appends before it measures whether they fit.
+    private static let chainAppends = 2
+
+    /// `appended=N retracted=M` for the shot being captured — set by ``retractChainToFit(_:head:appended:)``,
+    /// reset by ``launch(_:_:)``, and on the evidence line of EVERY shot, so the composition of a tile
+    /// is a measurement rather than an inference from its file name.
+    var composition = "appended=0 retracted=0"
 
     /// What the last ``contentBounds()`` call found at the window's edges, for the evidence line.
-    private var chrome = "none"
+    var chrome = "none"
     /// Hashing's four cells and Timestamps' three, from the shipped identifier enum.
     private static let hashingCells = [
         AccessibilityIdentifiers.Hashing.digestMD5,
@@ -106,6 +127,13 @@ final class AppStoreScreenshotTests: XCTestCase {
     // MARK: - The four states, each returning its own name once it has earned it
 
     /// THE CHAIN — HTML encode, then Base64 encode, then SHA-256, over the worked example.
+    ///
+    /// **THE COMPOSITION IS MEASURED PER DEVICE RATHER THAN HARDCODED.** Both appends are made
+    /// everywhere; the surface then RETRACTS its last appended step while the head of the pipeline
+    /// and the tail of it cannot share the band. On iPad they always can — the band is 1288 pt and
+    /// the three cards span 287…1333 with every value inside — so the iPad tile keeps three values
+    /// and nothing scrolls. Degrading that tile to simplify the phone's harness would be a
+    /// regression caused by the fix, and is refused.
     private func chainShot(_ named: String, _ appearance: String) -> String {
         launch(Self.pinning(LaunchState.encodeDestination, format: Self.htmlFormat), appearance)
         let source = fillFromExample(AccessibilityIdentifiers.Encode.useExample,
@@ -114,15 +142,29 @@ final class AppStoreScreenshotTests: XCTestCase {
                           "\(named): the pinned root card, which is what proves encodeFormat really is HTML")
         addStep(Self.base64EncodeItem, Self.base64EncodeTitle)
         addStep(Self.sha256Item, Self.sha256Title)
-        let values = gate(named, cards: 3, sources: [
-            ValueSource(AccessibilityIdentifiers.Encode.output, 1),
-            ValueSource(AccessibilityIdentifiers.Step.output, 2)
-        ], surface: AccessibilityIdentifiers.Encode.output)
+        let head = Self.headIdentifiers(AccessibilityIdentifiers.Encode.input)
+        let surviving = retractChainToFit(named, head: head, appended: Self.chainAppends)
+        let values = gate(named, cards: 1 + surviving, sources: Self.chainSources(surviving),
+                          surface: AccessibilityIdentifiers.Encode.output,
+                          input: AccessibilityIdentifiers.Encode.input)
+        // STILL A CHAIN — counted from the TREE and not from the loop's own counter. `surviving`
+        // floors at 1 by construction, so an assertion on it could not fail; `Step.remove`'s
+        // population IS the appended cards (D-100), read off the surface that is being filed.
+        let appended = count(AccessibilityIdentifiers.Step.remove)
+        XCTAssertGreaterThan(appended, 0, "\(named): \(appended) appended cards survive the retraction — a "
+            + "root-only surface is not a chain and this tile makes no chaining argument")
         XCTAssertEqual(values[1], SecondOpinion.base64(values[0]),
                        "\(named): step 2 shows \(values[1]), expected this process's base64 of step 1")
-        XCTAssertEqual(values[2], SecondOpinion.sha256Hex(values[1]),
-                       "\(named): step 3 shows \(values[2]), expected this process's SHA-256 of step 2 — "
-                           + "a card that renumbered without recomputing looks exactly like this")
+        // WHICH BRANCH RAN IS RECORDED, so "the digest was checked" is a measurement. The SHA-256
+        // step is the one that retracts, because dropping the LAST append is the only rule a gate
+        // can state mechanically and it leaves the surviving chain's recomputation intact.
+        record("second_opinion shot=\(named) values=\(values.count) "
+            + "branch=\(values.count > 2 ? "base64+sha256" : "base64-only")")
+        if values.count > 2 {
+            XCTAssertEqual(values[2], SecondOpinion.sha256Hex(values[1]),
+                           "\(named): step 3 shows \(values[2]), expected this process's SHA-256 of step 2 — "
+                               + "a card that renumbered without recomputing looks exactly like this")
+        }
         return named
     }
 
@@ -132,7 +174,8 @@ final class AppStoreScreenshotTests: XCTestCase {
         let source = fillFromExample(AccessibilityIdentifiers.Hashing.useExample,
                                      reading: AccessibilityIdentifiers.Hashing.input)
         gate(named, cards: 1, sources: Self.hashingCells.map { ValueSource($0, 1) },
-             surface: AccessibilityIdentifiers.Hashing.digestSHA512)
+             surface: AccessibilityIdentifiers.Hashing.digestSHA512,
+             input: AccessibilityIdentifiers.Hashing.input)
         assertRendersText(element(AccessibilityIdentifiers.Hashing.digestSHA256), SecondOpinion.sha256Hex(source),
                           "\(named): the SHA-256 row, against this process's own digest of the input")
         return named
@@ -147,7 +190,8 @@ final class AppStoreScreenshotTests: XCTestCase {
         // the `.value` branch alone, so all three count 0 at launch and 1 after the tap above. A wait
         // assuming launch-time existence fails here and passes on Hashing: it looks like flake.
         let values = gate(named, cards: 1, sources: Self.timestampsCells.map { ValueSource($0, 1) },
-                          surface: AccessibilityIdentifiers.Timestamps.cellISO8601)
+                          surface: AccessibilityIdentifiers.Timestamps.cellISO8601,
+                          input: AccessibilityIdentifiers.Timestamps.input)
         XCTAssertEqual(values[0], source,
                        "\(named): the epoch cell shows \(values[0]) against an input of \(source) — the "
                            + "`unixEpoch` read-as pin did not take")
@@ -161,28 +205,33 @@ final class AppStoreScreenshotTests: XCTestCase {
         let source = fillFromExample(AccessibilityIdentifiers.Encode.useExample,
                                      reading: AccessibilityIdentifiers.Encode.input)
         let values = gate(named, cards: 1, sources: [ValueSource(AccessibilityIdentifiers.Encode.output, 1)],
-                          surface: AccessibilityIdentifiers.Encode.output)
+                          surface: AccessibilityIdentifiers.Encode.output,
+                          input: AccessibilityIdentifiers.Encode.input)
         XCTAssertEqual(values[0], SecondOpinion.percentEncoded(source),
                        "\(named): the root card shows \(values[0]), expected this process's percent-encoding "
                            + "— so this tile is not the URL format it claims to be")
         return named
     }
 
-    // MARK: - The six capture-time preconditions
+    // MARK: - The seven capture-time preconditions
 
-    /// Assertions 1-6, all of them, before any tile is filed — returning what it read, in source
+    /// Assertions 1-7, all of them, before any tile is filed — returning what it read, in source
     /// order, so a caller can relate the values without a second query.
     ///
     /// **EVERYTHING IS MEASURED AND RECORDED BEFORE ANYTHING IS JUDGED.** `continueAfterFailure` is
     /// false here, so an assertion placed before the evidence line takes the evidence line with it —
     /// and the numbers that would explain the failure are exactly the ones lost.
+    ///
+    /// `input` is the SURFACE'S OWN input identifier, named by each shot the way `surface:` already
+    /// is. It is the head of the pipeline, and until ASSERTION 7 existed nothing required it to be
+    /// in the photograph at all.
     @discardableResult
-    private func gate(_ shot: String, cards: Int, sources: [ValueSource], surface: String) -> [String] {
+    private func gate(_ shot: String, cards: Int, sources: [ValueSource], surface: String, input: String) -> [String] {
         let rendered = count(surface)
         let found = count(AccessibilityIdentifiers.Step.card)
         let matched = sources.map { count($0.identifier) }
-        scrollValuesIntoFrame(sources)
-        let visible = contentBounds()
+        let measure = frameShot(shot, sources: sources, input: input)
+        let visible = measure.band
         let seen = values(sources)
         let texts = seen.map(\.text)
         let ident = AccessibilityIdentifiers.Shell.privacyPolicy
@@ -192,6 +241,9 @@ final class AppStoreScreenshotTests: XCTestCase {
         record("shot=\(shot) cards=\(found) surface=\(rendered) population=\(matched) values=\(texts.count) "
             + "lengths=\(texts.map(\.count)) outside=\(outside.count) blocked=\(blocked) "
             + "privacy_pressable=\(controls) privacy_nodes=\(count(ident)) "
+            + "headTop=\(measure.headTop) headTop_by=\(measure.headTopBy) tailBottom=\(measure.tailBottom) "
+            + "requiredDelta=\(measure.requiredDelta) availableDelta=\(measure.availableDelta) "
+            + "fits=\(measure.fits) scrollBy=\(measure.scrollBy) \(composition) head=\(measure.describedHead) "
             + "frames=\(seen.map { describeRect($0.frame) }.joined(separator: ",")) "
             + "cardframes=\(frames(AccessibilityIdentifiers.Step.card).map(describeRect).joined(separator: ",")) "
             + "visible=\(describeRect(visible)) \(chrome)")
@@ -219,6 +271,14 @@ final class AppStoreScreenshotTests: XCTestCase {
             + "\(outside.map { describeRect($0.frame) }.joined(separator: " ")) — this tile shows fewer values "
             + "than it claims to")
 
+        // 7 — AND THE HEAD OF THE PIPELINE IS IN THE PHOTOGRAPH. The clause assertion 2 could not
+        // state, and the one this gate went without: four of eight iPhone tiles shipped with the
+        // input field and the "Step 1 <name>" header scrolled off the top while every VALUE was
+        // inside the band and every assertion was green. ASSERTION 2 IS UNTOUCHED ABOVE — the
+        // population being judged is WIDENED, and a widening paid for by a loosening would
+        // re-create the same defect under a different name. Stated in `ScreenshotFraming.swift`.
+        assertHeadInFrame(shot, measure)
+
         // 3 — AND READABLE AND PAIRWISE DISTINCT. Three empty reads are distinct from nothing and
         // identical to each other; `assertDistinctReadable` reports those as two different failures.
         assertDistinctReadable(texts, expected: texts.count, "\(shot): the values this tile is about")
@@ -237,88 +297,11 @@ final class AppStoreScreenshotTests: XCTestCase {
         return texts
     }
 
-    /// The area a capture can actually show: the window minus the chrome at its top and bottom.
-    ///
-    /// **Both bars are located rather than assumed**, because how `TabView` renders on iPadOS 18 with
-    /// the legacy `.tabItem` API — bottom tab bar or top bar — was open when this was written. A bar
-    /// centred in the upper half cuts the top, anything else cuts the bottom, and which branch was
-    /// taken lands in ``chrome`` so the answer comes out of the run.
-    private func contentBounds() -> CGRect {
-        let window = app.windows.firstMatch
-        XCTAssertTrue(window.waitForExistence(timeout: 30),
-                      "no window resolved, so 'inside the frame' would be a comparison against nothing")
-        let bounds = window.frame
-        var top = bounds.minY
-        var bottom = bounds.maxY
-        var bars: [String] = []
-        for bar in [("nav", app.navigationBars.firstMatch), ("tab", app.tabBars.firstMatch)] {
-            guard bar.1.exists, !bar.1.frame.isEmpty else { continue }
-            let rect = bar.1.frame
-            if rect.midY < bounds.midY {
-                top = max(top, rect.maxY)
-                bars.append("\(bar.0)=top\(describeRect(rect))")
-            } else {
-                bottom = min(bottom, rect.minY)
-                bars.append("\(bar.0)=bottom\(describeRect(rect))")
-            }
-        }
-        chrome = "window=\(describeRect(bounds)) chrome=\(bars.isEmpty ? "none" : bars.joined(separator: ","))"
-        return CGRect(x: bounds.minX, y: top, width: bounds.width, height: bottom - top)
-    }
-
-    /// Every frame carrying `identifier`, for the evidence line.
-    private func frames(_ identifier: String) -> [CGRect] {
-        let query = all(identifier)
-        return (0 ..< query.count).map { query.element(boundBy: $0).frame }
-    }
-
-    /// Every value in `sources`, in source order, with the frame and the text read in ONE pass.
-    private func values(_ sources: [ValueSource]) -> [(frame: CGRect, text: String)] {
-        var found: [(frame: CGRect, text: String)] = []
-        for source in sources {
-            let query = all(source.identifier)
-            for index in 0 ..< query.count {
-                let value = query.element(boundBy: index)
-                found.append((value.frame, value.renderedText))
-            }
-        }
-        return found
-    }
-
-    /// Scroll until every value sits inside the visible band — CENTRING the span rather than hugging
-    /// an edge — and then let assertion 2 judge what is left.
-    ///
-    /// **A three-card chain is TALLER THAN THE PHONE'S FIRST SCREENFUL**, measured rather than
-    /// feared: unscrolled on iPhone 16 Pro Max the second card's value sits at y=833 and the third at
-    /// y=1132, in a 956 pt window whose content band is 100.33…873. The three VALUES span 685 pt and
-    /// the band is 772.67, so they fit — once the surface is scrolled, which is what a user does. The
-    /// contract's stated fallback ("reduce to two appended steps") is a no-op here, because two
-    /// appended steps IS this shot.
-    ///
-    /// **Centring is not cosmetic, and NEITHER IS THE HOLD.** A drag carries momentum, so aiming the
-    /// span at an edge lands past it — the first attempt at this overshot by 68 pt and pushed the
-    /// ROOT card's value under the navigation bar. Centring leaves slack on both sides; it was still
-    /// not enough. A capture run then failed on its first pass and passed on fastlane's retry with
-    /// the root value at y=5.3, which is a corrected drag OVERSHOOTING BACK — an oscillation, not a
-    /// shortfall. `thenHoldForDuration` is the fix: the finger stays down after the drag, so the
-    /// scroll view sees zero velocity at release and no fling is thrown. Bounded, and it loosens
-    /// nothing: a span taller than the band returns immediately and assertion 2 reports it with the
-    /// frames that prove it.
-    private func scrollValuesIntoFrame(_ sources: [ValueSource]) {
-        for _ in 0 ..< Self.scrollAttempts {
-            let visible = contentBounds()
-            let rects = values(sources).map(\.frame)
-            guard let top = rects.map(\.minY).min(), let bottom = rects.map(\.maxY).max() else { return }
-            let span = bottom - top
-            guard span <= visible.height else { return }
-            guard top < visible.minY || bottom > visible.maxY else { return }
-            let delta = top - (visible.minY + (visible.height - span) / 2)
-            let step = max(-visible.height * 0.8, min(visible.height * 0.8, delta))
-            let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -step)),
-                       withVelocity: .slow, thenHoldForDuration: 0.4)
-        }
-    }
+    // `contentBounds()`, `frames(_:)`, `values(_:)` and `scrollValuesIntoFrame(_:head:)` MOVED to
+    // `ScreenshotFraming.swift`, with their measurements carried across verbatim, beside ASSERTION 7
+    // and the fit arithmetic they now share. The move is the 400-line file budget `swiftlint --strict`
+    // enforces (UL-056), the same reason `ScreenshotValues.swift` and the macOS twin's
+    // `ScreenshotDriver.swift` exist. Nothing was deleted to make room.
 
     // MARK: - Driving, all of it by identifier and never by visible text
 
@@ -337,6 +320,7 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// appends fastlane's own arguments and an assignment here would drop them.
     private func launch(_ pinning: [String], _ appearance: String) {
         app = XCUIApplication()
+        composition = "appended=0 retracted=0"
         setupSnapshot(app)
         app.launchArguments += ["-UITestColorScheme", appearance]
         app.launchArguments += pinning
@@ -378,22 +362,22 @@ final class AppStoreScreenshotTests: XCTestCase {
     }
 
     /// Every element carrying `identifier`, whatever kind of element it is.
-    private func all(_ identifier: String) -> XCUIElementQuery {
+    func all(_ identifier: String) -> XCUIElementQuery {
         app.descendants(matching: .any).matching(identifier: identifier)
     }
 
     /// How many elements carry `identifier` right now — one round trip, never a doomed wait.
-    private func count(_ identifier: String) -> Int {
+    func count(_ identifier: String) -> Int {
         all(identifier).count
     }
 
-    private func element(_ identifier: String) -> XCUIElement {
+    func element(_ identifier: String) -> XCUIElement {
         all(identifier).firstMatch
     }
 
     /// One measured line, emitted twice — `print` for a local run and an `XCTContext` activity, which
     /// is the channel that reaches the `.xcresult`.
-    private func record(_ line: String) {
+    func record(_ line: String) {
         print(line)
         XCTContext.runActivity(named: line) { _ in }
     }

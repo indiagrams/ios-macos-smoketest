@@ -23,17 +23,13 @@ import XCTest
 //
 // ══ THE HEAD POPULATION — the elements whose absence IS the defect ════════════════════════════
 //
-//   <surface>.input  one per surface. `EncodeSurface.swift:253-268`, and the same skeleton in
-//                    HashingSurface / TimestampsSurface, lays out
-//                    `ScrollView { VStack(spacing: Spacing.lg) { InputArea(...); stepStack } }`
-//                    with `.padding(.top, Spacing.xl)` — so the FIELD sits ABOVE the root card
-//                    rather than inside it. MEASURED: it governs `headTop` on every shot of both
-//                    devices, at 162.33 on iPhone and 150.0 on iPad.
-//   Step.position    EVERY card, the root included (`AccessibilityIdentifiers.swift:235-241`).
-//   Step.header      every card (`StepCard.swift:185`).
-//
-// "First" is by SMALLEST minY rather than by index, so nothing depends on how XCUITest enumerates
-// the tree, and the index that won is RECORDED so a surprise is a measurement not a silent pick.
+// `<surface>.inputLabel` and `<surface>.input`, then `Step.position` and `Step.header` (EVERY card,
+// the root included). `EncodeSurface.swift:253-268`, and the same skeleton in HashingSurface /
+// TimestampsSurface, lays out `ScrollView { VStack(spacing: .lg) { InputArea(...); stepStack } }`
+// with `.padding(.top, .xl)` — so the input block sits ABOVE the root card rather than inside it,
+// and governs `headTop` on every shot of both devices. See `headIdentifiers(_:)` for what the
+// LABEL cost before it was in the set. "First" is by SMALLEST minY rather than by index, so
+// nothing depends on how XCUITest enumerates the tree, and the winning index is RECORDED.
 //
 // ══ THE ARITHMETIC, named once and used by the framing, the retraction and ASSERTION 7 ════════
 //
@@ -95,9 +91,18 @@ struct FitMeasurement {
 }
 
 extension AppStoreScreenshotTests {
-    /// The head of the pipeline on a surface whose input carries `input`.
-    static func headIdentifiers(_ input: String) -> [String] {
-        [input, AccessibilityIdentifiers.Step.position, AccessibilityIdentifiers.Step.header]
+    /// The head of the pipeline: the surface's input LABEL and FIELD, then the first card's
+    /// ordinal and operation name. In that order, which is top-to-bottom on every surface.
+    ///
+    /// **THE LABEL WAS ADDED AFTER THE FIRST RE-CAPTURE SHIPPED THE DEFECT AGAIN.** Widening the
+    /// population from the output values to {field, position, header} left the label just outside
+    /// the new boundary, and two tiles came back with the navigation bar through the middle of its
+    /// letterforms while ASSERTION 7 reported `outside=0`. It was not lying; it was answering a
+    /// narrower question than the one that matters. The head is EVERYTHING THAT SHOWS WHERE THE
+    /// PIPELINE STARTS, and a sliced label fails that as surely as a missing field.
+    static func headIdentifiers(_ input: SurfaceInput) -> [String] {
+        [input.label, input.field,
+         AccessibilityIdentifiers.Step.position, AccessibilityIdentifiers.Step.header]
     }
 
     /// The chain's value population for a surface carrying `appended` appended cards: ONE
@@ -176,13 +181,9 @@ extension AppStoreScreenshotTests {
         }
     }
 
-    /// The index of the rect with the smallest `minY`, ignoring empty ones — "first" by GEOMETRY
-    /// rather than by tree order.
+    /// The index of the rect with the smallest `minY`, ignoring empty ones.
     func topmost(_ rects: [CGRect]) -> Int? {
-        rects.enumerated()
-            .filter { !$0.element.isEmpty }
-            .min { $0.element.minY < $1.element.minY }?
-            .offset
+        rects.enumerated().filter { !$0.element.isEmpty }.min { $0.element.minY < $1.element.minY }?.offset
     }
 
     /// One measurement of the head, the tail and the room between them, at the CURRENT scroll
@@ -229,14 +230,21 @@ extension AppStoreScreenshotTests {
     /// Frame the shot, then hand back what was measured AFTER the drags settled. Scrolls, measures,
     /// records — and judges nothing, because `continueAfterFailure` is false and an assertion above
     /// the evidence line takes the evidence line with it.
-    func frameShot(_ shot: String, sources: [ValueSource], input: String) -> FitMeasurement {
+    ///
+    /// `floor_and_fail` is `!fits` HERE, and that is exact rather than loose: by the time the
+    /// framing runs every lever is spent — the chain has already retracted to its floor of one
+    /// appended card, and a seeded single-card surface never had a lever at all — so a surface that
+    /// still does not fit has reached the end of what this design can do, and the gate is left to
+    /// fail with its numbers. Emitted on EVERY shot, so a floor is greppable rather than inferred.
+    func frameShot(_ shot: String, sources: [ValueSource], input: SurfaceInput) -> FitMeasurement {
         let identifiers = Self.headIdentifiers(input)
         scrollToTop()
         scrollValuesIntoFrame(sources, head: identifiers)
         let measure = fit(sources, head: identifiers)
         record("frame shot=\(shot) headTop=\(measure.headTop) headTop_by=\(measure.headTopBy) "
             + "tailBottom=\(measure.tailBottom) requiredDelta=\(measure.requiredDelta) "
-            + "availableDelta=\(measure.availableDelta) fits=\(measure.fits) scrollBy=\(measure.scrollBy) "
+            + "availableDelta=\(measure.availableDelta) fits=\(measure.fits) "
+            + "floor_and_fail=\(!measure.fits) scrollBy=\(measure.scrollBy) "
             + "head=\(measure.describedHead) \(composition) band=\(describeRect(measure.band))")
         return measure
     }
@@ -301,14 +309,11 @@ extension AppStoreScreenshotTests {
 
     /// While the head and the tail cannot share the band, DROP THE LAST APPENDED STEP — and prove
     /// each removal landed, because a silent no-op click and a successful removal are
-    /// indistinguishable without the card count.
-    ///
-    /// **FLOORED AT ONE APPENDED CARD.** A root-only surface is not a chain, so the loop stops
-    /// there and lets the gate fail with its numbers rather than filing a one-card "chain" as a
-    /// pass. `floor_and_fail=true` on the record is that state, named so it is greppable.
-    ///
-    /// **THE LAST APPEND IS THE ONE THAT GOES**, because dropping the last is the only rule a gate
-    /// can state mechanically and it leaves the surviving chain's recomputation intact.
+    /// indistinguishable without the card count. **FLOORED AT ONE APPENDED CARD**: a root-only
+    /// surface is not a chain, so the loop stops there rather than filing a one-card "chain" as a
+    /// pass, and ``frameShot(_:sources:input:)`` reports the floor. **THE LAST APPEND IS THE ONE
+    /// THAT GOES**, because dropping the last is the only rule a gate can state mechanically and it
+    /// leaves the surviving chain's recomputation intact.
     func retractChainToFit(_ shot: String, head identifiers: [String], appended: Int) -> Int {
         var surviving = appended
         for _ in 0 ..< appended {

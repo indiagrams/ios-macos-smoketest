@@ -145,11 +145,10 @@ final class AppStoreScreenshotTests: XCTestCase {
                           "\(named): the pinned root card, which is what proves encodeFormat really is HTML")
         addStep(Self.base64EncodeItem, Self.base64EncodeTitle)
         addStep(Self.sha256Item, Self.sha256Title)
-        let head = Self.headIdentifiers(AccessibilityIdentifiers.Encode.input)
+        let head = Self.headIdentifiers(.encode)
         let surviving = retractChainToFit(named, head: head, appended: Self.chainAppends)
         let values = gate(named, cards: 1 + surviving, sources: Self.chainSources(surviving),
-                          surface: AccessibilityIdentifiers.Encode.output,
-                          input: AccessibilityIdentifiers.Encode.input)
+                          surface: AccessibilityIdentifiers.Encode.output, input: .encode)
         // STILL A CHAIN — counted from the TREE and not from the loop's own counter. `surviving`
         // floors at 1 by construction, so an assertion on it could not fail; `Step.remove`'s
         // population IS the appended cards (D-100), read off the surface that is being filed.
@@ -177,8 +176,7 @@ final class AppStoreScreenshotTests: XCTestCase {
         let source = fillFromExample(AccessibilityIdentifiers.Hashing.useExample,
                                      reading: AccessibilityIdentifiers.Hashing.input)
         gate(named, cards: 1, sources: Self.hashingCells.map { ValueSource($0, 1) },
-             surface: AccessibilityIdentifiers.Hashing.digestSHA512,
-             input: AccessibilityIdentifiers.Hashing.input)
+             surface: AccessibilityIdentifiers.Hashing.digestSHA512, input: .hashing)
         assertRendersText(element(AccessibilityIdentifiers.Hashing.digestSHA256), SecondOpinion.sha256Hex(source),
                           "\(named): the SHA-256 row, against this process's own digest of the input")
         return named
@@ -193,8 +191,7 @@ final class AppStoreScreenshotTests: XCTestCase {
         // the `.value` branch alone, so all three count 0 at launch and 1 after the tap above. A wait
         // assuming launch-time existence fails here and passes on Hashing: it looks like flake.
         let values = gate(named, cards: 1, sources: Self.timestampsCells.map { ValueSource($0, 1) },
-                          surface: AccessibilityIdentifiers.Timestamps.cellISO8601,
-                          input: AccessibilityIdentifiers.Timestamps.input)
+                          surface: AccessibilityIdentifiers.Timestamps.cellISO8601, input: .timestamps)
         XCTAssertEqual(values[0], source,
                        "\(named): the epoch cell shows \(values[0]) against an input of \(source) — the "
                            + "`unixEpoch` read-as pin did not take")
@@ -208,8 +205,7 @@ final class AppStoreScreenshotTests: XCTestCase {
         let source = fillFromExample(AccessibilityIdentifiers.Encode.useExample,
                                      reading: AccessibilityIdentifiers.Encode.input)
         let values = gate(named, cards: 1, sources: [ValueSource(AccessibilityIdentifiers.Encode.output, 1)],
-                          surface: AccessibilityIdentifiers.Encode.output,
-                          input: AccessibilityIdentifiers.Encode.input)
+                          surface: AccessibilityIdentifiers.Encode.output, input: .encode)
         XCTAssertEqual(values[0], SecondOpinion.percentEncoded(source),
                        "\(named): the root card shows \(values[0]), expected this process's percent-encoding "
                            + "— so this tile is not the URL format it claims to be")
@@ -229,7 +225,7 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// is. It is the head of the pipeline, and until ASSERTION 7 existed nothing required it to be
     /// in the photograph at all.
     @discardableResult
-    private func gate(_ shot: String, cards: Int, sources: [ValueSource], surface: String, input: String) -> [String] {
+    private func gate(_ shot: String, cards: Int, sources: [ValueSource], surface: String, input: SurfaceInput) -> [String] {
         let rendered = count(surface)
         let found = count(AccessibilityIdentifiers.Step.card)
         let matched = sources.map { count($0.identifier) }

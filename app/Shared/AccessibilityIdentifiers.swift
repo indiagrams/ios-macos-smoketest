@@ -97,6 +97,20 @@ public enum AccessibilityIdentifiers {
         /// The text field the user converts from.
         public static let input = "Encode.input"
 
+        /// The "Input" label standing above the field.
+        ///
+        /// **Population: exactly one, on this surface.** Minted PER SURFACE for
+        /// the same reason ``input`` is — three `InputArea`s exist across a
+        /// walk, so a query has to say which one it means — and NOT in
+        /// ``AccessibilityIdentifiers/Input``, whose members are the ones that
+        /// are genuinely singular (there is one software keyboard; there are
+        /// three of these). Added by plan 08-20 because the App Store capture
+        /// gate's head population must name everything that shows where the
+        /// pipeline STARTS, and a label whose top half is sliced by the
+        /// navigation bar fails that description as surely as a missing field
+        /// does — which is exactly how two tiles shipped.
+        public static let inputLabel = "Encode.inputLabel"
+
         /// The character count beside the input.
         public static let inputCount = "Encode.inputCount"
 
@@ -117,6 +131,20 @@ public enum AccessibilityIdentifiers {
     public enum Hashing {
         /// The text field the digests are taken over.
         public static let input = "Hashing.input"
+
+        /// The "Input" label standing above the field.
+        ///
+        /// **Population: exactly one, on this surface.** Minted PER SURFACE for
+        /// the same reason ``input`` is — three `InputArea`s exist across a
+        /// walk, so a query has to say which one it means — and NOT in
+        /// ``AccessibilityIdentifiers/Input``, whose members are the ones that
+        /// are genuinely singular (there is one software keyboard; there are
+        /// three of these). Added by plan 08-20 because the App Store capture
+        /// gate's head population must name everything that shows where the
+        /// pipeline STARTS, and a label whose top half is sliced by the
+        /// navigation bar fails that description as surely as a missing field
+        /// does — which is exactly how two tiles shipped.
+        public static let inputLabel = "Hashing.inputLabel"
 
         /// The button that fills the input with a worked value.
         public static let useExample = "Hashing.useExample"
@@ -139,6 +167,20 @@ public enum AccessibilityIdentifiers {
     public enum Timestamps {
         /// The text field carrying the timestamp or date.
         public static let input = "Timestamps.input"
+
+        /// The "Input" label standing above the field.
+        ///
+        /// **Population: exactly one, on this surface.** Minted PER SURFACE for
+        /// the same reason ``input`` is — three `InputArea`s exist across a
+        /// walk, so a query has to say which one it means — and NOT in
+        /// ``AccessibilityIdentifiers/Input``, whose members are the ones that
+        /// are genuinely singular (there is one software keyboard; there are
+        /// three of these). Added by plan 08-20 because the App Store capture
+        /// gate's head population must name everything that shows where the
+        /// pipeline STARTS, and a label whose top half is sliced by the
+        /// navigation bar fails that description as surely as a missing field
+        /// does — which is exactly how two tiles shipped.
+        public static let inputLabel = "Timestamps.inputLabel"
 
         /// The button that fills the input with a worked value.
         public static let useExample = "Timestamps.useExample"

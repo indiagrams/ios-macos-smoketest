@@ -32,6 +32,34 @@ struct ValueSource {
     }
 }
 
+/// One surface's input block, as the capture gate addresses it: the FIELD and the LABEL standing
+/// above it.
+///
+/// **THE LABEL IS HERE BECAUSE LEAVING IT OUT SHIPPED THE DEFECT TWICE.** Plan 08-20 widened the
+/// gate's head population from {output values} to {field, Step.position, Step.header} and
+/// re-captured; `iPhone-03-timestamps-light` and `-07-timestamps-dark` came back with the
+/// navigation bar slicing the "Input" LABEL through the middle of its letterforms, and ASSERTION 7
+/// reported `outside=0` because the label was the one element sitting just outside the new
+/// boundary. A correct check pointed at the wrong population, recurring one ring further out
+/// inside the fix for an instance of itself.
+///
+/// A value rather than two parameters at every call site, so a shot cannot name Hashing's label
+/// beside Encode's field — and so the gate stays inside `function_parameter_count`'s five.
+struct SurfaceInput {
+    /// The text field.
+    let field: String
+
+    /// The "Input" label above it.
+    let label: String
+
+    static let encode = SurfaceInput(field: AccessibilityIdentifiers.Encode.input,
+                                     label: AccessibilityIdentifiers.Encode.inputLabel)
+    static let hashing = SurfaceInput(field: AccessibilityIdentifiers.Hashing.input,
+                                      label: AccessibilityIdentifiers.Hashing.inputLabel)
+    static let timestamps = SurfaceInput(field: AccessibilityIdentifiers.Timestamps.input,
+                                         label: AccessibilityIdentifiers.Timestamps.inputLabel)
+}
+
 /// What the values on screen are compared AGAINST — each arrived at from the definition, never read
 /// back out of the application that is under test.
 enum SecondOpinion {

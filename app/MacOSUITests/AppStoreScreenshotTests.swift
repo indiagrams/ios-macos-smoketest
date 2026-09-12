@@ -281,7 +281,15 @@ final class AppStoreScreenshotTests: XCTestCase {
             + "\(outside.map { "\($0.identifier)\(describeRect($0.frame))" }.joined(separator: " ")) — this tile "
             + "does not show where the pipeline starts")
 
-        let cardTops = frames(AccessibilityIdentifiers.Step.card).filter { !$0.isEmpty }.map(\.minY)
+        // AND THE SAME FILTER HERE MADE THE SAME SUBSTITUTION as `topmost(_:)`'s: over a per-card
+        // population it silently promotes the SECOND card to "the first step card" once the root's
+        // frame degenerates, and this clause does not record which card won. An empty member of a
+        // NON-EMPTY population is a card that is not in the photograph.
+        let allCards = frames(AccessibilityIdentifiers.Step.card)
+        let cardTops = allCards.filter { !$0.isEmpty }.map(\.minY)
+        XCTAssertFalse(allCards.contains { $0.isEmpty }, "\(shot) ASSERTION 7 (head): \(allCards.count - cardTops.count) "
+            + "of \(allCards.count) step cards have no measurable frame, so this clause would answer about a later "
+            + "card — cards=\(allCards.map(describeRect).joined(separator: ","))")
         guard let cardTop = cardTops.min() else { return }
         XCTAssertGreaterThanOrEqual(cardTop, band.minY, "\(shot) ASSERTION 7 (head): the first step card starts at "
             + "y=\(cardTop), above the visible content area \(describeRect(band)) — on this platform the title bar "

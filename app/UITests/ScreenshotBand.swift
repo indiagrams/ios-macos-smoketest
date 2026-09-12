@@ -148,9 +148,24 @@ extension AppStoreScreenshotTests {
         }
     }
 
-    /// The index of the rect with the smallest `minY`, ignoring empty ones.
+    /// The index of the rect with the smallest `minY` — **EMPTY RECTS RANKED FIRST**, because a
+    /// member that cannot be measured is not a member that can be skipped.
+    ///
+    /// **SKIPPING THEM MADE THIS FUNCTION ANSWER ABOUT A DIFFERENT CARD.** `Step.position` and
+    /// `Step.header` have ONE ELEMENT PER CARD, so "ignoring empty ones" meant "the topmost card
+    /// that still has a measurable frame" and not "the root card". Driven red on a two-card chain
+    /// scrolled so the ROOT header is fully above the window top (an empty rect, UL-078) while the
+    /// APPENDED header is inside the band: the clause answered with the appended card's
+    /// `(40,420,200,22)`, `band.contains` was TRUE, and ASSERTION 7 reported `outside=0` for a
+    /// tile whose root header is not in the photograph. Ranked first, it answers `#0(0,0,0,0)`,
+    /// which ASSERTION 7 already counts as outside, and `outside=2`.
+    ///
+    /// A NON-EMPTY POPULATION IS STILL ORDERED BY GEOMETRY and not by query order, so nothing
+    /// depends on how XCUITest enumerates the tree; an ENTIRELY empty array still yields nil and
+    /// the `index: -1` sentinel. The only input whose answer changes is the mixed one.
     func topmost(_ rects: [CGRect]) -> Int? {
-        rects.enumerated().filter { !$0.element.isEmpty }.min { $0.element.minY < $1.element.minY }?.offset
+        if let unmeasurable = rects.firstIndex(where: { $0.isEmpty }) { return unmeasurable }
+        return rects.enumerated().min { $0.element.minY < $1.element.minY }?.offset
     }
 
     /// One measurement of the head, the tail and the room between them, at the CURRENT scroll

@@ -112,10 +112,20 @@ extension AppStoreScreenshotTests {
         return (0 ..< query.count).map { query.element(boundBy: $0).frame }
     }
 
-    /// The index of the rect with the smallest `minY`, ignoring empty ones — "first" by GEOMETRY
-    /// and not by query order, so the head population does not depend on how XCUITest enumerates.
+    /// The index of the rect with the smallest `minY` — "first" by GEOMETRY and not by query
+    /// order, so the head population does not depend on how XCUITest enumerates — with **EMPTY
+    /// RECTS RANKED FIRST**, because a member that cannot be measured is not one that can be
+    /// skipped.
+    ///
+    /// **SKIPPING THEM MADE THIS FUNCTION ANSWER ABOUT A DIFFERENT CARD.** `Step.position` and
+    /// `Step.header` have ONE ELEMENT PER CARD, so "ignoring empty ones" meant "the topmost card
+    /// that still has a measurable frame" rather than "the root card": with the root's member
+    /// unmeasurable and the appended card's inside the band, the clause answered about the SECOND
+    /// card and reported `outside=0`. The iOS twin's finding, carried across — the twins must not
+    /// diverge on the head population, whichever route produces the unmeasurable frame.
     func topmost(_ rects: [CGRect]) -> Int? {
-        rects.enumerated().filter { !$0.element.isEmpty }.min { $0.element.minY < $1.element.minY }?.offset
+        if let unmeasurable = rects.firstIndex(where: { $0.isEmpty }) { return unmeasurable }
+        return rects.enumerated().min { $0.element.minY < $1.element.minY }?.offset
     }
 
     /// The TOPMOST element of each head population, with the index that won it. An empty population

@@ -91,7 +91,17 @@ extension AppStoreScreenshotTests {
             + "\(outside.map { "\($0.identifier)\(describeRect($0.frame))" }.joined(separator: " ")) — this tile "
             + "does not show where the pipeline starts")
 
-        let cardTops = frames(AccessibilityIdentifiers.Step.card).filter { !$0.isEmpty }.map(\.minY)
+        // AND THE SAME FILTER HERE MADE THE SAME SUBSTITUTION. `.filter { !$0.isEmpty }` over a
+        // per-card population silently promotes the SECOND card to "the first step card" once the
+        // root's frame degenerates, and this clause does not even record which card won. An empty
+        // member of a NON-EMPTY population is a card that is not in the photograph — UL-078 clips
+        // at the top and NOT at the bottom, so a card below the fold still reports a full frame and
+        // this cannot fire on one. Judged before the minimum, so the numbers reach the message.
+        let allCards = frames(AccessibilityIdentifiers.Step.card)
+        let cardTops = allCards.filter { !$0.isEmpty }.map(\.minY)
+        XCTAssertFalse(allCards.contains { $0.isEmpty }, "\(shot) ASSERTION 7 (head): \(allCards.count - cardTops.count) "
+            + "of \(allCards.count) step cards have no measurable frame, which above the fold means clipped out of "
+            + "the photograph (UL-078) — cards=\(allCards.map(describeRect).joined(separator: ","))")
         guard let cardTop = cardTops.min() else { return }
         XCTAssertGreaterThanOrEqual(cardTop, band.minY, "\(shot) ASSERTION 7 (head): the first step card starts at "
             + "y=\(cardTop), above the visible content area \(describeRect(band)) — this tile does not show where "

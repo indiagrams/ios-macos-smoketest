@@ -64,6 +64,7 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// measured an iOS DRAG swallowing whole; whether a macOS WHEEL does the same is a measurement
     /// taken on every chain shot, never inherited.
     static let discoveryAttempts = 3
+    static let scrollTargets = 2
     static let largeAsk: CGFloat = 200
     static let smallAsk: CGFloat = 2.5
     static let chainAppends = 2

@@ -115,10 +115,9 @@ extension AppStoreScreenshotTests {
 
     // MARK: - The band, the two populations, and the arithmetic between them
 
-    /// Every value in `sources`, in source order, with the frame and the text read in ONE pass.
-    /// MOVED here from the class file UNCHANGED, for the 400-line budget and for the reason the iOS
-    /// twin moved its own: the frame reads belong beside the arithmetic that uses them. Assertion 2
-    /// still judges this population, with its filter and its message byte-identical.
+    /// Every value in `sources`, in source order, frame and text in ONE pass. MOVED here from the
+    /// class file UNCHANGED, the move the iOS twin made: the frame reads belong beside the
+    /// arithmetic. Assertion 2 still judges this population, filter and message byte-identical.
     func values(_ sources: [ValueSource]) -> [(frame: CGRect, text: String)] {
         var found: [(frame: CGRect, text: String)] = []
         for source in sources {
@@ -208,7 +207,6 @@ extension AppStoreScreenshotTests {
 
     /// One WHEEL EVENT asking the CONTENT to RISE by `move` points — negative descends. Returns how
     /// far it actually rose, measured on ``cardStackBottom()``.
-    ///
     /// **macOS NEEDS `XCUIElement.scroll(byDeltaX:deltaY:)` RATHER THAN A PRESS-AND-DRAG**, because
     /// a mouse drag on a scroll view does not scroll it. UL-079's pan-gesture hysteresis — an iOS
     /// drag delivering `asked - 12` and delivering NOTHING below that — therefore does not transfer
@@ -243,8 +241,11 @@ extension AppStoreScreenshotTests {
             if scrollSign > 0 {
                 scrollSign = -1
             } else {
+                // CLAMPED AT THE INCREMENT SITE, where 08-14's mechanism clamped it. Unbounded, it
+                // selects the same element but RECORDS an ordinal naming nothing — RED control A
+                // emitted `target=10` for a two-element list, and that is not a measurement.
                 scrollSign = 1
-                scrollTargetIndex += 1
+                scrollTargetIndex = min(scrollTargetIndex + 1, Self.scrollTargets - 1)
             }
         }
         return 0
@@ -268,6 +269,7 @@ extension AppStoreScreenshotTests {
             + "index=\(scrollTargetIndex) frames=\(candidates.map(describeRect).joined(separator: ",")) "
             + "anchor=\(describeRect(rect))")
         let targets = [chosen.map { query.element(boundBy: $0) } ?? anchor, anchor]
+        XCTAssertEqual(targets.count, Self.scrollTargets, "the target list and its bound disagree")
         return targets[min(scrollTargetIndex, targets.count - 1)]
     }
 

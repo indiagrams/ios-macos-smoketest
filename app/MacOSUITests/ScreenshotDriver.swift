@@ -347,7 +347,21 @@ extension AppStoreScreenshotTests {
                 + "headTop=\(measure.headTop) headTop_by=\(measure.headTopBy) tailBottom=\(measure.tailBottom) "
                 + "requiredDelta=\(measure.requiredDelta) availableDelta=\(measure.availableDelta) "
                 + "fits=\(measure.fits) floor_and_fail=\(!measure.fits && surviving <= 1) "
+                + "measurable=\(measure.measurable) "
                 + "head=\(measure.describedHead) band=\(describeRect(measure.band))")
+            // NOTHING DESTRUCTIVE IS DECIDED ON NUMBERS NOTHING MEASURED. `fit()` defaults an
+            // empty tail population to `band.maxY` and an empty head to `band.minY`, and `fits`
+            // — which is what taps the remove control — was computed from those inventions
+            // without ever knowing they were inventions. With an empty tail it collapses to
+            // `headTop >= band.minY + scrollMargin`, a statement about the HEAD alone: on a
+            // surface the add-step interaction has left scrolled that reads FALSE, a real card is
+            // permanently removed, and `AppStoreScreenshotTests.swift:150-153` says degrading that
+            // tile "would be a regression caused by the fix, and is refused". Assertions 2 and 7
+            // still refuse the shot afterwards; this stops it losing a card on the way.
+            guard measure.measurable else {
+                record("retract shot=\(shot) unmeasurable — no card is removed on a defaulted measurement")
+                break
+            }
             guard !measure.fits, surviving > 1 else { break }
             retractLastAppendedStep(shot)
             surviving -= 1

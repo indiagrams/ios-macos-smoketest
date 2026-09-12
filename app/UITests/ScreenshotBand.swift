@@ -37,6 +37,11 @@ struct FitMeasurement {
     let availableDelta: CGFloat
     let scrollBy: CGFloat
 
+    /// BOTH POPULATIONS WERE ACTUALLY FOUND. False means `headTop` or `tailBottom` below
+    /// is a DEFAULT and not a measurement, so `fits` is an answer about nothing — and
+    /// `fits` drives a DESTRUCTIVE action. See ``retractChainToFit(_:head:appended:)``.
+    let measurable: Bool
+
     /// The head and the tail can share the band. False is not a failure here — it is what makes
     /// the chain retract, and only when the chain has nothing left to retract does it reach a gate.
     ///
@@ -179,7 +184,13 @@ extension AppStoreScreenshotTests {
         }
         let winner = candidates.min { $0.1 < $1.1 }
         let headTop = winner?.1 ?? band.minY
-        let tailBottom = values(sources).map(\.frame).filter { !$0.isEmpty }.map(\.maxY).max() ?? band.maxY
+        // EMPTINESS IS REPRESENTABLE RATHER THAN DEFAULTED. `?? band.maxY` and `?? band.minY`
+        // are INVENTIONS, and `fits` — which drives the retraction's destructive tap — was
+        // computed from them without ever knowing the populations were empty. With an empty
+        // tail, `fits` collapses to `headTop >= band.minY + scrollMargin`: a statement about
+        // the HEAD alone, with nothing to do with whether the tail fits.
+        let tails = values(sources).map(\.frame).filter { !$0.isEmpty }.map(\.maxY)
+        let tailBottom = tails.max() ?? band.maxY
         let requiredDelta = max(0, tailBottom - band.maxY)
         // AN UNMEASURABLE HEAD MEMBER CLAMPS THE BOUND RATHER THAN VANISHING FROM IT. `candidates`
         // FILTERS empty frames out of `headTop`, so the member that is ALREADY pushed out of frame
@@ -194,6 +205,7 @@ extension AppStoreScreenshotTests {
         let availableDelta = unmeasurableHead ? 0 : max(0, headTop - (band.minY + Self.scrollMargin))
         return FitMeasurement(band: band, head: head, headTop: headTop, headTopBy: winner?.0 ?? "none",
                               tailBottom: tailBottom, requiredDelta: requiredDelta,
-                              availableDelta: availableDelta, scrollBy: min(requiredDelta, availableDelta))
+                              availableDelta: availableDelta, scrollBy: min(requiredDelta, availableDelta),
+                              measurable: winner != nil && !tails.isEmpty)
     }
 }

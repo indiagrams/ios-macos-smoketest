@@ -202,7 +202,13 @@ extension AppStoreScreenshotTests {
     func scrollValuesIntoFrame(_ sources: [ValueSource], head identifiers: [String]) {
         for attempt in 0 ..< Self.scrollAttempts {
             let measure = fit(sources, head: identifiers)
-            let rects = values(sources).map(\.frame)
+            // FILTERED, WHICH IS WHAT THE macOS TWIN ALWAYS DID AND WHAT `ScreenshotDriver.swift:118`
+            // CLAIMS THIS LINE ALREADY DID ("filter and message byte-identical"). Unfiltered, an
+            // element reporting an empty frame — the documented `Timestamps.cell.*` case, which
+            // carries no identifier while empty — puts its `0` into `top`: span becomes 820 against
+            // a 772.67 band, `guard span <= band.height` RETURNS on attempt 0, and the shot is never
+            // framed at all. The same unfiltered read made `moved=` garbage on the evidence line.
+            let rects = values(sources).map(\.frame).filter { !$0.isEmpty }
             guard let top = rects.map(\.minY).min(), let bottom = rects.map(\.maxY).max() else { return }
             let span = bottom - top
             // EXACT IN BOTH DIRECTIONS, because ``scrollToTop()`` has already put the surface at
@@ -218,7 +224,7 @@ extension AppStoreScreenshotTests {
             guard abs(move) > 0.5 else { return }
 
             drag(move, within: measure.band)
-            let moved = top - (values(sources).map(\.frame).map(\.minY).min() ?? top)
+            let moved = top - (values(sources).map(\.frame).filter { !$0.isEmpty }.map(\.minY).min() ?? top)
             record("frame attempt=\(attempt) asked=\(move) moved=\(moved)")
         }
     }

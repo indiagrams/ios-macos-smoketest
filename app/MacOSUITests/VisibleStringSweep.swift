@@ -173,10 +173,7 @@ final class VisibleStringSweep: XCTestCase {
     /// plan 07-12 appended and which run inside this function for the same reason the other steps
     /// do — so the appearance loop above carries them too.
     private func walk(into out: inout SweepHarvest) throws {
-        XCTAssertTrue(
-            element(Ident.Shell.sidebarEncode).waitForExistence(timeout: 30),
-            "the app did not present its first destination — no element carries \(Ident.Shell.sidebarEncode)"
-        )
+        awaitFirstDestination() // same element, same 30 s, same sentence — see `SweepDriver.swift`
         try snap(into: &out)
 
         try encodeSurface(into: &out)

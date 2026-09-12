@@ -87,6 +87,50 @@ extension VisibleStringSweep {
         app.descendants(matching: .any).matching(identifier: identifier).count
     }
 
+    /// STEP 0 — the walk's first wait, and, when it fails, the measurements that say WHY.
+    ///
+    /// **THE WAIT AND THE MESSAGE ARE UNCHANGED IN SUBSTANCE; ONLY THE FAILURE PATH GREW.** The
+    /// same element, the same 30-second timeout, the same sentence. Nothing here can turn a red
+    /// into a green: the early `return` is taken only when the row really exists, and every line
+    /// below it runs after the wait has already answered false.
+    ///
+    /// WHY IT EXISTS. On 2026-09-12 this assertion failed on BOTH macOS jobs of run 34717633775
+    /// and the message could not distinguish four different defects: which appearance pass was
+    /// running (the loop launches twice and `continueAfterFailure` is false, so a failure in the
+    /// second pass and a failure in the first read identically); whether the app had a window at
+    /// all; whether it had one whose SIDEBAR was collapsed, which removes exactly these rows from
+    /// the tree while the detail area still renders; and whether the process was even in the
+    /// foreground. Each number below separates one of those from the others, and `detail_encode_input`
+    /// is the discriminator that matters most — a positive count there with `sidebar_encode=0` means
+    /// the window is present and the split view collapsed its sidebar, which is a different bug from
+    /// "the app presented nothing".
+    ///
+    /// THE CHANNEL IS PROVEN, NOT ASSUMED. A `print` from this bundle never reaches the workflow
+    /// log (06-01), so the numbers ride the ASSERTION MESSAGE — and that channel is measured, not
+    /// hoped for: the old message reached the CI log verbatim in the run cited above. The activity
+    /// is recorded as well, for the `.xcresult` when one is kept.
+    func awaitFirstDestination() {
+        if element(Ident.Shell.sidebarEncode).waitForExistence(timeout: 30) {
+            return
+        }
+
+        let args = app.launchArguments
+        let appearance = args.firstIndex(of: "-UITestColorScheme")
+            .flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? "unset"
+        let windows = app.windows.count
+        let frame = windows > 0 ? "\(app.windows.firstMatch.frame)" : "none"
+        let diagnosis = "appearance=\(appearance) app_state=\(app.state.rawValue) windows=\(windows) "
+            + "window_frame=\(frame) menu_bar_items=\(app.menuBarItems.count) "
+            + "tree_elements=\(app.descendants(matching: .any).count) "
+            + "sidebar_encode=\(count(Ident.Shell.sidebarEncode)) "
+            + "sidebar_hashing=\(count(Ident.Shell.sidebarHashing)) "
+            + "sidebar_timestamps=\(count(Ident.Shell.sidebarTimestamps)) "
+            + "detail_encode_input=\(count(Ident.Encode.input))"
+        recordCounter("step0_first_destination \(diagnosis)")
+        XCTFail("the app did not present its first destination — no element carries "
+            + "\(Ident.Shell.sidebarEncode). \(diagnosis)")
+    }
+
     /// What an element is RENDERING, in whichever attribute the platform publishes it in.
     ///
     /// **DELEGATES TO ``XCUIElement/renderedText`` SINCE 2026-09-10**, and the measurement that

@@ -6,24 +6,20 @@ import XCTest
 // AN EXTENSION IN A SECOND FILE, the shape `app/MacOSUITests/ScreenshotDriver.swift` already uses
 // and the move `app/UITests/ScreenshotValues.swift` made for the same reason: `swiftlint --strict`
 // promotes the 400-line file WARNING to an error (UL-056) and the class file is AT that budget.
-// The measurements below are carried across VERBATIM from the functions that moved here; each one
-// cost a capture run, and deleting them to save lines is the thing the split exists to avoid.
+// Every measurement below cost a capture run; deleting them to save lines is what the split avoids.
 //
 // ══ WHY THIS FILE EXISTS: THE GATE COULD NOT FAIL ON THE DEFECT THAT SHIPPED ══════════════════
 //
-// `scrollValuesIntoFrame(_:)` used to CENTRE the span of the OUTPUT VALUES in the visible band,
-// and assertion 2 judged that same population and only it. Nothing required the INPUT FIELD or the
-// "Step 1 <name>" header to be inside the captured frame, so FOUR OF EIGHT iPhone tiles shipped
-// without either — 01-chain-light, 03-timestamps-light, 05-chain-dark, 07-timestamps-dark — with
-// every assertion green. A correct check pointed at the wrong population, in the code that
-// produces the store's lead tiles.
+// `scrollValuesIntoFrame(_:)` used to CENTRE the span of the OUTPUT VALUES in the band, and
+// assertion 2 judged that same population and only it. Nothing required the INPUT FIELD or the
+// "Step 1 <name>" header to be in the captured frame, so FOUR OF EIGHT iPhone tiles shipped without
+// either — 01-chain-light, 03-timestamps-light, 05-chain-dark, 07-timestamps-dark — every assertion
+// green. A correct check pointed at the wrong population, in the code producing the lead tiles.
 //
-// CENTRING IS THE MECHANISM, AND THE ARITHMETIC SAYS SO EXACTLY. Centring leaves a slack of
-// `(band.height - span) / 2` BELOW the last value, so it scrolls that much FURTHER than the shot
-// needs. On iPhone 16 Pro Max (band 772.67 pt) the chain's 685 pt span over-scrolls by 43.8 pt and
-// a 250 pt span over-scrolls by 261 pt — which is how a surface whose values overflow the fold by
-// 2.31 pt loses its entire head. The replacement moves by `min(requiredDelta, availableDelta)` and
-// therefore never moves further than the head can afford.
+// CENTRING IS THE MECHANISM, AND THE ARITHMETIC SAYS SO. It leaves `(band.height - span) / 2` of
+// slack BELOW the last value, so it scrolls that much further than the shot needs: on iPhone 16 Pro
+// Max (band 772.67) the chain's 685 pt span over-scrolls by 43.8 pt and a 250 pt span by 261 pt —
+// which is how a surface overflowing the fold by 2.31 pt loses its entire head.
 //
 // ══ THE HEAD POPULATION — the elements whose absence IS the defect ════════════════════════════
 //
@@ -31,26 +27,24 @@ import XCTest
 //                    HashingSurface / TimestampsSurface, lays out
 //                    `ScrollView { VStack(spacing: Spacing.lg) { InputArea(...); stepStack } }`
 //                    with `.padding(.top, Spacing.xl)` — so the FIELD sits ABOVE the root card
-//                    rather than inside it, and is expected to govern `headTop` on every surface.
+//                    rather than inside it. MEASURED: it governs `headTop` on every shot of both
+//                    devices, at 162.33 on iPhone and 150.0 on iPad.
 //   Step.position    EVERY card, the root included (`AccessibilityIdentifiers.swift:235-241`).
 //   Step.header      every card (`StepCard.swift:185`).
 //
-// "First" is taken by SMALLEST minY rather than by index, so nothing here depends on how XCUITest
-// happens to enumerate the tree — and the index that won is RECORDED, so a surprise is a
-// measurement rather than a silent wrong pick.
+// "First" is by SMALLEST minY rather than by index, so nothing depends on how XCUITest enumerates
+// the tree, and the index that won is RECORDED so a surprise is a measurement not a silent pick.
 //
 // ══ THE ARITHMETIC, named once and used by the framing, the retraction and ASSERTION 7 ════════
 //
-//   band           = contentBounds()                    // window minus LOCATED chrome. UNCHANGED.
+//   band           = contentBounds()                   // window minus LOCATED chrome. UNCHANGED.
 //   headTop        = min(first Step.card's minY, and every head element's minY)
-//   tailBottom     = max(maxY over values(sources))     // the SAME population assertion 2 judges
-//   requiredDelta  = max(0, tailBottom - band.maxY)     // how far content must rise to show the tail
+//   tailBottom     = max(maxY over values(sources))    // the SAME population assertion 2 judges
+//   requiredDelta  = max(0, tailBottom - band.maxY)    // how far content must rise to show the tail
 //   availableDelta = max(0, headTop - (band.minY + scrollMargin))  // how far before the head clips
-//   fits           = requiredDelta <= availableDelta
-//
-// `fits` is INVARIANT UNDER SCROLLING — a drag of d lowers both deltas by d and `max(0, ·)` is
-// monotone — so it can be evaluated BEFORE the framing rather than after. That is what lets the
-// chain settle its own composition before anything is judged.
+//   fits           = requiredDelta <= availableDelta — REARRANGED so a scroll cannot fool it, and
+//                    measured at the content origin so a clipped frame cannot either. Both halves
+//                    were found by running it; see `FitMeasurement.fits` and `scrollToTop()`.
 //
 // C-25: Swift 5.9 / `SWIFT_STRICT_CONCURRENCY: minimal`, like every file in this target.
 
@@ -101,8 +95,6 @@ struct FitMeasurement {
 }
 
 extension AppStoreScreenshotTests {
-    // MARK: - The two populations
-
     /// The head of the pipeline on a surface whose input carries `input`.
     static func headIdentifiers(_ input: String) -> [String] {
         [input, AccessibilityIdentifiers.Step.position, AccessibilityIdentifiers.Step.header]
@@ -193,8 +185,6 @@ extension AppStoreScreenshotTests {
             .offset
     }
 
-    // MARK: - The fit arithmetic
-
     /// One measurement of the head, the tail and the room between them, at the CURRENT scroll
     /// position. Nothing is judged and nothing is moved.
     func fit(_ sources: [ValueSource], head identifiers: [String]) -> FitMeasurement {
@@ -213,8 +203,6 @@ extension AppStoreScreenshotTests {
                               tailBottom: tailBottom, requiredDelta: requiredDelta,
                               availableDelta: availableDelta, scrollBy: min(requiredDelta, availableDelta))
     }
-
-    // MARK: - ASSERTION 7
 
     /// **ASSERTION 7 (head) — the head of the pipeline is in the photograph.** Two clauses, and the
     /// second is the macOS blurred-half-line in its general form: content clipped at the TOP is the
@@ -238,8 +226,6 @@ extension AppStoreScreenshotTests {
             + "the pipeline starts")
     }
 
-    // MARK: - The framing, and the retraction that lets it succeed
-
     /// Frame the shot, then hand back what was measured AFTER the drags settled. Scrolls, measures,
     /// records — and judges nothing, because `continueAfterFailure` is false and an assertion above
     /// the evidence line takes the evidence line with it.
@@ -255,14 +241,31 @@ extension AppStoreScreenshotTests {
         return measure
     }
 
-    /// Move the content so the tail comes into the band — and NEVER so far that the head leaves it.
+    /// One drag of `move` points of CONTENT movement — positive rises, negative descends.
     ///
-    /// **THE HOLD IS LOAD-BEARING AND IT IS NOT COSMETIC.** A two-argument press-and-drag releases
-    /// with velocity, the scroll view throws a fling, and the correcting drag flings back past the
-    /// target: a capture run failed on its first pass and passed on fastlane's retry with the root
-    /// value at y=5.31, which is an OSCILLATION rather than a shortfall (UL-074). With
-    /// `thenHoldForDuration` the finger stays down, the scroll view samples zero velocity at
-    /// release, and no fling is thrown.
+    /// **A DRAG DELIVERS `asked - hysteresis`, AND DELIVERS NOTHING AT ALL BELOW IT.** Measured
+    /// twice in one run: an ask of 389.48 moved 379.67, short by 9.81; an ask of 2.31 moved 0.00,
+    /// six attempts in a row. That is how the first green run failed on a tile whose own arithmetic
+    /// said it fitted — `fits=true requiredDelta=2.31 availableDelta=50.0`, and the value stayed
+    /// 2.31 pt below the fold because the gesture never began. `UIPanGestureRecognizer` consumes a
+    /// fixed translation before a scroll view starts, so the ask is the wanted movement PLUS that
+    /// constant. NOTHING IS LOOSENED: `move` is still bounded by `availableDelta`, and the
+    /// hysteresis is spent before any content moves.
+    ///
+    /// **AND THE HOLD IS LOAD-BEARING.** A two-argument press-and-drag releases with velocity, the
+    /// scroll view throws a fling, and the correcting drag flings back past the target: a capture
+    /// run failed on its first pass and passed on fastlane's retry with the root value at y=5.31,
+    /// which is an OSCILLATION rather than a shortfall (UL-074). With `thenHoldForDuration` the
+    /// finger stays down, the scroll view samples zero velocity at release, and no fling is thrown.
+    func drag(_ move: CGFloat, within band: CGRect) {
+        let ask = move + (move > 0 ? Self.dragHysteresis : -Self.dragHysteresis)
+        let step = max(-band.height * 0.8, min(band.height * 0.8, ask))
+        let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -step)),
+                   withVelocity: .slow, thenHoldForDuration: 0.4)
+    }
+
+    /// Move the content so the tail comes into the band — and NEVER so far that the head leaves it.
     ///
     /// **BIDIRECTIONAL, because the retraction leaves the surface wherever the remove control
     /// was.** A rise-only framing would photograph a head that a previous drag had already pushed
@@ -290,12 +293,9 @@ extension AppStoreScreenshotTests {
             guard span <= measure.band.height else { return }
             guard abs(move) > 0.5 else { return }
 
-            let step = max(-measure.band.height * 0.8, min(measure.band.height * 0.8, move))
-            let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -step)),
-                       withVelocity: .slow, thenHoldForDuration: 0.4)
+            drag(move, within: measure.band)
             let moved = top - (values(sources).map(\.frame).map(\.minY).min() ?? top)
-            record("frame attempt=\(attempt) asked=\(step) moved=\(moved)")
+            record("frame attempt=\(attempt) asked=\(move) moved=\(moved)")
         }
     }
 
@@ -369,9 +369,7 @@ extension AppStoreScreenshotTests {
         for _ in 0 ..< Self.scrollAttempts {
             let band = contentBounds()
             guard let before = frames(AccessibilityIdentifiers.Step.card).map(\.maxY).max() else { return }
-            let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: band.height * 0.8)),
-                       withVelocity: .slow, thenHoldForDuration: 0.4)
+            drag(-band.height * 0.8, within: band)
             let after = frames(AccessibilityIdentifiers.Step.card).map(\.maxY).max() ?? before
             record("scrolltop before=\(before) after=\(after) moved=\(after - before)")
             // The probe is the BOTTOM of the card stack, which is the end XCUITest does not clip.
@@ -390,10 +388,7 @@ extension AppStoreScreenshotTests {
             let above = band.minY + Self.scrollMargin - rect.minY
             let move = below > 0 ? below : (above > 0 ? -above : 0)
             guard abs(move) > 0.5 else { return }
-            let step = max(-band.height * 0.8, min(band.height * 0.8, move))
-            let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -step)),
-                       withVelocity: .slow, thenHoldForDuration: 0.4)
+            drag(move, within: band)
         }
     }
 }

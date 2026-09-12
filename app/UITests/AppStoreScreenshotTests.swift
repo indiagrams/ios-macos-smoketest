@@ -73,6 +73,9 @@ final class AppStoreScreenshotTests: XCTestCase {
     static let scrollAttempts = 6
     static let scrollMargin: CGFloat = 12
 
+    /// What a drag spends before the scroll view moves at all — see ``drag(_:within:)``.
+    static let dragHysteresis: CGFloat = 12
+
     /// How many steps the chain shot appends before it measures whether they fit.
     private static let chainAppends = 2
 

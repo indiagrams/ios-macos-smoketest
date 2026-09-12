@@ -348,8 +348,12 @@ final class AppStoreScreenshotTests: XCTestCase {
             for index in 0 ..< entries {
                 let entry = all.element(boundBy: index)
                 let text = entry.renderedText.isEmpty ? entry.title : entry.renderedText
-                if index == Self.privacyItemIndex { read = text }
-                if text == Self.privacyPolicyTitle { matched.append("#\(index)") }
+                if index == Self.privacyItemIndex {
+                    read = text
+                }
+                if text == Self.privacyPolicyTitle {
+                    matched.append("#\(index)")
+                }
             }
             found = matched.count
             at = matched.joined(separator: ",")
@@ -365,20 +369,6 @@ final class AppStoreScreenshotTests: XCTestCase {
 
     // MARK: - Queries, the capture, and the evidence channel
 
-    /// Every element carrying `identifier`, whatever kind of element it is.
-    func all(_ identifier: String) -> XCUIElementQuery {
-        app.descendants(matching: .any).matching(identifier: identifier)
-    }
-
-    /// How many elements carry `identifier` right now — one round trip, never a doomed wait.
-    func count(_ identifier: String) -> Int {
-        all(identifier).count
-    }
-
-    func element(_ identifier: String) -> XCUIElement {
-        all(identifier).firstMatch
-    }
-
     /// Captures the foreground window. `attachment.name` BECOMES THE EXTRACTED FILE NAME
     /// (`ci/extract-mac-screenshots.sh:140-150`), which is `deliver`'s sort key.
     private func attachScreenshot(_ name: String) {
@@ -387,13 +377,5 @@ final class AppStoreScreenshotTests: XCTestCase {
         attachment.name = "macos-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
-    }
-
-    /// One measured line, emitted twice. A `print` from this bundle does NOT reach xcodebuild's
-    /// pipe on macOS (06-01) — the runner is launched by `testmanagerd`, whose stdout is not
-    /// connected to it — so every number also rides an `XCTContext` activity, which does cross.
-    func record(_ line: String) {
-        print(line)
-        XCTContext.runActivity(named: line) { _ in }
     }
 }

@@ -195,7 +195,9 @@ extension AppStoreScreenshotTests {
     /// depends on how XCUITest enumerates the tree; an ENTIRELY empty array still yields nil and
     /// the `index: -1` sentinel. The only input whose answer changes is the mixed one.
     func topmost(_ rects: [CGRect]) -> Int? {
-        if let unmeasurable = rects.firstIndex(where: { $0.isEmpty }) { return unmeasurable }
+        if let unmeasurable = rects.firstIndex(where: { $0.isEmpty }) {
+            return unmeasurable
+        }
         return rects.enumerated().min { $0.element.minY < $1.element.minY }?.offset
     }
 

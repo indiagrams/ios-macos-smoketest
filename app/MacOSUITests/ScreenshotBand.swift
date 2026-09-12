@@ -129,7 +129,9 @@ extension AppStoreScreenshotTests {
     /// card and reported `outside=0`. The iOS twin's finding, carried across — the twins must not
     /// diverge on the head population, whichever route produces the unmeasurable frame.
     func topmost(_ rects: [CGRect]) -> Int? {
-        if let unmeasurable = rects.firstIndex(where: { $0.isEmpty }) { return unmeasurable }
+        if let unmeasurable = rects.firstIndex(where: { $0.isEmpty }) {
+            return unmeasurable
+        }
         return rects.enumerated().min { $0.element.minY < $1.element.minY }?.offset
     }
 
@@ -195,5 +197,27 @@ extension AppStoreScreenshotTests {
             }
         }
         return found
+    }
+
+    /// Every element carrying `identifier`, whatever kind of element it is.
+    func all(_ identifier: String) -> XCUIElementQuery {
+        app.descendants(matching: .any).matching(identifier: identifier)
+    }
+
+    /// How many elements carry `identifier` right now — one round trip, never a doomed wait.
+    func count(_ identifier: String) -> Int {
+        all(identifier).count
+    }
+
+    func element(_ identifier: String) -> XCUIElement {
+        all(identifier).firstMatch
+    }
+
+    /// One measured line, emitted twice. A `print` from this bundle does NOT reach xcodebuild's
+    /// pipe on macOS (06-01) — the runner is launched by `testmanagerd`, whose stdout is not
+    /// connected to it — so every number also rides an `XCTContext` activity, which does cross.
+    func record(_ line: String) {
+        print(line)
+        XCTContext.runActivity(named: line) { _ in }
     }
 }

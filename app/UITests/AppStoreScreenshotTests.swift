@@ -325,6 +325,7 @@ final class AppStoreScreenshotTests: XCTestCase {
     // `ScreenshotDriver.swift` exist. Nothing was deleted to make room.
 
     // MARK: - Launching. `fillFromExample` and `addStep` MOVED to `ScreenshotFraming.swift` for
+
     // the same budget reason, and to sit where the macOS twin keeps them.
 
     /// All five settings keys; surface and encode format chosen by the caller.

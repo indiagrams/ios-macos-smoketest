@@ -325,6 +325,7 @@ extension AppStoreScreenshotTests {
     }
 
     // MARK: - Driving, all of it by identifier and never by visible text
+
     //
     // MOVED from the class file, which is at the 400-line budget `swiftlint --strict` enforces
     // (UL-056). This is also where the macOS twin keeps them — `ScreenshotDriver.swift` carries

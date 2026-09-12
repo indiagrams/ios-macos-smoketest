@@ -10,13 +10,12 @@ import XCTest
 // pairing would sort the dark tile first and the lead tile would be alphabetical accident. That lead
 // tile is the 4.3(b) argument made visual — three values in three alphabets at three lengths.
 //
-// NOTHING IS FILED UNTIL SEVEN PRECONDITIONS HOLD. The capture takes the RESULT of the function that
-// drove and gated the shot, so those seven assertions are the capture's own argument expression and
-// cannot be skipped while leaving a tile behind. Criterion 2 forbids "a launch or title screen", and
-// a test that captures whatever is on screen is how one ships. THE SEVENTH IS THE ONE THIS GATE WENT
-// WITHOUT: assertion 2 judged the OUTPUT VALUES and only those, so four of eight iPhone tiles shipped
-// with the input field and the "Step 1 <name>" header scrolled off the top and every check green.
-// `ScreenshotFraming.swift` carries ASSERTION 7 and the arithmetic that makes it satisfiable.
+// NOTHING IS FILED UNTIL SEVEN PRECONDITIONS HOLD, and ``file(_:)`` is what enforces that. The
+// seventh is the one this gate went without: assertion 2 judged the OUTPUT VALUES and only those, so
+// four of eight iPhone tiles shipped with their input and "Step 1 <name>" header above the fold and
+// every check green — then, once widened to the field, two more shipped with the navigation bar
+// through the middle of the "Input" LABEL. `ScreenshotFraming.swift` carries ASSERTION 7, the head
+// population that now includes the label, and the arithmetic that makes it satisfiable.
 //
 // THE THREE VALUES OF SHOT 01 ARE THE SURFACE'S OWN. The root card is compared against an HTML
 // encoding THIS PROCESS computes — which is what proves the `encodeFormat` pin took, since a raw
@@ -24,16 +23,12 @@ import XCTest
 // SHA-256 THIS PROCESS computes from the SECOND card's value, so a card that renumbers without
 // recomputing fails. No digest literal appears in this file (the 07-10 house rule).
 //
-// THE ROOT CARD'S OUTPUT ON ENCODE CARRIES `Encode.output`, NOT `Step.output` — measured:
-// `EncodeSurface.swift:169` passes `valueIdentifier: Encode.output` into the seeded card's
-// `OutputBlock` and only the APPENDED cards keep the default. A three-card chain publishes ONE
-// `Encode.output` and TWO `Step.output`; a gate counting three `Step.output` would be a correct
-// check pointed at the wrong population. Each contribution is asserted before either is unioned.
+// THE ROOT CARD'S OUTPUT ON ENCODE CARRIES `Encode.output`, NOT `Step.output`, and each identifier's
+// contribution is asserted before the union — see `chainSources(_:)`, which carries the measurement.
 //
-// EVERY LAUNCH PINS ALL FIVE SETTINGS KEYS (07-07) and appends with `+=`, so the appearance argument
-// and the pinning coexist — `selection` persists since 07-05. SECURITY: every input is a synthetic
-// constant already in the tree, reached by TAPPING the worked-value control rather than by typing,
-// and the status bar is pinned to 9:41 by `override_status_bar(true)`. A screenshot is published.
+// EVERY LAUNCH PINS ALL FIVE SETTINGS KEYS (07-07) and appends with `+=`. SECURITY: every input is a
+// synthetic constant already in the tree, reached by TAPPING the worked-value control rather than by
+// typing, and the status bar is pinned to 9:41. A screenshot is published.
 //
 // C-25: Swift 5.9 / `SWIFT_STRICT_CONCURRENCY: minimal`, like every file in this target.
 
@@ -42,11 +37,8 @@ import XCTest
 /// re-run independently (`--only_testing AppUITests/AppStoreScreenshotTests/testLightMode`).
 @MainActor
 final class AppStoreScreenshotTests: XCTestCase {
-    /// The application under test.
-    ///
-    /// INTERNAL RATHER THAN PRIVATE, and not an oversight: `ScreenshotFraming.swift` is an extension in
-    /// another file and an extension cannot see a `private` member. The macOS twin declares this and
-    /// `chrome` internal for exactly the same reason.
+    /// The application under test. INTERNAL rather than private, and not an oversight:
+    /// `ScreenshotFraming.swift` is an extension in another file and cannot see a `private` member.
     var app: XCUIApplication!
 
     /// `Operation.allCases.count`, asserted before any menu index is taken, and this chain's two
@@ -65,11 +57,10 @@ final class AppStoreScreenshotTests: XCTestCase {
     private static let light = "light", dark = "dark"
 
     /// Drags ``scrollValuesIntoFrame(_:head:)`` may take, and the room it keeps above the head.
-    ///
-    /// SIX RATHER THAN FOUR, and not a loosening of anything: the framing is BIDIRECTIONAL since the
-    /// chain began retracting, so one shot can need a descent to un-clip the head AND a rise to bring
-    /// the tail in. Four was the bound the one-way version needed; the macOS twin has been at six
-    /// since it was written. `scrollMargin` is the room ASSERTION 7 refuses to spend.
+    /// SIX RATHER THAN FOUR because the framing is BIDIRECTIONAL since the chain began retracting —
+    /// one shot can need a descent to un-clip the head AND a rise to bring the tail in — and the
+    /// macOS twin has been at six since it was written. `scrollMargin` is the room ASSERTION 7
+    /// refuses to spend; it is NOT a tolerance and nothing in this plan lowered it.
     static let scrollAttempts = 6
     static let scrollMargin: CGFloat = 12
 
@@ -79,9 +70,11 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// How many steps the chain shot appends before it measures whether they fit.
     private static let chainAppends = 2
 
-    /// `appended=N retracted=M` for the shot being captured — set by ``retractChainToFit(_:head:appended:)``,
-    /// reset by ``launch(_:_:)``, and on the evidence line of EVERY shot, so the composition of a tile
-    /// is a measurement rather than an inference from its file name.
+    /// The failure count when the current shot began, for ``file(_:)``.
+    private var failuresBefore = 0
+
+    /// `appended=N retracted=M` for the shot being captured — on the evidence line of EVERY shot, so
+    /// a tile's composition is a measurement rather than an inference from its file name.
     var composition = "appended=0 retracted=0"
 
     /// What the last ``contentBounds()`` call found at the window's edges, for the evidence line.
@@ -101,7 +94,14 @@ final class AppStoreScreenshotTests: XCTestCase {
     ]
 
     override func setUpWithError() throws {
-        continueAfterFailure = false
+        // TRUE, AND IT IS THE STRICTER SETTING HERE RATHER THAN THE LOOSER ONE. With `false` a
+        // refused shot wrote no tile only because the method ABORTED — a side effect of XCTest
+        // unwinding, not a verdict — and that abort also cost every LATER shot its tile: 04 and 08
+        // went missing because 03 and 07 were refused, though their own geometry is fine. The
+        // refusal is now ``file(_:)``'s explicit decision, so each shot is judged on its own merits
+        // and a failing one still writes nothing. Everything above the evidence line still holds:
+        // the gate records before it judges, so nothing measured is lost to a failure.
+        continueAfterFailure = true
         // Force portrait — orientation persists across runs and ASC accepts an exact list of sizes.
         // A landscape capture is the same pixels transposed: rejected. Set BEFORE any launch.
         XCUIDevice.shared.orientation = .portrait
@@ -114,17 +114,31 @@ final class AppStoreScreenshotTests: XCTestCase {
     // MARK: - The two sets, and the ordinals that decide what a reviewer sees first
 
     func testLightMode() {
-        snapshot(chainShot("01-chain-light", Self.light))
-        snapshot(hashingShot("02-hashing-light", Self.light))
-        snapshot(timestampsShot("03-timestamps-light", Self.light))
-        snapshot(encodeURLShot("04-encode-url-light", Self.light))
+        file(chainShot("01-chain-light", Self.light))
+        file(hashingShot("02-hashing-light", Self.light))
+        file(timestampsShot("03-timestamps-light", Self.light))
+        file(encodeURLShot("04-encode-url-light", Self.light))
     }
 
     func testDarkMode() {
-        snapshot(chainShot("05-chain-dark", Self.dark))
-        snapshot(hashingShot("06-hashing-dark", Self.dark))
-        snapshot(timestampsShot("07-timestamps-dark", Self.dark))
-        snapshot(encodeURLShot("08-encode-url-dark", Self.dark))
+        file(chainShot("05-chain-dark", Self.dark))
+        file(hashingShot("06-hashing-dark", Self.dark))
+        file(timestampsShot("07-timestamps-dark", Self.dark))
+        file(encodeURLShot("08-encode-url-dark", Self.dark))
+    }
+
+    /// `snapshot(_:)` for a shot that EARNED it — counted over the failures THIS shot recorded,
+    /// which `launch(_:_:)` baselines. A shot that failed anything writes nothing and says so.
+    ///
+    /// This is the whole reason `continueAfterFailure` can be true: the refusal is a verdict rather
+    /// than a consequence of the method dying, so a refused shot no longer takes the tiles after it
+    /// down with it. `totalFailureCount` rather than `failureCount` so a raised exception counts too.
+    private func file(_ named: String) {
+        let recorded = (testRun?.totalFailureCount ?? 0) - failuresBefore
+        guard recorded == 0 else {
+            return record("refused shot=\(named) failures=\(recorded) — no tile written")
+        }
+        snapshot(named)
     }
 
     // MARK: - The four states, each returning its own name once it has earned it
@@ -155,6 +169,7 @@ final class AppStoreScreenshotTests: XCTestCase {
         let appended = count(AccessibilityIdentifiers.Step.remove)
         XCTAssertGreaterThan(appended, 0, "\(named): \(appended) appended cards survive the retraction — a "
             + "root-only surface is not a chain and this tile makes no chaining argument")
+        guard values.count > 1 else { return named }
         XCTAssertEqual(values[1], SecondOpinion.base64(values[0]),
                        "\(named): step 2 shows \(values[1]), expected this process's base64 of step 1")
         // WHICH BRANCH RAN IS RECORDED, so "the digest was checked" is a measurement. The SHA-256
@@ -192,9 +207,9 @@ final class AppStoreScreenshotTests: XCTestCase {
         // assuming launch-time existence fails here and passes on Hashing: it looks like flake.
         let values = gate(named, cards: 1, sources: Self.timestampsCells.map { ValueSource($0, 1) },
                           surface: AccessibilityIdentifiers.Timestamps.cellISO8601, input: .timestamps)
-        XCTAssertEqual(values[0], source,
-                       "\(named): the epoch cell shows \(values[0]) against an input of \(source) — the "
-                           + "`unixEpoch` read-as pin did not take")
+        guard let epoch = values.first else { return named }
+        XCTAssertEqual(epoch, source, "\(named): the epoch cell shows \(epoch) against an input of "
+            + "\(source) — the `unixEpoch` read-as pin did not take")
         return named
     }
 
@@ -206,8 +221,9 @@ final class AppStoreScreenshotTests: XCTestCase {
                                      reading: AccessibilityIdentifiers.Encode.input)
         let values = gate(named, cards: 1, sources: [ValueSource(AccessibilityIdentifiers.Encode.output, 1)],
                           surface: AccessibilityIdentifiers.Encode.output, input: .encode)
-        XCTAssertEqual(values[0], SecondOpinion.percentEncoded(source),
-                       "\(named): the root card shows \(values[0]), expected this process's percent-encoding "
+        guard let encoded = values.first else { return named }
+        XCTAssertEqual(encoded, SecondOpinion.percentEncoded(source),
+                       "\(named): the root card shows \(encoded), expected this process's percent-encoding "
                            + "— so this tile is not the URL format it claims to be")
         return named
     }
@@ -319,6 +335,7 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// appends fastlane's own arguments and an assignment here would drop them.
     private func launch(_ pinning: [String], _ appearance: String) {
         app = XCUIApplication()
+        failuresBefore = testRun?.totalFailureCount ?? 0
         composition = "appended=0 retracted=0"
         setupSnapshot(app)
         app.launchArguments += ["-UITestColorScheme", appearance]

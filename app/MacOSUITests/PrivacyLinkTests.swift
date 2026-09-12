@@ -137,6 +137,8 @@ final class PrivacyLinkTests: XCTestCase {
         // where iOS is `TabView`, `RootView.swift:157` vs `:179`), so every
         // read below is of a window the app never navigated. NOT the `AXTitle`
         // fix, which is real and exercised on iOS. UNSKIP only on a green run.
+        // OWED TO WHOEVER UNSKIPS THIS: WR-01's fix below is UNVERIFIED BY EXECUTION.
+        // Drive it red first — delete the privacy `CommandGroup`, expect a FAIL here.
         throw XCTSkip("macOS launch-pinning does not present the surface — 5/5 at awaitSurface, 2026-09-11. Owner: Phase 8.5.")
     }
 
@@ -284,8 +286,10 @@ final class PrivacyLinkTests: XCTestCase {
     }
 
     /// THE `[OPEN]` MEASUREMENT, EMITTED ON EVERY RUN WHATEVER ITS VALUE, then
-    /// the assertion that holds either way. Answers 1 — one item, however it was
-    /// resolved — so the caller can total the surfaces.
+    /// the assertion that holds either way. Answers a MEASURED count — `-1` the
+    /// ordinal was never safe, `byIdentifier` that route's count, `1`/`0` from the
+    /// positional read. Both exits returned the literal `1` until 2026-09-11, so
+    /// the caller's total compared 3 with 3 on every input (WR-01).
     private func assertThePrivacyItemIsInTheMenu(_ menu: XCUIElement, on surface: String) -> Int {
         let byIdentifier = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy).count
         record("macos_privacy_identifier_survives_\(surface)=\(byIdentifier > 0) macos_privacy_identifier_count_\(surface)=\(byIdentifier)")
@@ -299,26 +303,20 @@ final class PrivacyLinkTests: XCTestCase {
             let item = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy).element(boundBy: 0)
             assertReadable(item, "the app menu's privacy item on \(surface)")
             assertRendersText(item, Self.privacyPolicyTitle, "the app menu's privacy item on \(surface)")
-            return 1
+            return byIdentifier
         }
 
-        // THE FALLBACK, WHICH IS THE EXPECTED PATH. A zero here is not a failure of
-        // this app — it is the `[OPEN]` resolved NEGATIVE, measured by 08-14 on a
-        // running app and by 06-13 for `Menu` containers before it — so it is
-        // recorded as a named fact rather than hidden behind a green, and the item
-        // is then resolved by its ORDINAL inside the menu that was just opened.
-        // The read below reaches the item's text through `title`, which is where
-        // AppKit publishes a menu item's string; see this file's header.
+        // THE FALLBACK, THE EXPECTED PATH: a zero IDENTIFIER count is the `[OPEN]`
+        // resolved NEGATIVE (08-14 running, 06-13 `Menu` before it), not a defect.
         record("macos_privacy_identifier_survives=false reason=no-menu-item-carries-\(AccessibilityIdentifiers.Shell.privacyPolicy)")
         let entries = menu.descendants(matching: .menuItem)
         let population = entries.count
         let titles = (0 ..< population).map { readable(entries.element(boundBy: $0)) }
         record("macos_app_menu_items=\(population) titles=\(titles.joined(separator: " | "))")
-        XCTAssertGreaterThan(
-            population,
-            Self.privacyItemIndex,
-            "\(surface): the app menu holds \(population) items, so index \(Self.privacyItemIndex) is not a safe read — \(titles)"
-        )
+        guard population > Self.privacyItemIndex else {
+            XCTFail("\(surface): the app menu holds \(population) items, so \(Self.privacyItemIndex) is not a safe read")
+            return -1
+        }
 
         let positional = entries.element(boundBy: Self.privacyItemIndex)
         assertReadable(positional, "the app menu's item at index \(Self.privacyItemIndex) on \(surface)")
@@ -327,7 +325,9 @@ final class PrivacyLinkTests: XCTestCase {
             Self.privacyPolicyTitle,
             "the app menu's item at index \(Self.privacyItemIndex) on \(surface)"
         )
-        return 1
+        let read = positional.renderedText
+        record("macos_privacy_read_\(surface)=\"\(read)\"")
+        return read == Self.privacyPolicyTitle ? 1 : 0
     }
 
     /// The privacy item itself, by whichever route this platform allows.

@@ -348,4 +348,46 @@ extension AppStoreScreenshotTests {
             drag(move, within: band)
         }
     }
+
+    // MARK: - Driving, all of it by identifier and never by visible text
+    //
+    // MOVED from the class file, which is at the 400-line budget `swiftlint --strict` enforces
+    // (UL-056). This is also where the macOS twin keeps them — `ScreenshotDriver.swift` carries
+    // `fillFromExample` and `addStep` — so the move restores a symmetry rather than inventing
+    // one. INTERNAL rather than private for the reason the class file already gives for `app`:
+    // an extension in another file cannot see a `private` member.
+
+    /// Fill a surface's input from its worked-value control and hand back what the field holds, read
+    /// from the tree rather than spelled here: `InputExample` is app code this process cannot link.
+    func fillFromExample(_ control: String, reading field: String) -> String {
+        let button = element(control)
+        XCTAssertTrue(button.waitForExistence(timeout: 30), "no worked-value control carries \(control)")
+        button.tap()
+        let text = (element(field).value as? String) ?? ""
+        XCTAssertFalse(text.isEmpty, "the worked-value control left \(field) empty, so every value below this "
+            + "would be about the empty string")
+        return text
+    }
+
+    /// Open an add-step control and choose the item at `menuIndex` — having first proven the menu's
+    /// population is `Operation.allCases.count` AND that the index resolves to `title`.
+    /// `Pipeline.appending(_:)` always appends to the END (`Pipeline.swift:150`), so which control is
+    /// tapped does not decide where the step lands; index 0 is the root's.
+    func addStep(_ menuIndex: Int, _ title: String) {
+        let controls = all(AccessibilityIdentifiers.Step.addStep)
+        XCTAssertTrue(controls.element(boundBy: 0).waitForExistence(timeout: 20), "no add-step control on the surface")
+        controls.element(boundBy: 0).tap()
+
+        let items = all(AccessibilityIdentifiers.Step.addStepMenu)
+        XCTAssertTrue(items.element(boundBy: menuIndex).waitForExistence(timeout: 20),
+                      "the add-step menu presented no item at index \(menuIndex)")
+        let population = items.count
+        XCTAssertEqual(population, Self.operationCount,
+                       "the menu presented \(population) items, expected Operation.allCases.count = \(Self.operationCount)")
+        let item = items.element(boundBy: menuIndex)
+        XCTAssertEqual(assertReadable(item, "the add-step menu item at index \(menuIndex)"), title,
+                       "menu index \(menuIndex) resolves to something other than \(title) — `Operation.allCases` has "
+                           + "been reordered and this chain is not the chain it says it is")
+        item.tap()
+    }
 }

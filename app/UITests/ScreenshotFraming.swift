@@ -146,10 +146,34 @@ extension AppStoreScreenshotTests {
     /// run failed on its first pass and passed on fastlane's retry with the root value at y=5.31,
     /// which is an OSCILLATION rather than a shortfall (UL-074). With `thenHoldForDuration` the
     /// finger stays down, the scroll view samples zero velocity at release, and no fling is thrown.
+    /// Where the finger goes down, as a fraction of the SCREEN's height. Named rather than spelled
+    /// at the two places that now need it: the coordinate and the room that coordinate leaves.
+    static let gripOffset: CGFloat = 0.6
+
     func drag(_ move: CGFloat, within band: CGRect) {
-        let ask = move + (move > 0 ? Self.dragHysteresis : -Self.dragHysteresis)
-        let step = max(-band.height * 0.8, min(band.height * 0.8, ask))
-        let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        // **THE CLAMP GOES ON THE MOVEMENT AND THE COMPENSATION GOES OUTSIDE IT.** Clamping the ask
+        // deleted the compensation on exactly the call that needs it most: `scrollToTop()` asks
+        // `-618.13`, the ask becomes `-630.13`, and `max(-618.13, -630.13)` is `-618.13` — the whole
+        // 12 pt is gone and every descent under-delivers by the full hysteresis. Bounding `move`
+        // first and adding the compensation after is what the doc comment above already claims
+        // happens: the ask is the wanted movement PLUS the constant, never a clamp applied to both.
+        //
+        // **AND THE BOUND IS WHAT THE GESTURE CAN PHYSICALLY DELIVER, WHICH IS THE SCREEN'S ROOM
+        // AND NOT `band.height`.** The grip sits at 0.6 of the screen, so a descent has only
+        // `screen.maxY - gripY` beneath it. On iPhone 16 Pro Max that is 382.4 pt against a
+        // `band.height * 0.8` of 618.13, and the end point computed from the band lands at y=1191.73
+        // on a 956 pt screen — 235.73 pt PAST its edge; on iPad, 1856 on 1376, off by 480. The
+        // delivered movement was therefore capped by the screen rather than by the clamp the code
+        // computes, so `asked` and `moved` could never be reconciled and `scrollToTop()` could
+        // exhaust its six attempts without reaching the origin — the ONE position where
+        // ``scrollToTop()`` says the head's frame can be believed. Bounded here, the same call
+        // lands at y=944.0 with `scrollMargin` to spare and converges in ONE attempt of six.
+        let screen = app.frame
+        let gripY = screen.minY + screen.height * Self.gripOffset
+        let room = move > 0 ? gripY - screen.minY : screen.maxY - gripY
+        let bound = max(0, min(band.height * 0.8, room - Self.scrollMargin - Self.dragHysteresis))
+        let step = max(-bound, min(bound, move)) + (move > 0 ? Self.dragHysteresis : -Self.dragHysteresis)
+        let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: Self.gripOffset))
         grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -step)),
                    withVelocity: .slow, thenHoldForDuration: 0.4)
     }
@@ -252,15 +276,23 @@ extension AppStoreScreenshotTests {
     /// problem; only measuring at the origin removes the clipped-frame half. Both halves were
     /// found by running the thing, not by reading it.
     func scrollToTop() {
-        for _ in 0 ..< Self.scrollAttempts {
+        for attempt in 0 ..< Self.scrollAttempts {
             let band = contentBounds()
             guard let before = frames(AccessibilityIdentifiers.Step.card).map(\.maxY).max() else { return }
             drag(-band.height * 0.8, within: band)
             let after = frames(AccessibilityIdentifiers.Step.card).map(\.maxY).max() ?? before
-            record("scrolltop before=\(before) after=\(after) moved=\(after - before)")
+            record("scrolltop attempt=\(attempt) before=\(before) after=\(after) moved=\(after - before)")
             // The probe is the BOTTOM of the card stack, which is the end XCUITest does not clip.
             guard after - before > 0.5 else { return }
         }
+        // FALLING OUT OF THE LOOP MEANS THE LAST ATTEMPT WAS STILL DESCENDING, which is the ONE
+        // outcome this function must not pass over in silence: every `headTop` measured afterwards
+        // is optimistic by the clipped amount (UL-078), and a `fits` computed from it can answer
+        // TRUE for a composition that does not fit. Reachable, and not only in principle — content
+        // taller than six times the per-attempt bound reaches it. Today's compositions converge in
+        // ONE attempt of six on iPhone and zero on iPad, so this has roughly threefold headroom.
+        XCTFail("the surface was still descending after \(Self.scrollAttempts) attempts, so it is NOT at its "
+            + "content origin and every head measurement taken from here is optimistic (UL-078)")
     }
 
     /// Bring one control inside the band before it is tapped. A control below the fold has a hit

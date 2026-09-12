@@ -245,6 +245,7 @@ extension AppStoreScreenshotTests {
     /// the evidence line takes the evidence line with it.
     func frameShot(_ shot: String, sources: [ValueSource], input: String) -> FitMeasurement {
         let identifiers = Self.headIdentifiers(input)
+        scrollToTop()
         scrollValuesIntoFrame(sources, head: identifiers)
         let measure = fit(sources, head: identifiers)
         record("frame shot=\(shot) headTop=\(measure.headTop) headTop_by=\(measure.headTopBy) "
@@ -277,14 +278,11 @@ extension AppStoreScreenshotTests {
             let rects = values(sources).map(\.frame)
             guard let top = rects.map(\.minY).min(), let bottom = rects.map(\.maxY).max() else { return }
             let span = bottom - top
-            // RISING IS EXACT AND DESCENDING IS DELIBERATE OVERSHOOT. A scroll view clamps at its
-            // own content origin, so asking for half a band more than the head needs lands the shot
-            // at the position a user sees rather than at the minimum that clears the head — which
-            // makes the composition a function of the layout instead of a function of wherever the
-            // retraction's last drag happened to stop. Sixteen reproducible tiles depend on that.
+            // EXACT IN BOTH DIRECTIONS, because ``scrollToTop()`` has already put the surface at
+            // its content origin: the rise is bounded by `availableDelta` and therefore cannot clip
+            // the head, and the descent exists only to correct a drag that overshot.
             let headSlack = measure.headTop - (measure.band.minY + Self.scrollMargin)
-            let descend = headSlack - measure.band.height / 2
-            let move = headSlack < -0.5 ? descend : (measure.requiredDelta > 0.5 ? measure.scrollBy : 0)
+            let move = headSlack < -0.5 ? headSlack : (measure.requiredDelta > 0.5 ? measure.scrollBy : 0)
             record("frame attempt=\(attempt) span=\(span) headTop=\(measure.headTop) "
                 + "headTop_by=\(measure.headTopBy) headSlack=\(headSlack) requiredDelta=\(measure.requiredDelta) "
                 + "availableDelta=\(measure.availableDelta) fits=\(measure.fits) scrollBy=\(measure.scrollBy) "
@@ -314,6 +312,7 @@ extension AppStoreScreenshotTests {
     func retractChainToFit(_ shot: String, head identifiers: [String], appended: Int) -> Int {
         var surviving = appended
         for _ in 0 ..< appended {
+            scrollToTop()
             let measure = fit(Self.chainSources(surviving), head: identifiers)
             record("retract shot=\(shot) appended=\(appended) surviving=\(surviving) "
                 + "headTop=\(measure.headTop) headTop_by=\(measure.headTopBy) tailBottom=\(measure.tailBottom) "
@@ -344,6 +343,40 @@ extension AppStoreScreenshotTests {
         let after = count(AccessibilityIdentifiers.Step.card)
         XCTAssertEqual(after, before - 1, "\(shot): the retraction tap left \(after) step cards, expected "
             + "\(before - 1) — a silent no-op click and a successful removal look identical without this")
+    }
+
+    /// Put the surface back at its content origin, which is the ONLY position where the head's
+    /// frame can be believed.
+    ///
+    /// **XCUITest CLIPS AN ELEMENT'S FRAME AT THE WINDOW'S TOP EDGE AND NOT AT ITS BOTTOM.**
+    /// Measured 2026-09-11, both halves inside one run, on `Encode.input`:
+    ///
+    ///     at the content origin   (28.0, 162.33, 384.0, 86.33)   maxY 248.67
+    ///     scrolled 202.67 down    (28.0,   0.00, 384.0, 46.00)   maxY  46.00
+    ///
+    /// The true minY there is -40.33. The reported minY is pinned to ZERO and the height cut by
+    /// exactly the 40.33 pt above the edge, so the maxY stays exact. Downwards there is no such
+    /// clip: at the origin the chain's third value reports maxY=1218.64 in a 956 pt window, 262 pt
+    /// below the fold, untouched.
+    ///
+    /// **SO A `headTop` READ AT A SCROLLED POSITION IS OPTIMISTIC, AND `fits` READS TRUE FOR A
+    /// COMPOSITION THAT DOES NOT FIT.** The floor control measured exactly that: after one
+    /// retraction the chain reported `headTop=0.0 fits=true` where the honest extent was 40.33 pt
+    /// larger and false. Stating `fits` as an extent removed the clamp-at-zero half of that
+    /// problem; only measuring at the origin removes the clipped-frame half. Both halves were
+    /// found by running the thing, not by reading it.
+    func scrollToTop() {
+        for _ in 0 ..< Self.scrollAttempts {
+            let band = contentBounds()
+            guard let before = frames(AccessibilityIdentifiers.Step.card).map(\.maxY).max() else { return }
+            let grip = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+            grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: band.height * 0.8)),
+                       withVelocity: .slow, thenHoldForDuration: 0.4)
+            let after = frames(AccessibilityIdentifiers.Step.card).map(\.maxY).max() ?? before
+            record("scrolltop before=\(before) after=\(after) moved=\(after - before)")
+            // The probe is the BOTTOM of the card stack, which is the end XCUITest does not clip.
+            guard after - before > 0.5 else { return }
+        }
     }
 
     /// Bring one control inside the band before it is tapped. A control below the fold has a hit

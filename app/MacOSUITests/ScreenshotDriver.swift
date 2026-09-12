@@ -142,39 +142,6 @@ extension AppStoreScreenshotTests {
          AccessibilityIdentifiers.Step.position, AccessibilityIdentifiers.Step.header]
     }
 
-    /// The TOPMOST element of each head population, with the index that won it. An empty population
-    /// yields an EMPTY frame at index -1, which ASSERTION 7 counts as outside — the same rule
-    /// assertion 2 applies: `CGRect.contains` answers false for an empty rect, so an element that
-    /// is not in the tree cannot be inside the photograph.
-    func headElements(_ identifiers: [String]) -> [HeadElement] {
-        identifiers.map { identifier in
-            let rects = frames(identifier)
-            guard let index = topmost(rects) else {
-                return HeadElement(identifier: identifier, index: -1, frame: .zero)
-            }
-            return HeadElement(identifier: identifier, index: index, frame: rects[index])
-        }
-    }
-
-    /// One measurement of the head, the tail and the room between them, at the CURRENT scroll
-    /// position. Nothing is judged and nothing is moved.
-    func fit(_ sources: [ValueSource], head identifiers: [String]) -> FitMeasurement {
-        let band = contentBounds()
-        let head = headElements(identifiers)
-        var candidates = head.filter { !$0.frame.isEmpty }.map { ($0.identifier, $0.frame.minY) }
-        if let card = frames(AccessibilityIdentifiers.Step.card).filter({ !$0.isEmpty }).map(\.minY).min() {
-            candidates.append((AccessibilityIdentifiers.Step.card, card))
-        }
-        let winner = candidates.min { $0.1 < $1.1 }
-        let headTop = winner?.1 ?? band.minY
-        let tailBottom = values(sources).map(\.frame).filter { !$0.isEmpty }.map(\.maxY).max() ?? band.maxY
-        let requiredDelta = max(0, tailBottom - band.maxY)
-        let availableDelta = max(0, headTop - (band.minY + Self.scrollMargin))
-        return FitMeasurement(band: band, head: head, headTop: headTop, headTopBy: winner?.0 ?? "none",
-                              tailBottom: tailBottom, requiredDelta: requiredDelta,
-                              availableDelta: availableDelta, scrollBy: min(requiredDelta, availableDelta))
-    }
-
     /// Frame the shot, then hand back what was measured AFTER the scroll settled. Scrolls, measures,
     /// records — and judges nothing, because an assertion above the evidence line takes the evidence
     /// line with it.

@@ -275,56 +275,6 @@ struct SurfaceInput {
                                          label: AccessibilityIdentifiers.Timestamps.inputLabel)
 }
 
-/// One member of the head population: what it is called, WHICH element of that population won it,
-/// and where that element was found. The index is carried so the evidence line can say it.
-struct HeadElement {
-    let identifier: String
-    let index: Int
-    let frame: CGRect
-}
-
-/// One measurement of whether the head of the pipeline and the tail of it can share the band, and
-/// of how far the content may rise. Nothing here judges; ``AppStoreScreenshotTests`` does that.
-///
-/// The iOS twin's ``FitMeasurement`` is this type field for field, deliberately: the two harnesses
-/// are twins and a divergence in the arithmetic would be a defect rather than a platform
-/// difference. What genuinely differs on this platform is the SCROLL PRIMITIVE — wheel events
-/// rather than press-and-drag — and that lives in `ScreenshotDriver.swift`, not here.
-struct FitMeasurement {
-    let band: CGRect
-    let head: [HeadElement]
-    let headTop: CGFloat
-    let headTopBy: String
-    let tailBottom: CGFloat
-    let requiredDelta: CGFloat
-    let availableDelta: CGFloat
-    let scrollBy: CGFloat
-
-    /// The head and the tail can share the band. False is not a failure here — it is what makes
-    /// the chain retract, and only when the chain has nothing left to retract does it reach a gate.
-    ///
-    /// **STATED AS AN EXTENT RATHER THAN AS `requiredDelta <= availableDelta`, and the two are the
-    /// SAME PREDICATE at the top of the scroll view:**
-    ///
-    ///       requiredDelta <= availableDelta
-    ///     ⟺ tailBottom - band.maxY <= headTop - band.minY - scrollMargin
-    ///     ⟺ (tailBottom - headTop) + scrollMargin <= band.height
-    ///
-    /// The rearranged form is the one that SURVIVES A SCROLL. Both deltas clamp at zero, so once
-    /// the surface has been scrolled past `requiredDelta` the delta form reads `0 <= 0` and
-    /// answers TRUE for a composition that does not fit — a measurement that cannot answer false,
-    /// inside the loop whose whole job is to decide the composition. The iOS twin measured exactly
-    /// that (plan 08-20, commit `020d974`). `tailBottom - headTop` is invariant under scrolling.
-    var fits: Bool {
-        (tailBottom - headTop) + AppStoreScreenshotTests.scrollMargin <= band.height
-    }
-
-    /// Every head element as `identifier#index(x,y,w,h)`, so a failure NAMES what was missing.
-    var describedHead: String {
-        head.map { "\($0.identifier)#\($0.index)\(describeRect($0.frame))" }.joined(separator: ",")
-    }
-}
-
 /// THE POPULATIONS THIS GATE ASSERTS OVER, gathered where ``ValueSource`` and ``SurfaceInput``
 /// already are. Definitions rather than driving, which is why they are not in `ScreenshotDriver`;
 /// and gathered here rather than in the class file because that file is at the 400-line budget
@@ -353,17 +303,5 @@ extension AppStoreScreenshotTests {
             ValueSource(AccessibilityIdentifiers.Encode.output, 1),
             ValueSource(AccessibilityIdentifiers.Step.output, appended)
         ]
-    }
-
-    /// Every frame carrying `identifier`, for the evidence line.
-    func frames(_ identifier: String) -> [CGRect] {
-        let query = all(identifier)
-        return (0 ..< query.count).map { query.element(boundBy: $0).frame }
-    }
-
-    /// The index of the rect with the smallest `minY`, ignoring empty ones — "first" by GEOMETRY
-    /// and not by query order, so the head population does not depend on how XCUITest enumerates.
-    func topmost(_ rects: [CGRect]) -> Int? {
-        rects.enumerated().filter { !$0.element.isEmpty }.min { $0.element.minY < $1.element.minY }?.offset
     }
 }

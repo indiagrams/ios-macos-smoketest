@@ -331,27 +331,6 @@ final class AppStoreScreenshotTests: XCTestCase {
         return found
     }
 
-    /// The band a capture can actually show: the window minus any chrome LOCATED at its top.
-    /// Measured rather than assumed — on this platform the title bar does not overlay content, so
-    /// subtracting it is conservative, and what was found lands in ``chrome`` and comes out of the
-    /// run rather than out of this sentence.
-    func contentBounds() -> CGRect {
-        let window = app.windows.firstMatch
-        XCTAssertTrue(window.waitForExistence(timeout: 30),
-                      "no window resolved, so 'inside the frame' would be a comparison against nothing")
-        let bounds = window.frame
-        var top = bounds.minY
-        var bars: [String] = []
-        for bar in [("toolbar", app.toolbars.firstMatch)] where bar.1.exists && !bar.1.frame.isEmpty {
-            let rect = bar.1.frame
-            guard rect.midY < bounds.midY else { continue }
-            top = max(top, rect.maxY)
-            bars.append("\(bar.0)=top\(describeRect(rect))")
-        }
-        chrome = "window=\(describeRect(bounds)) chrome=\(bars.isEmpty ? "none" : bars.joined(separator: ","))"
-        return CGRect(x: bounds.minX, y: top, width: bounds.width, height: bounds.maxY - top)
-    }
-
     // MARK: - Queries, the capture, and the evidence channel
 
     /// Every element carrying `identifier`, whatever kind of element it is.

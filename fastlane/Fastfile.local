@@ -413,4 +413,44 @@ platform :ios do
     )
     UI.success("iOS screenshots uploaded from fastlane/screenshots/en-US/ through the fork override (UL-075).")
   end
+
+  # ─── The category guard, on the route that actually sends a category ───────
+  #
+  # `fork_assert_category_env!` was invoked from three `platform :mac` bodies
+  # and nowhere else. Those lanes pass NO category at all — the comment on the
+  # guard says so in its own words — so the guard had never once evaluated on a
+  # run that could ship one. It was a correct check pointed at the wrong
+  # population, which is this project's signature defect arriving again inside
+  # the fix for a different one.
+  #
+  # The route that DOES send it, enumerated from the template rather than
+  # assumed. `ASC_PRIMARY_CATEGORY` / `ASC_SECONDARY_CATEGORY` are read straight
+  # off ENV in `build_asc_metadata_args` (fastlane/Fastfile:648-649), which has
+  # exactly two callers — `do_upload_metadata` (:700) and `do_submit_for_review`
+  # (:878) — and those two are reached from exactly six lanes: three under
+  # `platform :ios` and three under `platform :osx`. The macOS three are already
+  # overridden above. These are the other three, and with them the guard's own
+  # claim — "every lane in this process should refuse before it can reach any
+  # route, not just this one" — is true for the first time.
+  #
+  # EACH BODY ADDS EXACTLY ONE LINE to the template's, same discipline as the
+  # screenshot override above. The template's bodies are one line each
+  # (fastlane/Fastfile:1984-1998) and are reproduced verbatim beneath the guard;
+  # fastlane has no `super` for `override_lane`, so writing them out is the only
+  # option and keeping them to the single delegating call is what stops this
+  # override from silently forking the lane's behaviour as well as guarding it.
+  override_lane :upload_metadata do
+    fork_assert_category_env!
+    do_upload_metadata(platform: :ios)
+  end
+
+  override_lane :submit_for_review do
+    fork_assert_category_env!
+    do_submit_for_review(platform: :ios, submit: true)
+  end
+
+  override_lane :stage_for_review do
+    fork_assert_category_env!
+    do_submit_for_review(platform: :ios, submit: false)
+  end
 end

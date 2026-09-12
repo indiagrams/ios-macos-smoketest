@@ -30,10 +30,20 @@
 #                placeholder prefix -- the one `fastlane/Fastfile:562` rejects
 #                with `start_with?` and `bin/adopt.rb` filters on. It is NOT
 #                spelled anywhere below; see THE ASSEMBLY RULE.
-#   length       The keyword set fits App Store Connect's 100-character budget
-#                and the subtitle fits 30, both asserted with the MEASURED
-#                length in the message. `fastlane/metadata/en-US/subtitle.txt`
-#                states the 30 in its own placeholder text.
+#   length       The keyword set fits App Store Connect's 100-character budget,
+#                the subtitle fits 30 and the promotional text fits 170, each
+#                asserted with the MEASURED length in the message.
+#                `fastlane/metadata/en-US/subtitle.txt` states the 30 in its own
+#                placeholder text.
+#   optional     A per-platform copy field App Store Connect does not require is
+#                swept WHEN PRESENT and never DEMANDED -- see OPTIONAL_COPY_STEMS.
+#                Absence is a choice; presence puts the file under every clause a
+#                required copy stem gets.
+#   excluded     Every .txt in either locale tree is read by a named clause. The
+#                count of files no clause reads is both printed AND asserted to be
+#                zero, so "nobody looked" cannot hide inside a total. It was a
+#                printed number only until 2026-09-11, and it read 7 while six of
+#                those seven were in fact swept (WR-05).
 #   divergence   Once both trees exist, the macOS description is not a byte copy
 #                of the iOS one (D-121: the macOS listing leans on the 4.3(b)
 #                case and cannot be the same paragraph). The shared fields --
@@ -197,6 +207,22 @@ METADATA_ROOTS     = ["fastlane/metadata", "fastlane/metadata-macos"].freeze
 # The count of files present in a tree but swept by no copy clause there is printed
 # as `store_copy_excluded` so it moves the day somebody adds a file to either tree.
 COPY_STEMS        = %w[description keywords release_notes].freeze
+# PER PLATFORM and OPTIONAL. App Store Connect does not require this field, and
+# deliver omits an absent key rather than blanking it (`next unless current`,
+# upload_metadata.rb:143), so its absence from a tree is a choice and not a
+# defect -- which is why it is NOT in COPY_STEMS, whose members are asserted
+# present and whose count is the floor the tree is measured against. Its
+# PRESENCE puts the file under every clause a required copy stem gets, plus the
+# 170-character budget below.
+#
+# It was outside EVERY clause until 2026-09-11 (WR-05). `fork_macos_metadata_args`
+# in `fastlane/Fastfile.local` ships it to App Store Connect by name, 156
+# characters of it, and nothing here had ever opened it -- no emptiness check, no
+# placeholder check, no ceiling. `store_copy_excluded` is the number that exists
+# to make exactly that visible and it did not, because it was computed against
+# the copy stems alone and so counted six files that ARE swept alongside the one
+# that was not.
+OPTIONAL_COPY_STEMS = %w[promotional_text].freeze
 URL_STEMS         = %w[support_url marketing_url].freeze
 SHARED_COPY_STEMS = %w[subtitle].freeze
 SHARED_URL_STEMS  = %w[privacy_url].freeze
@@ -207,9 +233,13 @@ SHARED_STEMS      = (SHARED_COPY_STEMS + SHARED_URL_STEMS + [SHARED_STEM]).freez
 SHARED_TREE       = "ios"
 
 # App Store Connect's budgets. The 30 is stated by the tracked subtitle
-# placeholder itself; the 100 is the keyword-field limit named in META-04.
-KEYWORDS_LIMIT = 100
-SUBTITLE_LIMIT = 30
+# placeholder itself; the 100 is the keyword-field limit named in META-04; the
+# 170 is App Store Connect's promotional-text budget. Over budget, the field is
+# truncated or refused at UPLOAD rather than at review, so the shortfall never
+# appears in the tracked file and nobody sees it until the listing is live.
+KEYWORDS_LIMIT    = 100
+SUBTITLE_LIMIT    = 30
+PROMOTIONAL_LIMIT = 170
 
 # --- the catalog, two families, no glob -------------------------------------
 
@@ -398,6 +428,38 @@ present_trees.each do |platform, dir, files|
            "it is text that would ship to App Review as this fork's #{stem}"
   end
 
+  # The OPTIONAL per-platform copy stems. Selected by what is on disk rather than
+  # demanded, then swept exactly as a required copy stem is. A stem that is absent
+  # contributes no assertion, which is why `store_copy_optional_swept` is printed
+  # and why the excluded clause below is an assertion rather than a number: a file
+  # that reached neither is the state this pair exists to make impossible.
+  optional_here = OPTIONAL_COPY_STEMS.select { |stem| files.include?("#{stem}.txt") }
+  optional_here.each do |stem|
+    rel   = "#{dir}/#{stem}.txt"
+    value = read_text(rel)
+    values[platform][stem] = value
+
+    assert !value.strip.empty?, "copy", rel,
+           "the #{platform} listing #{stem} is non-empty. The file is present, so " \
+           "`fork_macos_metadata_args` reads it and hands deliver a value -- an empty one is a " \
+           "field this fork SETS to nothing, which is a different act from leaving it alone"
+    assert !value.include?(PLACEHOLDER), "placeholder", rel,
+           "the #{platform} listing #{stem} carries no placeholder copy. The template ships a " \
+           "four-letter placeholder prefix in every listing .txt -- the one " \
+           "`fastlane/Fastfile:562` rejects with `start_with?` -- and this field is delivered " \
+           "by name, so a value still carrying it ships to App Review as this fork's #{stem}"
+  end
+
+  if values[platform].key?("promotional_text")
+    measured = values[platform]["promotional_text"].strip.length
+    assert measured <= PROMOTIONAL_LIMIT, "length", "#{dir}/promotional_text.txt",
+           "the #{platform} promotional text is #{measured} character(s) against App Store " \
+           "Connect's budget of #{PROMOTIONAL_LIMIT}. Counted with String#length on a UTF-8 " \
+           "read, so an accented letter or a dash is ONE character here and one character to " \
+           "App Store Connect. Over budget the field is truncated or refused at UPLOAD rather " \
+           "than at review, so nothing in the tracked file shows it"
+  end
+
   if values[platform].key?("keywords")
     measured = values[platform]["keywords"].strip.length
     assert measured <= KEYWORDS_LIMIT, "length", "#{dir}/keywords.txt",
@@ -460,12 +522,45 @@ present_trees.each do |platform, dir, files|
     values[platform][SHARED_STEM] = read_text("#{dir}/#{SHARED_STEM}.txt").strip
   end
 
-  # Swept-by-no-copy-clause, computed PER TREE against that tree's OWN stems. The two
-  # trees do not sweep the same set, and one global reject would report the shared
-  # stems as excluded in the very tree that sweeps them.
-  excluded.concat(files.reject { |file| copy_stems_here.include?(File.basename(file, ".txt")) }
+  # Swept by NO CLAUSE AT ALL, computed PER TREE against every stem some clause in
+  # THIS tree reads. The two trees do not sweep the same set, and one global reject
+  # would report the shared stems as excluded in the very tree that sweeps them.
+  #
+  # CORRECTED 2026-09-11 (WR-05). This was computed against `copy_stems_here` alone,
+  # so it counted every file swept by the url clause, the optional clause and the
+  # shared clauses as "excluded" too. It read 7 while the genuinely-unswept file
+  # count was 1, and the one file nobody had ever looked at -- promotional_text,
+  # delivered to App Store Connect by name -- was invisible inside that total. A
+  # number that exists to say "nobody looked" must not also count the files that
+  # were looked at, or it cannot say anything.
+  #
+  # Each addend names the clause that does the looking:
+  #   copy_stems_here   presence + emptiness + placeholder
+  #   optional_here     emptiness + placeholder + the promotional budget
+  #   url_stems_here    presence + https + reserved-domain
+  #   SHARED_STEMS      in the shared tree, the shared presence clause reads `name`
+  #                     (subtitle and privacy_url already arrive via the two
+  #                     stem lists above); in every other tree the second-copies
+  #                     clause asserts their ABSENCE, which is looking at them.
+  swept_here = copy_stems_here + optional_here + url_stems_here + SHARED_STEMS
+  excluded.concat(files.reject { |file| swept_here.include?(File.basename(file, ".txt")) }
                        .map { |file| "#{dir}/#{file}" })
 end
+
+# The excluded set is ASSERTED EMPTY, not merely printed. A printed number is only
+# as good as the reader, and this one was read by nobody for the entire life of the
+# file while it carried the single field App Store Connect was being sent unchecked.
+# Every .txt in a locale tree is text this fork delivers, so "no clause reads it"
+# is a hole by definition, and the moment somebody adds a file the gate now says so
+# by name instead of incrementing a total.
+assert excluded.empty?, "excluded", "-",
+       "every .txt in both locale trees is read by a named clause; #{excluded.length} " \
+       "#{excluded.empty? ? '' : "(#{excluded.sort.join(', ')}) "}" \
+       "reached none. deliver's `load_from_filesystem` ships what is on disk, so a file no " \
+       "clause here opens is a field going to App Review that nothing has checked for " \
+       "emptiness, for placeholder copy or against its budget -- which is exactly how " \
+       "promotional_text travelled unswept. Sweep it with a clause, or move it out of the " \
+       "locale directory if it is not listing copy"
 
 # Files that live in a metadata tree but OUTSIDE the locale directory this gate
 # enumerates -- `copyright.txt` today. Printed as a number so it moves.
@@ -676,6 +771,10 @@ puts "store_copy_excluded_names=#{excluded.map { |rel| File.basename(rel) }.uniq
 puts "store_copy_outside_locale=#{outside_locale.length}"
 puts "store_copy_macos_tree=#{macos_files.nil? ? 'absent' : 'present'}"
 puts "store_copy_per_platform_stems=#{(COPY_STEMS + URL_STEMS).sort.join(',')}"
+puts "store_copy_optional_stems=#{OPTIONAL_COPY_STEMS.sort.join(',')}"
+puts "store_copy_optional_swept=#{OPTIONAL_COPY_STEMS.sum { |stem| values.values.count { |v| v.key?(stem) } }}"
+puts "store_copy_promotional_limit=#{PROMOTIONAL_LIMIT}"
+puts "store_copy_promotional_lengths=#{values.map { |p, v| v.key?('promotional_text') ? "#{p}:#{v['promotional_text'].strip.length}" : nil }.compact.join(',')}"
 puts "store_copy_shared_stems=#{SHARED_STEMS.sort.join(',')}"
 puts "store_copy_shared_tree=#{SHARED_TREE}"
 puts "store_copy_shared_second_copies=#{macos_files.nil? ? 'unrunnable' : SHARED_STEMS.count { |s| macos_files.include?("#{s}.txt") }}"

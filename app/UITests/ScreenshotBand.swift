@@ -69,6 +69,32 @@ struct FitMeasurement {
 }
 
 extension AppStoreScreenshotTests {
+    /// The head of the pipeline: the surface's input LABEL and FIELD, then the first card's
+    /// ordinal and operation name. In that order, which is top-to-bottom on every surface.
+    ///
+    /// **THE LABEL WAS ADDED AFTER THE FIRST RE-CAPTURE SHIPPED THE DEFECT AGAIN.** Widening the
+    /// population from the output values to {field, position, header} left the label just outside
+    /// the new boundary, and two tiles came back with the navigation bar through the middle of its
+    /// letterforms while ASSERTION 7 reported `outside=0`. It was not lying; it was answering a
+    /// narrower question than the one that matters. The head is EVERYTHING THAT SHOWS WHERE THE
+    /// PIPELINE STARTS, and a sliced label fails that as surely as a missing field.
+    static func headIdentifiers(_ input: SurfaceInput) -> [String] {
+        [input.label, input.field,
+         AccessibilityIdentifiers.Step.position, AccessibilityIdentifiers.Step.header]
+    }
+
+    /// The chain's value population for a surface carrying `appended` appended cards: ONE
+    /// `Encode.output` from the seeded root and one `Step.output` per appended card. MEASURED, not
+    /// assumed — `EncodeSurface.swift:169` passes `valueIdentifier: Encode.output` into the seeded
+    /// card's `OutputBlock` and only the APPENDED cards keep the default, so a gate counting three
+    /// `Step.output` would be a correct check pointed at the wrong population.
+    static func chainSources(_ appended: Int) -> [ValueSource] {
+        [
+            ValueSource(AccessibilityIdentifiers.Encode.output, 1),
+            ValueSource(AccessibilityIdentifiers.Step.output, appended)
+        ]
+    }
+
     /// The area a capture can actually show: the window minus the chrome at its top and bottom.
     ///
     /// **Both bars are located rather than assumed**, because how `TabView` renders on iPadOS 18

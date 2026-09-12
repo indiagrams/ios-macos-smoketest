@@ -50,32 +50,6 @@ import XCTest
 // C-25: Swift 5.9 / `SWIFT_STRICT_CONCURRENCY: minimal`, like every file in this target.
 
 extension AppStoreScreenshotTests {
-    /// The head of the pipeline: the surface's input LABEL and FIELD, then the first card's
-    /// ordinal and operation name. In that order, which is top-to-bottom on every surface.
-    ///
-    /// **THE LABEL WAS ADDED AFTER THE FIRST RE-CAPTURE SHIPPED THE DEFECT AGAIN.** Widening the
-    /// population from the output values to {field, position, header} left the label just outside
-    /// the new boundary, and two tiles came back with the navigation bar through the middle of its
-    /// letterforms while ASSERTION 7 reported `outside=0`. It was not lying; it was answering a
-    /// narrower question than the one that matters. The head is EVERYTHING THAT SHOWS WHERE THE
-    /// PIPELINE STARTS, and a sliced label fails that as surely as a missing field.
-    static func headIdentifiers(_ input: SurfaceInput) -> [String] {
-        [input.label, input.field,
-         AccessibilityIdentifiers.Step.position, AccessibilityIdentifiers.Step.header]
-    }
-
-    /// The chain's value population for a surface carrying `appended` appended cards: ONE
-    /// `Encode.output` from the seeded root and one `Step.output` per appended card. MEASURED, not
-    /// assumed — `EncodeSurface.swift:169` passes `valueIdentifier: Encode.output` into the seeded
-    /// card's `OutputBlock` and only the APPENDED cards keep the default, so a gate counting three
-    /// `Step.output` would be a correct check pointed at the wrong population.
-    static func chainSources(_ appended: Int) -> [ValueSource] {
-        [
-            ValueSource(AccessibilityIdentifiers.Encode.output, 1),
-            ValueSource(AccessibilityIdentifiers.Step.output, appended)
-        ]
-    }
-
     /// **ASSERTION 7 (head) — the head of the pipeline is in the photograph.** Two clauses, and the
     /// second is the macOS blurred-half-line in its general form: content clipped at the TOP is the
     /// defect, content continuing past the bottom fold is not.
@@ -363,6 +337,16 @@ extension AppStoreScreenshotTests {
     func fillFromExample(_ control: String, reading field: String) -> String {
         let button = element(control)
         XCTAssertTrue(button.waitForExistence(timeout: 30), "no worked-value control carries \(control)")
+        // THE PER-SHOT RENDER GUARD, carried across from the macOS twin, where the comment giving
+        // its reason has always been: "a window can exist before SwiftUI has drawn into it, which is
+        // how a screenshot of an empty frame gets captured and uploaded" — and the platform that
+        // shipped the six bad tiles is the one that went without it. The failing input is the
+        // worked-value control resolving before this surface's FIELD is published into the tree: an
+        // attribute read on an unmatched element raises XCUITest's opaque "no matches found", which
+        // ends the test METHOD and costs every later shot its tile. Guarded, it is a named failure
+        // and one refused shot.
+        XCTAssertTrue(element(field).waitForExistence(timeout: 30),
+                      "the window appeared but nothing carries \(field) — SwiftUI has not drawn this surface")
         button.tap()
         let text = (element(field).value as? String) ?? ""
         XCTAssertFalse(text.isEmpty, "the worked-value control left \(field) empty, so every value below this "
@@ -375,6 +359,7 @@ extension AppStoreScreenshotTests {
     /// `Pipeline.appending(_:)` always appends to the END (`Pipeline.swift:150`), so which control is
     /// tapped does not decide where the step lands; index 0 is the root's.
     func addStep(_ menuIndex: Int, _ title: String) {
+        let before = count(AccessibilityIdentifiers.Step.card)
         let controls = all(AccessibilityIdentifiers.Step.addStep)
         XCTAssertTrue(controls.element(boundBy: 0).waitForExistence(timeout: 20), "no add-step control on the surface")
         controls.element(boundBy: 0).tap()
@@ -390,5 +375,16 @@ extension AppStoreScreenshotTests {
                        "menu index \(menuIndex) resolves to something other than \(title) — `Operation.allCases` has "
                            + "been reordered and this chain is not the chain it says it is")
         item.tap()
+        // AND THE STEP LANDED, which this side asserted about the MENU ITEM and never about the
+        // SURFACE. The failing input is the second tap swallowed by a menu-dismissal race: the
+        // chain then enters `retractChainToFit` with `appended = 2` against a surface carrying ONE
+        // appended card, so `fit(chainSources(2))` measures `tailBottom` over a population one
+        // member short and the retraction decision is taken on a composition that does not exist.
+        // ASSERTION 1 refuses the tile afterwards, so the direction was already safe — but it
+        // reports one stage late, and it names "the drive did nothing and this is the launch state"
+        // for a drive that half-worked. Named here, at the tap that was swallowed.
+        let after = count(AccessibilityIdentifiers.Step.card)
+        XCTAssertEqual(after, before + 1, "the add-step tap left \(after) step cards, expected \(before + 1) — a "
+            + "swallowed tap and a successful append look identical without this")
     }
 }

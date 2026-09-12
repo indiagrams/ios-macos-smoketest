@@ -145,7 +145,16 @@ extension AppStoreScreenshotTests {
         let headTop = winner?.1 ?? band.minY
         let tailBottom = values(sources).map(\.frame).filter { !$0.isEmpty }.map(\.maxY).max() ?? band.maxY
         let requiredDelta = max(0, tailBottom - band.maxY)
-        let availableDelta = max(0, headTop - (band.minY + Self.scrollMargin))
+        // AN UNMEASURABLE HEAD MEMBER CLAMPS THE BOUND RATHER THAN VANISHING FROM IT — the iOS
+        // twin's finding, carried across because the twins must not diverge on the arithmetic.
+        // `candidates` FILTERS empty frames out of `headTop`, so the member that is already out of
+        // frame is the one excluded from the measurement deciding how far the head may be pushed.
+        // The clip that produces an empty frame is UIKit's (UL-078) and not this platform's, so the
+        // input arrives differently here — an identifier not yet published, a surface not yet drawn
+        // — but the bound is wrong in the same direction, and ASSERTION 7 refuses the tile either
+        // way. INERT when every member is measurable, which is every recorded run.
+        let unmeasurableHead = head.contains { $0.frame.isEmpty }
+        let availableDelta = unmeasurableHead ? 0 : max(0, headTop - (band.minY + Self.scrollMargin))
         return FitMeasurement(band: band, head: head, headTop: headTop, headTopBy: winner?.0 ?? "none",
                               tailBottom: tailBottom, requiredDelta: requiredDelta,
                               availableDelta: availableDelta, scrollBy: min(requiredDelta, availableDelta))

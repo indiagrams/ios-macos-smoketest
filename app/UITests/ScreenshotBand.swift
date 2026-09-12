@@ -166,7 +166,17 @@ extension AppStoreScreenshotTests {
         let headTop = winner?.1 ?? band.minY
         let tailBottom = values(sources).map(\.frame).filter { !$0.isEmpty }.map(\.maxY).max() ?? band.maxY
         let requiredDelta = max(0, tailBottom - band.maxY)
-        let availableDelta = max(0, headTop - (band.minY + Self.scrollMargin))
+        // AN UNMEASURABLE HEAD MEMBER CLAMPS THE BOUND RATHER THAN VANISHING FROM IT. `candidates`
+        // FILTERS empty frames out of `headTop`, so the member that is ALREADY pushed out of frame
+        // is the one member excluded from the measurement that decides how far the head may be
+        // pushed. Driven red on the input UL-078 produces: with `Encode.inputLabel` fully above the
+        // window top its frame degenerates to zero height, it is dropped, `headTop` reports the
+        // FIELD's 162.33 instead, and `availableDelta` reads the recorded run's own 50.0 — licensing
+        // the next drag to rise 50 pt further while the label is already gone. Clamped, `scrollBy`
+        // is `min(requiredDelta, 0)` and nothing rises at all until the head can be measured.
+        // INERT when every member is measurable, which is every recorded run.
+        let unmeasurableHead = head.contains { $0.frame.isEmpty }
+        let availableDelta = unmeasurableHead ? 0 : max(0, headTop - (band.minY + Self.scrollMargin))
         return FitMeasurement(band: band, head: head, headTop: headTop, headTopBy: winner?.0 ?? "none",
                               tailBottom: tailBottom, requiredDelta: requiredDelta,
                               availableDelta: availableDelta, scrollBy: min(requiredDelta, availableDelta))

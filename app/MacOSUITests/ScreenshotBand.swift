@@ -85,6 +85,24 @@ extension AppStoreScreenshotTests {
             bars.append("\(bar.0)=top\(describeRect(rect))")
         }
         chrome = "window=\(describeRect(bounds)) chrome=\(bars.isEmpty ? "none" : bars.joined(separator: ","))"
+        // AND THE BAND MAY NOT BE DERIVED FROM CHROME THAT WAS NEVER LOCATED — the assertion four
+        // lines up, applied to the edge that decides the verdict. The `where` clause is SILENT AND
+        // PERMISSIVE: a toolbar not in the tree at that instant leaves `top` at the window's own
+        // edge and the 52 pt TRANSLUCENT title strip is back inside the band, which is this
+        // platform's half of the defect the UAT found by cropping the title band. The failing input
+        // is concrete here: `privacyItemsInTheAppMenu`'s `app.activate()` can return before the
+        // window is front again, and `frameShot` takes its geometry immediately afterwards.
+        //
+        // WHAT DIFFERS FROM iOS: there is NO TAUTOLOGY on this platform. UL-082 measured
+        // `Encode.inputLabel(372.0,-94.97,27.0,14.0)` — a NEGATIVE origin with FULL height — where
+        // UIKit would have pinned minY to 0 and cut the height, so a head pushed clear of the window
+        // still fails `band.contains` even against the raw-window band. What the fallback re-admits
+        // here is the strip itself: driven red on a head at y=118, which is inside
+        // `(144,102,1440,900)` and outside the real `(144,154,1440,848)`, and which renders as a
+        // blurred half-line under the window title rather than as a clean crop. Every recorded run
+        // located `toolbar=top(144,102,1440,52)`, so this refuses nothing already captured.
+        XCTAssertGreaterThan(top, bounds.minY, "no chrome was located at the top of the window, so the band is "
+            + "the raw window and the 52 pt translucent title strip is inside it — \(chrome)")
         return CGRect(x: bounds.minX, y: top, width: bounds.width, height: bounds.maxY - top)
     }
 

@@ -92,6 +92,26 @@ extension AppStoreScreenshotTests {
             }
         }
         chrome = "window=\(describeRect(bounds)) chrome=\(bars.isEmpty ? "none" : bars.joined(separator: ","))"
+        // AND THE BAND MAY NOT BE DERIVED FROM CHROME THAT WAS NEVER LOCATED. The `guard … continue`
+        // above is SILENT AND PERMISSIVE: a bar not in the tree at that instant leaves `top` at the
+        // window's own edge and the band GROWS to swallow the chrome strip. This is the assertion
+        // four lines up — 'inside the frame' would be a comparison against nothing — applied to the
+        // edge that actually decides the verdict, which is where it was simply not applied before.
+        //
+        // ON THIS PLATFORM IT IS A TAUTOLOGY AND NOT MERELY A WIDENING. UL-078 pins a top-clipped
+        // element's reported `minY` to EXACTLY the window's top edge, which is then exactly
+        // `band.minY`, so BOTH clauses of ASSERTION 7 reduce to `0 >= 0` and the shipped defect —
+        // the navigation bar through the middle of the "Input" letterforms — files with
+        // `outside=0`. Driven red on that input: `nav` absent, `tab=bottom(0,873,440,83)`,
+        // `band=(0,0,440,873)`, label reported at `(28,0,384,46)`, both clauses TRUE, tile FILED.
+        //
+        // THE TOP SPECIFICALLY, NOT `bars.isEmpty`: a run locating the BOTTOM tab bar alone has a
+        // NON-empty `bars` and a raw-window top, so an emptiness check would pass on the exact
+        // input that breaks the gate. Every recorded run of both devices located top chrome —
+        // iPhone `nav=top(0,56.33,440,44)`, iPad `nav=top(0,24,1032,64)` — so this refuses nothing
+        // that has ever been captured, and a tile it wrongly refuses is merely absent.
+        XCTAssertGreaterThan(top, bounds.minY, "no chrome was located at the top of the window, so the band is "
+            + "the raw window and 'inside the frame' cannot fail on a top-clipped element (UL-078) — \(chrome)")
         return CGRect(x: bounds.minX, y: top, width: bounds.width, height: bottom - top)
     }
 

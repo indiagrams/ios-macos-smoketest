@@ -76,8 +76,22 @@ struct FitMeasurement {
 
     /// The head and the tail can share the band. False is not a failure here — it is what makes
     /// the chain retract, and only when the chain has nothing left to retract does it reach a gate.
+    ///
+    /// **STATED AS AN EXTENT RATHER THAN AS `requiredDelta <= availableDelta`, and the two are the
+    /// SAME PREDICATE at the top of the scroll view:**
+    ///
+    ///       requiredDelta <= availableDelta
+    ///     ⟺ tailBottom - band.maxY <= headTop - band.minY - scrollMargin
+    ///     ⟺ (tailBottom - headTop) + scrollMargin <= band.height
+    ///
+    /// The rearranged form is the one that SURVIVES A SCROLL, and that is not a refinement — it is
+    /// a bug fix. Both deltas clamp at zero, so once the surface has been scrolled past
+    /// `requiredDelta` — which is exactly where the retraction's own `scrollIntoBand` leaves it —
+    /// the delta form reads `0 <= 0` and answers TRUE for a composition that does not fit. A
+    /// measurement that cannot answer false, inside the loop whose whole job is to decide the
+    /// composition. `tailBottom - headTop` is invariant under scrolling, so this form cannot.
     var fits: Bool {
-        requiredDelta <= availableDelta
+        (tailBottom - headTop) + AppStoreScreenshotTests.scrollMargin <= band.height
     }
 
     /// Every head element as `identifier#index(x,y,w,h)`, so a failure NAMES what was missing.
@@ -263,8 +277,14 @@ extension AppStoreScreenshotTests {
             let rects = values(sources).map(\.frame)
             guard let top = rects.map(\.minY).min(), let bottom = rects.map(\.maxY).max() else { return }
             let span = bottom - top
+            // RISING IS EXACT AND DESCENDING IS DELIBERATE OVERSHOOT. A scroll view clamps at its
+            // own content origin, so asking for half a band more than the head needs lands the shot
+            // at the position a user sees rather than at the minimum that clears the head — which
+            // makes the composition a function of the layout instead of a function of wherever the
+            // retraction's last drag happened to stop. Sixteen reproducible tiles depend on that.
             let headSlack = measure.headTop - (measure.band.minY + Self.scrollMargin)
-            let move = headSlack < -0.5 ? headSlack : (measure.requiredDelta > 0.5 ? measure.scrollBy : 0)
+            let descend = headSlack - measure.band.height / 2
+            let move = headSlack < -0.5 ? descend : (measure.requiredDelta > 0.5 ? measure.scrollBy : 0)
             record("frame attempt=\(attempt) span=\(span) headTop=\(measure.headTop) "
                 + "headTop_by=\(measure.headTopBy) headSlack=\(headSlack) requiredDelta=\(measure.requiredDelta) "
                 + "availableDelta=\(measure.availableDelta) fits=\(measure.fits) scrollBy=\(measure.scrollBy) "

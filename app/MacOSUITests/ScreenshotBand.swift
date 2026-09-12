@@ -181,4 +181,19 @@ extension AppStoreScreenshotTests {
                               availableDelta: availableDelta, scrollBy: min(requiredDelta, availableDelta),
                               measurable: winner != nil && !tails.isEmpty)
     }
+
+    /// Every value in `sources`, in source order, frame and text in ONE pass. MOVED here from the
+    /// class file UNCHANGED, the move the iOS twin made: the frame reads belong beside the
+    /// arithmetic. Assertion 2 still judges this population, filter and message byte-identical.
+    func values(_ sources: [ValueSource]) -> [(frame: CGRect, text: String)] {
+        var found: [(frame: CGRect, text: String)] = []
+        for source in sources {
+            let query = all(source.identifier)
+            for index in 0 ..< query.count {
+                let value = query.element(boundBy: index)
+                found.append((value.frame, value.renderedText))
+            }
+        }
+        return found
+    }
 }

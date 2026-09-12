@@ -64,7 +64,6 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// measured an iOS DRAG swallowing whole; whether a macOS WHEEL does the same is a measurement
     /// taken on every chain shot, never inherited.
     static let discoveryAttempts = 3
-    static let scrollTargets = 2
     static let largeAsk: CGFloat = 200
     static let smallAsk: CGFloat = 2.5
     static let chainAppends = 2
@@ -83,6 +82,13 @@ final class AppStoreScreenshotTests: XCTestCase {
     var scrollSign: CGFloat = 1
     var scrollTargetIndex = 0
     var scrollCalibrated = false
+
+    /// How many wheel targets ``scrollTarget()`` last built, PUBLISHED BY THE FUNCTION THAT BUILDS
+    /// THE LIST so the bound that walks it cannot disagree with it. It replaced a `scrollTargets`
+    /// constant whose only consumer was an assertion comparing it with the two-element array
+    /// literal on the line above — a comparison of two compile-time values, which is to say an
+    /// assertion with no input on which it fails, inside the harness whose subject is those.
+    var scrollTargetCount = 0
 
     /// **THE `/Users/runner` SELF-SKIP, MOVED HERE FROM THE ONE TEST BODY IT USED TO GUARD** so it
     /// covers both appearances rather than one. Unchanged in substance and still LOAD-BEARING —

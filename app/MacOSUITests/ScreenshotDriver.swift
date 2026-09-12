@@ -35,6 +35,7 @@ extension AppStoreScreenshotTests {
         composition = "appended=0 retracted=0"
         scrollSign = 1
         scrollTargetIndex = 0
+        scrollTargetCount = 0
         scrollCalibrated = false
         app.launchArguments += ["UI_TESTING"]
         app.launchArguments += ["-UITestColorScheme", appearance]
@@ -114,21 +115,6 @@ extension AppStoreScreenshotTests {
     }
 
     // MARK: - The band, the two populations, and the arithmetic between them
-
-    /// Every value in `sources`, in source order, frame and text in ONE pass. MOVED here from the
-    /// class file UNCHANGED, the move the iOS twin made: the frame reads belong beside the
-    /// arithmetic. Assertion 2 still judges this population, filter and message byte-identical.
-    func values(_ sources: [ValueSource]) -> [(frame: CGRect, text: String)] {
-        var found: [(frame: CGRect, text: String)] = []
-        for source in sources {
-            let query = all(source.identifier)
-            for index in 0 ..< query.count {
-                let value = query.element(boundBy: index)
-                found.append((value.frame, value.renderedText))
-            }
-        }
-        return found
-    }
 
     /// The head of the pipeline, top to bottom: the surface's input LABEL and FIELD, then the first
     /// card's ordinal and operation name.
@@ -222,7 +208,7 @@ extension AppStoreScreenshotTests {
                 // selects the same element but RECORDS an ordinal naming nothing — RED control A
                 // emitted `target=10` for a two-element list, and that is not a measurement.
                 scrollSign = 1
-                scrollTargetIndex = min(scrollTargetIndex + 1, Self.scrollTargets - 1)
+                scrollTargetIndex = min(scrollTargetIndex + 1, max(0, scrollTargetCount - 1))
             }
         }
         return 0
@@ -245,8 +231,17 @@ extension AppStoreScreenshotTests {
         record("scroll_target scrollviews=\(candidates.count) chosen=\(chosen.map { "\($0)" } ?? "none") "
             + "index=\(scrollTargetIndex) frames=\(candidates.map(describeRect).joined(separator: ",")) "
             + "anchor=\(describeRect(rect))")
+        // THE LIST PUBLISHES ITS OWN LENGTH, and that is the whole fix. `XCTAssertEqual(targets.count,
+        // Self.scrollTargets, …)` stood here and had NO INPUT on which it failed — it compared the
+        // two-element array literal above with a `static let scrollTargets = 2`, both compile-time.
+        // Asserting `scrollTargetIndex < targets.count` instead is the same mistake: ``wheel(_:)``'s
+        // clamp pins the index to {0, 1}. The disagreement was never observable at runtime; it was
+        // DUPLICATED KNOWLEDGE, so it is removed rather than checked. What the duplication cost,
+        // measured on the edit it existed to catch: with a THIRD target in the literal the clamp
+        // still pinned the index at 1 and the new target was UNREACHABLE, while the assertion fired
+        // about the count and said nothing about reachability. The bound is now the list.
         let targets = [chosen.map { query.element(boundBy: $0) } ?? anchor, anchor]
-        XCTAssertEqual(targets.count, Self.scrollTargets, "the target list and its bound disagree")
+        scrollTargetCount = targets.count
         return targets[min(scrollTargetIndex, targets.count - 1)]
     }
 

@@ -317,22 +317,40 @@ final class AppStoreScreenshotTests: XCTestCase {
         // `CommandGroup` button carry its accessibility identifier into the macOS menu bar?
         let byIdentifier = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy).count
         var found = byIdentifier
-        var read = "", entries = 0
+        var read = "", at = "", entries = 0
         if byIdentifier == 0 {
-            // MEASURED: the `[OPEN]` resolves NEGATIVE, so fall back to the ordinal and read the
-            // item through renderedText UNIONED WITH `title` — AXTitle is where AppKit publishes a
-            // menu item's text and the shared read layer does not ask for it. Every component is
-            // recorded, so a zero here is a named measurement rather than a silent absence.
+            // MEASURED: the `[OPEN]` resolves NEGATIVE, so fall back and read each item through
+            // renderedText UNIONED WITH `title` — AXTitle is where AppKit publishes a menu item's
+            // text and the shared read layer does not ask for it. Every component is recorded, so a
+            // zero here is a named measurement rather than a silent absence.
+            //
+            // **THE POPULATION IS COUNTED, NOT ONE ORDINAL PROBED.** A probe of a single index can
+            // answer at most 1, so assertion 4's "expected exactly 1" was structurally unable to
+            // fail on the route this platform actually takes — driven red on two privacy items in
+            // the app menu (a second `CommandGroup(after: .appInfo)`, or one emitted twice by a
+            // `Commands` builder): the probe read index 1, matched, answered 1, and the assertion
+            // was GREEN with two. Counted, it answers 2 and the assertion names the number.
+            //
+            // Counting is also a REPAIR: the probe answered 0 for a menu carrying exactly one item
+            // at any other ordinal, which is a false refusal, and the ordinal is not the subject —
+            // "exactly 1 privacy item in the app menu" is. `entries` is already bounded and already
+            // recorded, so this adds no unbounded walk; `privacy_at=` keeps the positions on the
+            // record, so a `CommandGroup` placement that moves is still visible as a measurement.
             let all = menu.descendants(matching: .menuItem)
             entries = all.count
-            if entries > Self.privacyItemIndex {
-                let item = all.element(boundBy: Self.privacyItemIndex)
-                read = item.renderedText.isEmpty ? item.title : item.renderedText
-                found = read == Self.privacyPolicyTitle ? 1 : 0
+            var matched: [String] = []
+            for index in 0 ..< entries {
+                let entry = all.element(boundBy: index)
+                let text = entry.renderedText.isEmpty ? entry.title : entry.renderedText
+                if index == Self.privacyItemIndex { read = text }
+                if text == Self.privacyPolicyTitle { matched.append("#\(index)") }
             }
+            found = matched.count
+            at = matched.joined(separator: ",")
         }
         record("\(shot) privacy_by_identifier=\(byIdentifier) privacy_found=\(found) "
-            + "privacy_read=\"\(read)\" app_menu_items=\(entries) menubar_items=\(items)")
+            + "privacy_read=\"\(read)\" privacy_at=\(at.isEmpty ? "none" : at) "
+            + "app_menu_items=\(entries) menubar_items=\(items)")
 
         app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
         app.activate()

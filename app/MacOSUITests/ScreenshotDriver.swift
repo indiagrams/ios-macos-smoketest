@@ -364,8 +364,16 @@ extension AppStoreScreenshotTests {
     func retractLastAppendedStep(_ shot: String) {
         let controls = all(AccessibilityIdentifiers.Step.remove)
         let population = controls.count
-        XCTAssertGreaterThan(population, 0, "\(shot): nothing carries \(AccessibilityIdentifiers.Step.remove), so "
-            + "the last appended step cannot be retracted")
+        // A GUARD RATHER THAN AN ASSERTION, because `continueAfterFailure` is TRUE here too. It
+        // used to abort the method; now it records and falls through into
+        // `controls.element(boundBy: population - 1)`, which on a population of 0 is `boundBy: -1`
+        // — resolved by `scrollIntoBand(last)`'s `target.frame` and answered with XCUITest's own
+        // opaque "no matches found", ending the METHOD and taking the later shots' tiles with it.
+        // The same shape `scrollTarget()` already guards against, and for the same stated reason.
+        guard population > 0 else {
+            return XCTFail("\(shot): nothing carries \(AccessibilityIdentifiers.Step.remove), so the last "
+                + "appended step cannot be retracted")
+        }
         let before = count(AccessibilityIdentifiers.Step.card)
         let last = controls.element(boundBy: population - 1)
         scrollIntoBand(last)

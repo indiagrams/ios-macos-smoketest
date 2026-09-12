@@ -261,8 +261,16 @@ extension AppStoreScreenshotTests {
     private func retractLastAppendedStep(_ shot: String) {
         let controls = all(AccessibilityIdentifiers.Step.remove)
         let population = controls.count
-        XCTAssertGreaterThan(population, 0, "\(shot): nothing carries \(AccessibilityIdentifiers.Step.remove), so "
-            + "the last appended step cannot be retracted")
+        // A GUARD RATHER THAN AN ASSERTION, because `continueAfterFailure` is TRUE here. This used
+        // to abort the method; now it records and falls straight through into
+        // `controls.element(boundBy: population - 1)`. On a population of 0 that is `boundBy: -1`,
+        // which `scrollIntoBand(last)`'s `target.frame` resolves and XCUITest answers with its
+        // OPAQUE "no matches found" — ending the test METHOD and taking the tiles for the shots
+        // after it, which is the exact regression flipping the flag to `true` was meant to prevent.
+        guard population > 0 else {
+            return XCTFail("\(shot): nothing carries \(AccessibilityIdentifiers.Step.remove), so the last "
+                + "appended step cannot be retracted")
+        }
         let before = count(AccessibilityIdentifiers.Step.card)
         let last = controls.element(boundBy: population - 1)
         scrollIntoBand(last)

@@ -142,6 +142,21 @@ APPLE_ALPHA = "images can't include alpha channels or transparencies"
 # third state rather than being trusted.
 ICNS_ARGB_SIDES = { "ic04" => 16, "ic05" => 32 }.freeze
 
+# The extracted MEMBER NAME each raw-ARGB chunk produces, which is the join key
+# the exemption below is bound to. THE PIXEL SIDE IS NOT A KEY: two distinct
+# members are 32 pixels wide — icon_32x32.png, which iconutil stores as the raw
+# ARGB chunk ic05 and whose alpha channel is therefore mandatory, and
+# icon_16x16@2x.png, which it stores as the PNG chunk ic11 and which has no such
+# excuse. Keying the exemption on the width let a genuinely transparent
+# icon_16x16@2x.png be judged against ic05's all-0xFF channel and pass; the gate
+# exited 0 on it with all 96 assertions green (measured 2026-09-11, CR-01).
+#
+# MEASURED both directions on 2026-09-11, not inferred from the names: an iconset
+# holding only icon_16x16.png packs to ic04 and only ic04; only icon_32x32.png
+# packs to ic05; only icon_16x16@2x.png packs to ic11, a PNG chunk. Extracting
+# each back with iconutil -c iconset returns the same member name it went in as.
+ICNS_ARGB_MEMBERS = { "ic04" => "icon_16x16.png", "ic05" => "icon_32x32.png" }.freeze
+
 # THE 2.3.8 PROXY. This threshold MIRRORS ci/check-app-icon.sh:85 and the four
 # sampling constants mirror its icon_spread() at :101-130. It is NOT imported:
 # that script is template-owned (AGENTS.md), a fork gate that sourced it would
@@ -389,12 +404,12 @@ end
 # entry, while the identical repository entry passed, is exactly how this was
 # found.
 IcnsReading = Struct.new(:path, :label, :route, :png_count, :argb_count, :other_count,
-                         :members, :dir, :argb_by_side, :issues, :fatal, :status,
+                         :members, :dir, :argb_by_member, :issues, :fatal, :status,
                          keyword_init: true)
 
 def read_icns(abs, label)
   r = IcnsReading.new(path: abs, label: label, route: "none", png_count: 0, argb_count: 0,
-                      other_count: 0, members: [], dir: nil, argb_by_side: {}, issues: [],
+                      other_count: 0, members: [], dir: nil, argb_by_member: {}, issues: [],
                       fatal: nil, status: nil)
   unless File.file?(abs)
     r.fatal = "#{abs} is not a readable file"
@@ -435,6 +450,15 @@ def read_icns(abs, label)
                    "failed as one"]
       next
     end
+    member = ICNS_ARGB_MEMBERS[type]
+    if member.nil?
+      r.issues << ["#{label}##{type}",
+                   "icns raw entry #{type.inspect} is an ARGB container type this gate has no " \
+                   "extracted member name for, so its decoded channel could not be bound to the " \
+                   "member it belongs to. Binding it by pixel side instead is the defect this " \
+                   "map exists to remove, so the entry is a third state and is failed as one"]
+      next
+    end
     want    = side * side * 4
     decoded = icns_rle(payload.byteslice(4, payload.bytesize - 4), want)
     if decoded.bytesize != want
@@ -444,7 +468,7 @@ def read_icns(abs, label)
                    "VERIFIED here rather than trusted, and it did not hold"]
       next
     end
-    r.argb_by_side[side] = [type, decoded.byteslice(0, side * side)]
+    r.argb_by_member[member] = [type, decoded.byteslice(0, side * side)]
   end
 
   dir = mktmp("icon-set-icns")
@@ -497,7 +521,11 @@ puts
 # icns: the IcnsReading this member was extracted from, or nil for a plain PNG.
 # It is what lets the ARGB-container fact follow the member instead of being
 # looked up in whichever container happened to be read first.
-Member = Struct.new(:source, :path, :abs, :nominal, :kind, :icns, :measured,
+# member: the iconset member NAME this entry was extracted as, nil for a plain
+# PNG. Carried explicitly rather than recovered from path, because path embeds
+# the containing .icns and a basename of it would read "AppIcon.icns!icon_32x32.png".
+# It is the join key for the raw-ARGB exemption — see ICNS_ARGB_MEMBERS.
+Member = Struct.new(:source, :path, :abs, :nominal, :kind, :icns, :member, :measured,
                     keyword_init: true)
 
 population = []
@@ -577,7 +605,7 @@ end
 
 c1.members.each do |name|
   population << Member.new(source: "icns", path: "#{icns_rel_for_msg}!#{name}",
-                           abs: File.join(c1.dir, name),
+                           abs: File.join(c1.dir, name), member: name,
                            nominal: nominal_side_from_name(name), kind: "icns_member", icns: c1)
 end
 from_icns = population.count { |m| m.source == "icns" }
@@ -618,6 +646,10 @@ built_reason = "source D was NOT supplied. Pass --built-app <path>.app to inspec
                "a built bundle; this run inspected the four repository sources only, and says so " \
                "rather than omitting the source silently"
 built_icns   = nil
+# Raw-ARGB chunks contributed by source D, hoisted out of the block below so the
+# route-width bound after the alpha loop can add it to source C1's. Zero when no
+# built app was supplied, which is the honest addend rather than an absent one.
+built_argb_count = 0
 
 if built_app
   bundle = File.expand_path(built_app)
@@ -662,6 +694,7 @@ if built_app
         # The SAME reader as source C1, deliberately. The ARGB-container fact is a
         # property of the .icns format, not of where the file happens to live.
         d = read_icns(cand, cand)
+        built_argb_count = d.argb_count
         assert d.fatal.nil?, "built-app", cand,
                "the .icns inside the built bundle could be opened: #{d.fatal}"
         assert !d.members.empty?, "built-app", cand,
@@ -674,7 +707,8 @@ if built_app
         d.issues.each { |where, message| assert false, "alpha", where, message }
         d.members.each do |m|
           population << Member.new(source: "built_app", path: "#{cand}!#{m}",
-                                   abs: File.join(d.dir, m), nominal: nominal_side_from_name(m),
+                                   abs: File.join(d.dir, m), member: m,
+                                   nominal: nominal_side_from_name(m),
                                    kind: "icns_member", icns: d)
         end
         built_reason = "source D inspected #{cand} (#{d.members.length} members), resolved from " \
@@ -740,12 +774,19 @@ population.each do |m|
            "the member measures #{m.nominal}x#{m.nominal} as its declaration implies; it is #{w}x#{h}"
   end
 
-  if alpha == "yes" && m.icns && m.icns.argb_by_side.key?(w.to_i)
-    # The container mandates the channel for this entry. Read it HARDER: every
-    # alpha byte must be 0xFF. Real transparency still fails. The map comes from
-    # THIS member's own container, so a second .icns arriving through --built-app
-    # is read the same way rather than being judged against the first one's.
-    type, achan = m.icns.argb_by_side[w.to_i]
+  if alpha == "yes" && m.icns && m.member && m.icns.argb_by_member.key?(m.member)
+    # The container mandates the channel for THIS entry. Read it HARDER: every
+    # alpha byte must be 0xFF. Real transparency still fails.
+    #
+    # The key is the member's OWN NAME, and the map comes from its OWN container.
+    # Both halves matter and each was a live defect. The container half means a
+    # second .icns arriving through --built-app is read against its own chunks
+    # rather than the repository one's. The NAME half means the exemption reaches
+    # exactly the member the chunk was decoded from: keying on the measured pixel
+    # side let icon_16x16@2x.png — 32px, but stored as the PNG chunk ic11 — match
+    # icon_32x32.png's ic05 entry and be judged against a channel that is not its
+    # own. Real transparency in it passed at exit 0 (CR-01, measured 2026-09-11).
+    type, achan = m.icns.argb_by_member[m.member]
     worst = achan.bytes.min
     alpha_via_argb += 1
     assert worst == 255, "alpha", m.path,
@@ -762,6 +803,33 @@ population.each do |m|
            "ghost in the Dock"
   end
 end
+
+# ─── THE DECODE ROUTE CANNOT WIDEN, AND CANNOT NARROW ────────────────────────
+#
+# The ARGB route is the one exemption in this file: it is the only branch where a
+# member reporting hasAlpha=yes is allowed to pass. Its width is therefore a
+# property that has to be ASSERTED, not merely printed. icon_alpha_via_argb_decode
+# was printed against no bound at all, and that is precisely how CR-01 hid: the
+# counter moved 2 -> 3 as a transparent PNG member took the exemption, and nothing
+# read the number.
+#
+# The bound is EQUALITY against the raw-ARGB chunks the containers actually hold,
+# summed over every .icns this run opened, and it is two-sided on purpose:
+#
+#   too many  a member took the exemption that no raw-ARGB chunk decoded to, so
+#             the exemption matched on something other than its own container
+#   too few   a raw-ARGB chunk decoded and the member it names never arrived at
+#             the exemption, so the entry this gate claims to read HARDER was in
+#             fact not read at all
+argb_chunks_total = c1.argb_count + built_argb_count
+assert alpha_via_argb == argb_chunks_total, "alpha", "(population)",
+       "exactly the raw-ARGB container entries took the decode route: #{alpha_via_argb} took it " \
+       "and the containers hold #{argb_chunks_total} (#{c1.argb_count} in #{icns_rel_for_msg}" \
+       "#{built_icns ? " + #{built_argb_count} in the built bundle's" : ""}). The exemption is the " \
+       "only branch where hasAlpha=yes passes, so its width is asserted rather than printed — a " \
+       "PNG-stored member reaching it means it matched on something other than its own container, " \
+       "and a raw entry missing it means the channel this gate says it reads byte by byte was " \
+       "never opened"
 
 # ─── SPREAD: the Guideline 2.3.8 proxy, over every member big enough ─────────
 

@@ -29,7 +29,7 @@ Every entry carries four things, and an entry missing any of them is not finishe
 
 ---
 
-## 1. App Privacy nutrition labels — **NOT PERFORMED. Owed to a human.**
+## 1. App Privacy nutrition labels — **PERFORMED 2026-09-11.**
 
 **Performed:** not yet. The prescribed answer is **Data Not Collected**.
 **Where:** App Store Connect → Apps → *Shipkit Pipes* → **App Privacy** → Edit.
@@ -475,6 +475,6 @@ being covered.**
 | 2026-09-11 | Shared and per-platform listing metadata, category | Written by the two `upload_metadata` lanes and read back field by field |
 | 2026-09-11 | Screenshots, both platforms | 24 assets in 3 sets; six surplus copies from `UL-076` removed and the sets re-counted |
 | 2026-09-11 | App Privacy API surface re-confirmed absent | Two 404s and a 41-relationship enumeration; `app_privacy_api=absent` |
-| — | **App Privacy answers published** | **NOT PERFORMED — see §1** |
+| 2026-09-11 | **App Privacy answers published** | **DONE.** Data Not Collected, saved and **Published** by the account holder in App Store Connect. Confirmation read back verbatim: *"Published a few seconds ago by [account holder]"* — the name is replaced by a role here deliberately; this file carries no personal information (§9.1's sweep would fail on it, and it is a public repository). **This row is an ATTESTATION, not a measurement:** no tool can verify it. The App Privacy API does not exist — two 404s plus an enumeration of all 41 relationships the app resource publishes, none matching privacy, dataUsage or nutrition — and `make doctor` step 18 hits the same removed relationship, so it reports a broken probe rather than an unpublished state. It is a second witness to the absence, never an independent check. |
 | — | **Price schedule** | **NOT PERFORMED — see §2** |
 | — | **App Review contact details** | **NOT PERFORMED — see §3** |

@@ -152,12 +152,22 @@ extension AppStoreScreenshotTests {
     func frameShot(_ shot: String, sources: [ValueSource], input: SurfaceInput) -> FitMeasurement {
         let identifiers = Self.headIdentifiers(input)
         scrollToTop()
+        // `floor_and_fail` COMES FROM THE ORIGIN MEASUREMENT — the iOS twin's finding, carried
+        // across because the twins must not diverge on the arithmetic. `fits` rests on
+        // "`tailBottom - headTop` is invariant under scrolling", which holds only where the frame
+        // is not clipped. UL-082 measured this platform NOT clipping at the window top
+        // (`Encode.inputLabel(372.0,-94.97,27.0,14.0)`, a negative origin with full height), so the
+        // iOS mechanism does not reach here — but the field is defined as the ORIGIN measurement on
+        // both platforms, not as "whatever the last `fit` said", and `wheel`'s own residual is
+        // measured rather than assumed. `fits` on the line still reports ASSERTION 7's geometry.
+        let atOrigin = fit(sources, head: identifiers)
         scrollValuesIntoFrame(sources, head: identifiers)
         let measure = fit(sources, head: identifiers)
         record("frame shot=\(shot) headTop=\(measure.headTop) headTop_by=\(measure.headTopBy) "
             + "tailBottom=\(measure.tailBottom) requiredDelta=\(measure.requiredDelta) "
             + "availableDelta=\(measure.availableDelta) fits=\(measure.fits) "
-            + "floor_and_fail=\(!measure.fits) scrollBy=\(measure.scrollBy) "
+            + "origin_headTop=\(atOrigin.headTop) origin_fits=\(atOrigin.fits) "
+            + "floor_and_fail=\(!atOrigin.fits) scrollBy=\(measure.scrollBy) "
             + "head=\(measure.describedHead) \(composition) band=\(describeRect(measure.band))")
         return measure
     }

@@ -120,12 +120,23 @@ extension AppStoreScreenshotTests {
     func frameShot(_ shot: String, sources: [ValueSource], input: SurfaceInput) -> FitMeasurement {
         let identifiers = Self.headIdentifiers(input)
         scrollToTop()
+        // `floor_and_fail` COMES FROM THE ORIGIN MEASUREMENT AND NOT FROM THE POST-SCROLL ONE.
+        // `fits` is justified by "`tailBottom - headTop` is invariant under scrolling", which is
+        // true only where the frame is not clipped — and UL-078 says iOS is exactly where it is.
+        // Measured on this file's own numbers: a shot at `headTop=162.33 tailBottom=950` is at its
+        // floor (extent 799.67 against a 772.67 band), and after a 202.67 pt rise that clips the
+        // head the reported `headTop=0.0` understates the extent to 759.33 and `fits` reads TRUE —
+        // so `floor_and_fail=!fits` recorded FALSE for a shot that is at its floor. The honest
+        // extent after the rise is 799.67, identical to the origin's, which is the invariance the
+        // clip breaks. `fits` on the line still reports the geometry ASSERTION 7 is about.
+        let atOrigin = fit(sources, head: identifiers)
         scrollValuesIntoFrame(sources, head: identifiers)
         let measure = fit(sources, head: identifiers)
         record("frame shot=\(shot) headTop=\(measure.headTop) headTop_by=\(measure.headTopBy) "
             + "tailBottom=\(measure.tailBottom) requiredDelta=\(measure.requiredDelta) "
             + "availableDelta=\(measure.availableDelta) fits=\(measure.fits) "
-            + "floor_and_fail=\(!measure.fits) scrollBy=\(measure.scrollBy) "
+            + "origin_headTop=\(atOrigin.headTop) origin_fits=\(atOrigin.fits) "
+            + "floor_and_fail=\(!atOrigin.fits) scrollBy=\(measure.scrollBy) "
             + "head=\(measure.describedHead) \(composition) band=\(describeRect(measure.band))")
         return measure
     }

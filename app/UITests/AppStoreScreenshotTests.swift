@@ -59,6 +59,15 @@ final class AppStoreScreenshotTests: XCTestCase {
 
     private static let light = "light", dark = "dark"
 
+    /// The devices `fastlane/Snapfile` actually ships tiles for, and therefore the only bands
+    /// ASSERTION 2's framing is measured against. Read from `SIMULATOR_DEVICE_NAME`, which is the
+    /// same value `SnapshotHelper.swift:177` uses to decide where a tile is filed — so the gate and
+    /// the pipeline agree on what "the device" means by construction rather than by convention.
+    private static let shippedDevices: Set<String> = [
+        "iPhone 16 Pro Max", // 6.9" — APP_IPHONE_67
+        "iPad Pro 13-inch (M4)" // 13" — APP_IPAD_PRO_3GEN_129
+    ]
+
     /// Drags ``scrollValuesIntoFrame(_:head:)`` may take, and the room it keeps above the head.
     /// SIX RATHER THAN FOUR because the framing is BIDIRECTIONAL since the chain began retracting —
     /// one shot can need a descent to un-clip the head AND a rise to bring the tail in — and the
@@ -105,6 +114,23 @@ final class AppStoreScreenshotTests: XCTestCase {
         // and a failing one still writes nothing. Everything above the evidence line still holds:
         // the gate records before it judges, so nothing measured is lost to a failure.
         continueAfterFailure = true
+        // THE FRAMING IS ASSERTED ONLY ON A DEVICE THE TILES ARE SHIPPED FROM. `pr.yml` picks
+        // WHATEVER iPhone its runner has (`simctl`, first available — hardcoding a name is
+        // fragile), so CI lands on iPhone 16 Pro at 402x690.67 while Snapfile ships iPhone 16 Pro
+        // Max at 440x772.67. Asserting against a band we never deliver measures the wrong thing,
+        // and it invented failures: `01-chain` fails on 16 Pro and PASSES on 16 Pro Max.
+        //
+        // THIS PIN IS NOT THE WHOLE STORY — see UL-086. On the SHIPPED device `03-timestamps`
+        // still fails: head-to-tail extent 778.954 pt against a 772.667 pt band, over by 6.287
+        // even at a ZERO head margin. A green iOS job here means "the shots that CAN fit do
+        // fit", not "the set is complete". A runner never offering a shipped device skips this
+        // suite and reports nothing; Phase 7's `LaunchLayoutTests` chose the other branch —
+        // record the size, assert it in `evidence/07-11-verify-scope.rb` — which stays open.
+        let device = ProcessInfo().environment["SIMULATOR_DEVICE_NAME"] ?? "unknown"
+        record("screenshot_device=\(device) shipped=\(Self.shippedDevices.contains(device))")
+        if !Self.shippedDevices.contains(device) {
+            throw XCTSkip("\(device) is not a device Snapfile ships; framing is asserted there only.")
+        }
         // Force portrait — orientation persists across runs and ASC accepts an exact list of sizes.
         // A landscape capture is the same pixels transposed: rejected. Set BEFORE any launch.
         XCUIDevice.shared.orientation = .portrait

@@ -9,10 +9,13 @@ import XCTest
 // `renderedText`, why the ordinal lives in the attachment name, how this suite must be run, and
 // what it deliberately does not carry. Read it before changing anything here.
 //
-// NOTHING IS FILED UNTIL SIX PRECONDITIONS HOLD, and the capture takes the RESULT of the function
-// that drove and gated the shot, so they cannot be skipped while leaving a tile behind. Criterion
-// 2 forbids "a launch or title screen", and a test that captures whatever is on screen is how one
-// ships.
+// NOTHING IS FILED UNTIL SEVEN PRECONDITIONS HOLD, and ``file(_:)`` is what enforces that. The
+// seventh is the one this gate went without: assertion 2 judged the OUTPUT VALUES and only those,
+// so TWO OF EIGHT tiles shipped with the input and the "Step 1 HTML encode" header scrolled under
+// the TRANSLUCENT title bar — `macos-01-chain-light`, the LEAD TILE of the set, and
+// `macos-05-chain-dark` — with every assertion green. `ScreenshotDriver.swift` carries the head
+// population and the arithmetic that makes ASSERTION 7 satisfiable. Criterion 2 forbids "a launch
+// or title screen", and a test that captures whatever is on screen is how one ships.
 
 /// Four states, two appearances — per-appearance test functions, so light and dark can fail or be
 /// re-run independently.
@@ -50,33 +53,47 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// finds an element by this string (`PrivacyLinkTests.swift:80-89`).
     private static let privacyPolicyTitle = "Privacy Policy"
 
-    /// Attempts ``scrollValuesIntoFrame(_:)`` may take, and the slack it settles for.
+    /// Attempts ``scrollValuesIntoFrame(_:head:)`` may take, and the slack it settles for.
+    /// `scrollMargin` is the room ASSERTION 7 refuses to spend: NOT a tolerance, and not lowered.
     static let scrollAttempts = 6
     static let scrollMargin: CGFloat = 12
 
-    /// What the last ``contentBounds()`` call found, for the evidence line.
+    /// Wheel events ``wheel(_:)`` may spend discovering the sign and the target, the two asks
+    /// ``measureScrollResponse(_:)`` probes this platform's response with, and how many steps the
+    /// chain appends before it measures whether they fit. The small ask is the magnitude UL-079
+    /// measured an iOS DRAG swallowing whole; whether a macOS WHEEL does the same is a measurement
+    /// taken on every chain shot, never inherited.
+    static let discoveryAttempts = 3
+    static let largeAsk: CGFloat = 200
+    static let smallAsk: CGFloat = 2.5
+    static let chainAppends = 2
+
+    /// What the last ``contentBounds()`` call found, and `appended=N retracted=M` for the shot
+    /// being captured — both on the evidence line of EVERY shot, so a tile's composition is a
+    /// measurement rather than an inference from its file name.
     var chrome = "none"
+    var composition = "appended=0 retracted=0"
 
-    /// Hashing's four cells and Timestamps' three, from the shipped identifier enum.
-    private static let hashingCells = [
-        AccessibilityIdentifiers.Hashing.digestMD5,
-        AccessibilityIdentifiers.Hashing.digestSHA1,
-        AccessibilityIdentifiers.Hashing.digestSHA256,
-        AccessibilityIdentifiers.Hashing.digestSHA512
-    ]
-
-    private static let timestampsCells = [
-        AccessibilityIdentifiers.Timestamps.cellEpoch,
-        AccessibilityIdentifiers.Timestamps.cellISO8601,
-        AccessibilityIdentifiers.Timestamps.cellDateTime
-    ]
+    /// The failure count when the current shot began, for ``file(_:)``; and the wheel convention,
+    /// discovered per launch rather than taken from a doc comment. `scrollCalibrated` records that
+    /// ONE correctly-signed delivery has been observed, after which a zero answer means "at the
+    /// limit" rather than "wrong sign".
+    var failuresBefore = 0
+    var scrollSign: CGFloat = 1
+    var scrollTargetIndex = 0
+    var scrollCalibrated = false
 
     /// **THE `/Users/runner` SELF-SKIP, MOVED HERE FROM THE ONE TEST BODY IT USED TO GUARD** so it
     /// covers both appearances rather than one. Unchanged in substance and still LOAD-BEARING —
     /// `ScreenshotContract.swift` §"The headless-runner self-skip" carries why, and why HOME is
     /// the only detector available inside the runner.
     override func setUpWithError() throws {
-        continueAfterFailure = false
+        // TRUE, AND IT IS THE STRICTER SETTING RATHER THAN THE LOOSER ONE — the iOS twin's
+        // finding, carried across because the twins must not diverge on it. With `false` a refused
+        // shot wrote no tile only because the method ABORTED — a side effect of XCTest unwinding
+        // rather than a verdict — and that abort also cost every LATER shot its tile. The refusal
+        // is now ``file(_:)``'s explicit decision. The gate still RECORDS before it judges.
+        continueAfterFailure = true
         if NSHomeDirectory() == "/Users/runner" {
             throw XCTSkip("Skipped on headless GitHub Actions runner; runs in full locally via `make screenshots`.")
         }
@@ -89,17 +106,29 @@ final class AppStoreScreenshotTests: XCTestCase {
     // MARK: - The two sets, and the ordinals that decide what a reviewer sees first
 
     func testLightMode() {
-        attachScreenshot(chainShot("01-chain-light", Self.light))
-        attachScreenshot(hashingShot("02-hashing-light", Self.light))
-        attachScreenshot(timestampsShot("03-timestamps-light", Self.light))
-        attachScreenshot(encodeURLShot("04-encode-url-light", Self.light))
+        file(chainShot("01-chain-light", Self.light))
+        file(hashingShot("02-hashing-light", Self.light))
+        file(timestampsShot("03-timestamps-light", Self.light))
+        file(encodeURLShot("04-encode-url-light", Self.light))
+    }
+
+    /// The capture for a shot that EARNED it — counted over the failures THIS shot recorded, which
+    /// ``launch(_:_:)`` baselines. This is the whole reason `continueAfterFailure` can be true: the
+    /// refusal is a VERDICT rather than a consequence of the method dying, so a refused shot no
+    /// longer takes the tiles after it down with it. `totalFailureCount`, so an exception counts.
+    private func file(_ named: String) {
+        let recorded = (testRun?.totalFailureCount ?? 0) - failuresBefore
+        guard recorded == 0 else {
+            return record("refused shot=\(named) failures=\(recorded) — no tile written")
+        }
+        attachScreenshot(named)
     }
 
     func testDarkMode() {
-        attachScreenshot(chainShot("05-chain-dark", Self.dark))
-        attachScreenshot(hashingShot("06-hashing-dark", Self.dark))
-        attachScreenshot(timestampsShot("07-timestamps-dark", Self.dark))
-        attachScreenshot(encodeURLShot("08-encode-url-dark", Self.dark))
+        file(chainShot("05-chain-dark", Self.dark))
+        file(hashingShot("06-hashing-dark", Self.dark))
+        file(timestampsShot("07-timestamps-dark", Self.dark))
+        file(encodeURLShot("08-encode-url-dark", Self.dark))
     }
 
     // MARK: - The four states, each returning its own name once it has earned it
@@ -108,14 +137,22 @@ final class AppStoreScreenshotTests: XCTestCase {
     private func chainShot(_ named: String, _ appearance: String) -> String {
         launch(Self.pinning(LaunchState.encodeDestination, format: Self.htmlFormat), appearance)
         fillFromExample(AccessibilityIdentifiers.Encode.useExample, reading: AccessibilityIdentifiers.Encode.input)
-        addStep(Self.base64EncodeItem, Self.base64EncodeTitle, landingAt: 1)
-        addStep(Self.sha256Item, Self.sha256Title, landingAt: 2)
-        // The root card's output carries `Encode.output`, NOT `Step.output`, so the population is
-        // [1, 2] and each contribution is asserted alone — `ScreenshotContract.swift` §"population".
-        gate(named, cards: 3, sources: [
-            ValueSource(AccessibilityIdentifiers.Encode.output, 1),
-            ValueSource(AccessibilityIdentifiers.Step.output, 2)
-        ], surface: AccessibilityIdentifiers.Encode.output)
+        addStep(Self.base64EncodeItem, Self.base64EncodeTitle)
+        addStep(Self.sha256Item, Self.sha256Title)
+        // **THE COMPOSITION IS MEASURED RATHER THAN HARDCODED.** Both appends are made; the surface
+        // then RETRACTS its last appended step while the head and the tail cannot share the band.
+        // The root card's output carries `Encode.output`, NOT `Step.output`, so each contribution
+        // is still asserted alone — `ScreenshotContract.swift` §"population".
+        let surviving = retractChainToFit(named, head: Self.headIdentifiers(.encode),
+                                          appended: Self.chainAppends)
+        gate(named, cards: 1 + surviving, sources: Self.chainSources(surviving),
+             surface: AccessibilityIdentifiers.Encode.output, input: .encode)
+        // STILL A CHAIN — counted from the TREE and not from the loop's own counter, which floors
+        // at 1 by construction and so could not fail. `Step.remove`'s population IS the appended
+        // cards (D-100), read off the surface that is being filed.
+        let appended = count(AccessibilityIdentifiers.Step.remove)
+        XCTAssertGreaterThan(appended, 0, "\(named): \(appended) appended cards survive the retraction — a "
+            + "root-only surface is not a chain and this tile makes no chaining argument")
         return named
     }
 
@@ -124,7 +161,7 @@ final class AppStoreScreenshotTests: XCTestCase {
         launch(Self.pinning(LaunchState.hashingDestination, format: Self.htmlFormat), appearance)
         fillFromExample(AccessibilityIdentifiers.Hashing.useExample, reading: AccessibilityIdentifiers.Hashing.input)
         gate(named, cards: 1, sources: Self.hashingCells.map { ValueSource($0, 1) },
-             surface: AccessibilityIdentifiers.Hashing.digestSHA512)
+             surface: AccessibilityIdentifiers.Hashing.digestSHA512, input: .hashing)
         return named
     }
 
@@ -135,7 +172,7 @@ final class AppStoreScreenshotTests: XCTestCase {
         launch(Self.pinning(LaunchState.timestampsDestination, format: Self.htmlFormat), appearance)
         fillFromExample(AccessibilityIdentifiers.Timestamps.useExample, reading: AccessibilityIdentifiers.Timestamps.input)
         gate(named, cards: 1, sources: Self.timestampsCells.map { ValueSource($0, 1) },
-             surface: AccessibilityIdentifiers.Timestamps.cellISO8601)
+             surface: AccessibilityIdentifiers.Timestamps.cellISO8601, input: .timestamps)
         return named
     }
 
@@ -145,16 +182,19 @@ final class AppStoreScreenshotTests: XCTestCase {
         launch(Self.pinning(LaunchState.encodeDestination, format: Self.urlFormat), appearance)
         fillFromExample(AccessibilityIdentifiers.Encode.useExample, reading: AccessibilityIdentifiers.Encode.input)
         gate(named, cards: 1, sources: [ValueSource(AccessibilityIdentifiers.Encode.output, 1)],
-             surface: AccessibilityIdentifiers.Encode.output)
+             surface: AccessibilityIdentifiers.Encode.output, input: .encode)
         return named
     }
 
     // MARK: - The six capture-time preconditions
 
-    /// Assertions 1-6, all of them, before any tile is filed — everything measured and RECORDED
+    /// Assertions 1-7, all of them, before any tile is filed — everything measured and RECORDED
     /// before anything is judged (`ScreenshotContract.swift` §"measured before judged").
+    ///
+    /// `input` is the SURFACE'S OWN input block, named by each shot the way `surface:` already is:
+    /// the head of the pipeline, which until ASSERTION 7 nothing required to be in the photograph.
     @discardableResult
-    private func gate(_ shot: String, cards: Int, sources: [ValueSource], surface: String) -> [String] {
+    private func gate(_ shot: String, cards: Int, sources: [ValueSource], surface: String, input: SurfaceInput) -> [String] {
         let rendered = count(surface)
         let found = count(AccessibilityIdentifiers.Step.card)
         let matched = sources.map { count($0.identifier) }
@@ -162,14 +202,18 @@ final class AppStoreScreenshotTests: XCTestCase {
         // The menu is opened, counted and closed FIRST, so every geometry read below is taken with
         // the window back in the state it will be photographed in.
         let controls = privacyItemsInTheAppMenu(shot)
-        scrollValuesIntoFrame(sources)
-        let visible = contentBounds()
+        let measure = frameShot(shot, sources: sources, input: input)
+        let visible = measure.band
         let seen = values(sources)
         let texts = seen.map(\.text)
         let outside = seen.filter { $0.frame.isEmpty || !visible.contains($0.frame) }
         record("shot=\(shot) cards=\(found) surface=\(rendered) population=\(matched) values=\(texts.count) "
             + "lengths=\(texts.map(\.count)) outside=\(outside.count) blocked=\(blocked) privacy=\(controls) "
+            + "headTop=\(measure.headTop) headTop_by=\(measure.headTopBy) tailBottom=\(measure.tailBottom) "
+            + "requiredDelta=\(measure.requiredDelta) availableDelta=\(measure.availableDelta) "
+            + "fits=\(measure.fits) scrollBy=\(measure.scrollBy) \(composition) head=\(measure.describedHead) "
             + "frames=\(seen.map { describeRect($0.frame) }.joined(separator: ",")) "
+            + "cardframes=\(frames(AccessibilityIdentifiers.Step.card).map(describeRect).joined(separator: ",")) "
             + "visible=\(describeRect(visible)) \(chrome)")
 
         // 5 — THE SURFACE ITSELF RENDERED. First: every read above is about nothing if the window
@@ -197,6 +241,12 @@ final class AppStoreScreenshotTests: XCTestCase {
             + "\(outside.map { describeRect($0.frame) }.joined(separator: " ")) — this tile shows fewer values "
             + "than it claims to")
 
+        // 7 — AND THE HEAD OF THE PIPELINE IS IN THE PHOTOGRAPH. The clause assertion 2 could not
+        // state: the lead tile shipped with its input and its "Step 1 HTML encode" header under the
+        // title bar while every VALUE was inside the band. ASSERTION 2 IS UNTOUCHED ABOVE — the
+        // population is WIDENED, and a widening paid for by a loosening re-creates the defect.
+        assertHeadInFrame(shot, measure)
+
         // 3 — AND READABLE AND PAIRWISE DISTINCT. Three empty reads are distinct from nothing and
         // identical to each other; `assertDistinctReadable` reports those as two different failures.
         assertDistinctReadable(texts, expected: texts.count, "\(shot): the values this tile is about")
@@ -211,6 +261,31 @@ final class AppStoreScreenshotTests: XCTestCase {
             + "screenshot of a broken pipeline")
 
         return texts
+    }
+
+    /// **ASSERTION 7 (head) — the head of the pipeline is in the photograph.** Two clauses, and the
+    /// second is THIS PLATFORM'S defect in its general form: content clipped at the TOP is the
+    /// defect, content continuing past the bottom fold is not.
+    ///
+    /// **THE TOP CLAUSE IS SHARPER HERE THAN ON iOS AND THE MESSAGE SAYS SO.** `band.minY` is the
+    /// LOCATED toolbar's maxY. iPhone's navigation bar is OPAQUE and cuts a clipped line cleanly;
+    /// this platform's title bar is TRANSLUCENT, so a card pushed above the band top is composited
+    /// THROUGH it and renders as a blurred half-line bleeding under the window title — a RENDERING
+    /// BUG rather than a crop, which is what the UAT found by cropping the title band.
+    func assertHeadInFrame(_ shot: String, _ measure: FitMeasurement) {
+        let band = measure.band
+        let outside = measure.head.filter { $0.frame.isEmpty || !band.contains($0.frame) }
+        XCTAssertTrue(outside.isEmpty, "\(shot) ASSERTION 7 (head): \(outside.count) of \(measure.head.count) head "
+            + "elements are outside the visible content area \(describeRect(band)): "
+            + "\(outside.map { "\($0.identifier)\(describeRect($0.frame))" }.joined(separator: " ")) — this tile "
+            + "does not show where the pipeline starts")
+
+        let cardTops = frames(AccessibilityIdentifiers.Step.card).filter { !$0.isEmpty }.map(\.minY)
+        guard let cardTop = cardTops.min() else { return }
+        XCTAssertGreaterThanOrEqual(cardTop, band.minY, "\(shot) ASSERTION 7 (head): the first step card starts at "
+            + "y=\(cardTop), above the visible content area \(describeRect(band)) — on this platform the title bar "
+            + "is TRANSLUCENT, so that content is composited THROUGH it and renders as a blurred half-line under "
+            + "the window title rather than being cleanly cropped")
     }
 
     /// Assertion 4's macOS half: open the app menu positionally, count the privacy item by
@@ -274,19 +349,6 @@ final class AppStoreScreenshotTests: XCTestCase {
         }
         chrome = "window=\(describeRect(bounds)) chrome=\(bars.isEmpty ? "none" : bars.joined(separator: ","))"
         return CGRect(x: bounds.minX, y: top, width: bounds.width, height: bounds.maxY - top)
-    }
-
-    /// Every value in `sources`, in source order, with the frame and the text read in ONE pass.
-    func values(_ sources: [ValueSource]) -> [(frame: CGRect, text: String)] {
-        var found: [(frame: CGRect, text: String)] = []
-        for source in sources {
-            let query = all(source.identifier)
-            for index in 0 ..< query.count {
-                let value = query.element(boundBy: index)
-                found.append((value.frame, value.renderedText))
-            }
-        }
-        return found
     }
 
     // MARK: - Queries, the capture, and the evidence channel

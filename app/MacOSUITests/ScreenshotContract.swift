@@ -57,10 +57,20 @@ import XCTest
 // `ci/take-screenshots.sh --macos-only`, and NEVER a bare `xcodebuild test`. Under
 // `CODE_SIGNING_ALLOWED=NO` the runner is Apple's stock XCTRunner.app with this fork's test bundle
 // injected and never re-sealed; Gatekeeper's execution policy then refuses it, puts a "damaged and
-// can't be opened" modal on the USER'S DESKTOP and exits 65 (08-11). The script's
-// `codesign --force --deep --sign -` between build-for-testing and test-without-building is the
-// operative step — `xattr -cr` is a no-op there, because the bundle carries no extended attributes
-// at all.
+// can't be opened" modal on the USER'S DESKTOP and exits 65 (08-11).
+//
+// **THE WHOLE RECIPE IS LOAD-BEARING AND THE RE-SIGN ALONE IS MEASURED TO FAIL.** An earlier
+// version of this paragraph said `xattr -cr` was "a no-op there, because the bundle carries no
+// extended attributes at all". THAT READING WAS TAKEN ON A NEVER-LAUNCHED RUNNER AND IS WRONG:
+// four runs on one Mac, and the row that settles it is fresh-derived-data NO, `xattr -cr` NO,
+// re-sign YES -> REFUSED, with a modal, while `codesign --verify --deep --strict` exited 0
+// "valid on disk" on the very path the kernel named. What differed was `com.apple.macl`, which
+// APPEARS ONCE A BUNDLE HAS BEEN REFUSED. So the four steps are one step: `rm -rf` the derived
+// path, `build-for-testing`, BOTH `xattr -cr` AND `codesign --force --deep --sign -` on the
+// runner, then `test-without-building`. Dropping any of them re-opens the modal.
+//
+// **IF A DIALOG APPEARS: Cancel. NEVER "Move to Trash"** — trashing deletes the runner from
+// DerivedData and the next build silently rebuilds it, so the failure presents as intermittent.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE HEADLESS-RUNNER SELF-SKIP, AND WHY HOME IS THE ONLY DETECTOR
@@ -145,6 +155,74 @@ import XCTest
 //    scope. It is recorded in `deferred-items.md` with the numbers.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// ASSERTION 7 — THE HEAD OF THE PIPELINE IS IN THE PHOTOGRAPH, AND WHY ITS SECOND CLAUSE IS A
+// macOS CLAUSE
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+//
+// Assertions 1-6 judged the OUTPUT VALUES and only those. Nothing required the INPUT of a surface
+// or the "Step 1 <name>" header to be in the captured frame, so TWO OF EIGHT macOS tiles shipped
+// without either — `macos-01-chain-light` and `macos-05-chain-dark` — with every assertion green.
+// `macos-01-chain-light` is the LEAD TILE of the macOS set, the first thing a reviewer sees.
+//
+// THE HEAD POPULATION, top to bottom, and it has FOUR members rather than three:
+//
+//     <surface>.inputLabel , <surface>.input , Step.position , Step.header
+//
+// The label is in the set because leaving it out shipped the defect a SECOND time on the iOS twin:
+// plan 08-20 widened the head from {output values} to {field, position, header}, re-captured, and
+// two tiles came back with the navigation bar through the middle of the "Input" letterforms while
+// the clause reported `outside=0`. It was not lying; it was answering a narrower question than the
+// one that matters. `InputArea.swift` is SHARED between the two platforms, so the three per-surface
+// `inputLabel` identifiers 08-20 minted are already attached here — this target only had to put
+// them in its own head population. See ``SurfaceInput``.
+//
+// THE SECOND CLAUSE — the first `Step.card`'s minY may not sit ABOVE the band's top — IS THE
+// BLURRED HALF-LINE IN ITS GENERAL FORM, and it is sharper on this platform than on iOS.
+// `band.minY` is the LOCATED toolbar's maxY. iPhone's navigation bar is OPAQUE and cuts a clipped
+// line off cleanly; **this platform's title bar is TRANSLUCENT and does not**, so a header pushed
+// into that strip is composited THROUGH the bar and renders as a blurred half-line of text bleeding
+// under the window title. It reads as a rendering bug rather than as a crop, which is how the UAT
+// found it — by cropping the title band and comparing against a clean tile. Content continuing past
+// the BOTTOM fold is normal and is not asserted against.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// THE ARITHMETIC, AND WHY THE WINDOW CANNOT SIMPLY GROW
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+//
+//     band           = contentBounds()                    // window minus the LOCATED toolbar
+//     headTop        = min(first Step.card's minY, and every head element's minY)
+//     tailBottom     = max(maxY over values(sources))     // the SAME population assertion 2 judges
+//     requiredDelta  = max(0, tailBottom - band.maxY)
+//     availableDelta = max(0, headTop - (band.minY + scrollMargin))
+//     fits           = (tailBottom - headTop) + scrollMargin <= band.height
+//
+// `fits` is stated as an EXTENT rather than as `requiredDelta <= availableDelta`. The two are the
+// same predicate at the content origin, but both deltas clamp at zero, so the delta form reads
+// `0 <= 0` — true — for a composition that does not fit once the surface has been scrolled. The
+// iOS twin measured exactly that inside the loop whose job is to decide the composition
+// (plan 08-20, commit 020d974). `tailBottom - headTop` is invariant under scrolling; the delta
+// form is not.
+//
+// MEASURED ON THIS PLATFORM, 08-14's run, every chain shot: `window=(144,102,1440,900)`,
+// `chrome=toolbar=top(144,102,1440,52)`, `band=(144,154,1440,848)`. Unscrolled, the three chain
+// values sit at y=560.5 / 841.5 / 1122.5, each 18 pt tall. The shipped tile is that span scrolled
+// up by 273 pt to CENTRE it, which is precisely what put the root card's header under the title
+// bar. From the root card's top to the third value's bottom is ~980 pt in an 848 pt band: **a
+// three-card chain and its own input cannot share one window of this size.**
+//
+// **AND THIS WINDOW CANNOT GROW.** D-128 locks the capture to an App-Store-accepted macOS size,
+// and at this machine's 2.0 backing scale the requested POINT size is already the largest of the
+// four accepted 16:10 sizes. There is no larger window to ask for, so the composition is the only
+// lever: the chain RETRACTS its last appended step and re-measures, floored at one appended card.
+// With the last step retracted the same span needs ~700 pt and `requiredDelta` falls to 0 — so
+// nothing scrolls at all, which also takes this harness's least reliable mechanism off the
+// critical path (08-14 measured `moved=0.0` on several attempts).
+//
+// WHEN THE FLOOR IS REACHED AND THE HEAD AND THE TAIL STILL CANNOT SHARE THE BAND, the gate FAILS
+// with its numbers and `floor_and_fail=true` rather than filing a one-card "chain". It is NOT
+// fixed by lowering `scrollMargin`, by loosening assertion 2, or by dropping a member of the head.
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT THIS HARNESS DELIBERATELY DOES NOT CARRY
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 //
@@ -169,5 +247,123 @@ struct ValueSource {
 
     init(_ identifier: String, _ expected: Int) {
         (self.identifier, self.expected) = (identifier, expected)
+    }
+}
+
+/// One surface's input block as the capture gate addresses it: the FIELD and the LABEL above it.
+///
+/// **THE LABEL IS HERE BECAUSE LEAVING IT OUT SHIPPED THE DEFECT TWICE ON THE iOS TWIN.** Both
+/// identifiers are minted per surface rather than shared — there are three `InputArea`s and three
+/// labels, exactly as there are three fields, and a shared constant would make this gate's
+/// population depend on which surface's view a container happens to keep alive.
+///
+/// A value rather than two parameters at every call site, so a shot cannot name Hashing's label
+/// beside Encode's field — and so `gate` stays inside `function_parameter_count`'s five.
+struct SurfaceInput {
+    /// The text field.
+    let field: String
+
+    /// The "Input" label above it. `InputArea.swift` attaches it on the leaf `Text`, and that file
+    /// is SHARED, so this platform inherited the identifier without changing app code.
+    let label: String
+
+    static let encode = SurfaceInput(field: AccessibilityIdentifiers.Encode.input,
+                                     label: AccessibilityIdentifiers.Encode.inputLabel)
+    static let hashing = SurfaceInput(field: AccessibilityIdentifiers.Hashing.input,
+                                      label: AccessibilityIdentifiers.Hashing.inputLabel)
+    static let timestamps = SurfaceInput(field: AccessibilityIdentifiers.Timestamps.input,
+                                         label: AccessibilityIdentifiers.Timestamps.inputLabel)
+}
+
+/// One member of the head population: what it is called, WHICH element of that population won it,
+/// and where that element was found. The index is carried so the evidence line can say it.
+struct HeadElement {
+    let identifier: String
+    let index: Int
+    let frame: CGRect
+}
+
+/// One measurement of whether the head of the pipeline and the tail of it can share the band, and
+/// of how far the content may rise. Nothing here judges; ``AppStoreScreenshotTests`` does that.
+///
+/// The iOS twin's ``FitMeasurement`` is this type field for field, deliberately: the two harnesses
+/// are twins and a divergence in the arithmetic would be a defect rather than a platform
+/// difference. What genuinely differs on this platform is the SCROLL PRIMITIVE — wheel events
+/// rather than press-and-drag — and that lives in `ScreenshotDriver.swift`, not here.
+struct FitMeasurement {
+    let band: CGRect
+    let head: [HeadElement]
+    let headTop: CGFloat
+    let headTopBy: String
+    let tailBottom: CGFloat
+    let requiredDelta: CGFloat
+    let availableDelta: CGFloat
+    let scrollBy: CGFloat
+
+    /// The head and the tail can share the band. False is not a failure here — it is what makes
+    /// the chain retract, and only when the chain has nothing left to retract does it reach a gate.
+    ///
+    /// **STATED AS AN EXTENT RATHER THAN AS `requiredDelta <= availableDelta`, and the two are the
+    /// SAME PREDICATE at the top of the scroll view:**
+    ///
+    ///       requiredDelta <= availableDelta
+    ///     ⟺ tailBottom - band.maxY <= headTop - band.minY - scrollMargin
+    ///     ⟺ (tailBottom - headTop) + scrollMargin <= band.height
+    ///
+    /// The rearranged form is the one that SURVIVES A SCROLL. Both deltas clamp at zero, so once
+    /// the surface has been scrolled past `requiredDelta` the delta form reads `0 <= 0` and
+    /// answers TRUE for a composition that does not fit — a measurement that cannot answer false,
+    /// inside the loop whose whole job is to decide the composition. The iOS twin measured exactly
+    /// that (plan 08-20, commit `020d974`). `tailBottom - headTop` is invariant under scrolling.
+    var fits: Bool {
+        (tailBottom - headTop) + AppStoreScreenshotTests.scrollMargin <= band.height
+    }
+
+    /// Every head element as `identifier#index(x,y,w,h)`, so a failure NAMES what was missing.
+    var describedHead: String {
+        head.map { "\($0.identifier)#\($0.index)\(describeRect($0.frame))" }.joined(separator: ",")
+    }
+}
+
+/// THE POPULATIONS THIS GATE ASSERTS OVER, gathered where ``ValueSource`` and ``SurfaceInput``
+/// already are. Definitions rather than driving, which is why they are not in `ScreenshotDriver`;
+/// and gathered here rather than in the class file because that file is at the 400-line budget
+/// `swiftlint --strict` enforces (UL-056) and measurements are not deleted to make room.
+extension AppStoreScreenshotTests {
+    /// Hashing's four cells and Timestamps' three, from the shipped identifier enum.
+    static let hashingCells = [
+        AccessibilityIdentifiers.Hashing.digestMD5,
+        AccessibilityIdentifiers.Hashing.digestSHA1,
+        AccessibilityIdentifiers.Hashing.digestSHA256,
+        AccessibilityIdentifiers.Hashing.digestSHA512
+    ]
+
+    static let timestampsCells = [
+        AccessibilityIdentifiers.Timestamps.cellEpoch,
+        AccessibilityIdentifiers.Timestamps.cellISO8601,
+        AccessibilityIdentifiers.Timestamps.cellDateTime
+    ]
+
+    /// The chain's value population for `appended` appended cards: ONE `Encode.output` from the
+    /// seeded root and one `Step.output` per appended card. MEASURED, not assumed — only the
+    /// APPENDED cards keep `Step.output`, so a gate counting three of either is right about
+    /// everything except its subject.
+    static func chainSources(_ appended: Int) -> [ValueSource] {
+        [
+            ValueSource(AccessibilityIdentifiers.Encode.output, 1),
+            ValueSource(AccessibilityIdentifiers.Step.output, appended)
+        ]
+    }
+
+    /// Every frame carrying `identifier`, for the evidence line.
+    func frames(_ identifier: String) -> [CGRect] {
+        let query = all(identifier)
+        return (0 ..< query.count).map { query.element(boundBy: $0).frame }
+    }
+
+    /// The index of the rect with the smallest `minY`, ignoring empty ones — "first" by GEOMETRY
+    /// and not by query order, so the head population does not depend on how XCUITest enumerates.
+    func topmost(_ rects: [CGRect]) -> Int? {
+        rects.enumerated().filter { !$0.element.isEmpty }.min { $0.element.minY < $1.element.minY }?.offset
     }
 }

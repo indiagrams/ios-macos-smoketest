@@ -109,8 +109,9 @@ extension AppStoreScreenshotTests {
     }
 
     /// Frame the shot, then hand back what was measured AFTER the drags settled. Scrolls, measures,
-    /// records — and judges nothing, because `continueAfterFailure` is false and an assertion above
-    /// the evidence line takes the evidence line with it.
+    /// records — and judges nothing, so that a refusal taken later carries these numbers.
+    /// (`continueAfterFailure` is TRUE, so an assertion here would no longer take the evidence line
+    /// with it; the load-bearing rule is that every judgment happens before `file(_:)` is called.)
     ///
     /// `floor_and_fail` is `!fits` HERE, and that is exact rather than loose: by the time the
     /// framing runs every lever is spent — the chain has already retracted to its floor of one

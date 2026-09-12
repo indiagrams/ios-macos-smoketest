@@ -80,7 +80,10 @@ import XCTest
 // appearances rather than the one test body it used to guard. LOAD-BEARING: `app.activate()`
 // needs a GUI session, and on a headless GH-Actions image the runner refuses focus — `activate()`
 // sits ~60 s and XCTest records "Failed to activate application (current state: Running
-// Background)". With `continueAfterFailure = false`, nothing below it ever runs.
+// Background)". `continueAfterFailure` is TRUE in this suite, so that failure no longer stops the
+// run — which makes the skip MORE load-bearing rather than less: without it every one of the eight
+// shots would spend ~60 s in `activate()`, record a failure, and be refused by `file(_:)`, so the
+// suite would burn the runner's time to produce nothing.
 //
 // Detection BY HOME, and that is forced rather than chosen: macOS XCUITest spawns the runner via
 // launchd, which scrubs the environment, so `CI` and `GITHUB_ACTIONS` are NOT visible inside the

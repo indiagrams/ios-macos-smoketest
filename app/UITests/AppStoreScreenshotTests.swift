@@ -236,9 +236,12 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// Assertions 1-7, all of them, before any tile is filed — returning what it read, in source
     /// order, so a caller can relate the values without a second query.
     ///
-    /// **EVERYTHING IS MEASURED AND RECORDED BEFORE ANYTHING IS JUDGED.** `continueAfterFailure` is
-    /// false here, so an assertion placed before the evidence line takes the evidence line with it —
-    /// and the numbers that would explain the failure are exactly the ones lost.
+    /// **EVERYTHING IS MEASURED AND RECORDED BEFORE ANYTHING IS JUDGED,** so that a refusal carries
+    /// its numbers. NOT because an assertion would take the evidence line down — `continueAfterFailure`
+    /// is TRUE (`:104`) and that stopped being the reason. THE CONSTRAINT THAT HOLDS NOW: every
+    /// assertion about a shot must EXECUTE BEFORE `file(_:)` is called on it, because `file(_:)`'s
+    /// verdict is a snapshot of `totalFailureCount` at that instant. Recording a failure AFTER
+    /// `file(_:)` has run is the move that silently breaks this gate.
     ///
     /// `input` is the SURFACE'S OWN input identifier, named by each shot the way `surface:` already
     /// is. It is the head of the pipeline, and until ASSERTION 7 existed nothing required it to be

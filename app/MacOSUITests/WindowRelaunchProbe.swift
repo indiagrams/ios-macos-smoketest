@@ -1,21 +1,76 @@
 import XCTest
 
-/// TEMPORARY DIAGNOSTIC — DELETE BEFORE MERGE. Not a gate: every method ends in a deliberate
-/// `XCTFail` because an assertion message is the only channel that reaches the CI log (06-01).
-///
-/// THE QUESTION. `VisibleStringSweep` fails 3/3 on this branch at its DARK relaunch with the app
-/// foreground, its menu bar built and `windows=0` (debug E14, E16), while the same loop passed 4/4 on
-/// `main`. Its first launch works and its light walk completes. So something that now happens BEFORE
-/// the relaunch breaks it. Each method below does the sweep's exact launch, ONE candidate action, the
-/// sweep's exact terminate and relaunch, and reports what the relaunch presented:
-///
-///   A  nothing between the launches      fails => the branch's app + this relaunch shape, not the walk
-///   B  step 15's two read-only queries   fails alone => step 15
-///   C  one whole-app `snapshot()`        fails alone => harvesting the menu bar, new item and all
-///   D  as A, plus `activate()` on relaunch — only meaningful if A fails
-///
-/// Named to sort AFTER `VisibleStringSweep`, so it cannot disturb the thirteen suites that serve as
-/// controls in the same run.
+// TEMPORARY DIAGNOSTIC, ROUND 2 — DELETE BEFORE MERGE. Not a gate: every method ends in a deliberate
+// `XCTFail`, because an assertion message is the only channel that reaches the CI log (06-01).
+//
+// ROUND 1 (run 34731024041) showed the relaunch is a VICTIM: after the sweep's light pass, EVERY later
+// launch in the runner session presents `windows=0`, first launches included, `activate()` or not. So
+// the light pass leaves something behind that outlives the process. This round reads that state and
+// tests the leading candidate, AppKit's default window restoration:
+//
+//   UIStateBeforeSweep  sorts after StepEditTests and before VisibleStringSweep — the state while healthy
+//   A  dump, no launch — the same state right after the sweep poisoned the session
+//   B  the PASSING suites' launch shape    fails => the poison does not depend on how the app is launched
+//   C  the sweep's shape + ApplePersistenceIgnoreState   presents a window => restored window state
+//
+// B runs before C on purpose: a launch that presents a window rewrites the saved state on exit.
+
+private let bundleID = "com.indiagram.shipkitpipes.ios"
+
+/// Both places the app's state can live: CI builds unsigned, so the sandbox entitlement may not apply.
+private func persistedStateDump() -> String {
+    let home = NSHomeDirectory()
+    let container = "\(home)/Library/Containers/\(bundleID)/Data/Library"
+    let script = """
+    {
+    for d in "\(home)/Library/Saved Application State" "\(container)/Saved Application State"; do
+      echo "[savedState $d]"; ls -la "$d" 2>&1 | grep -iE "shipkit|denied|No such"
+    done
+    echo "[windows.plist]"
+    for d in "\(home)/Library/Saved Application State" "\(container)/Saved Application State"; do
+      find "$d" -path "*\(bundleID)*" -name windows.plist -exec plutil -p {} + 2>&1 | head -c 900
+    done
+    echo "[defaults keys]"
+    defaults read \(bundleID) 2>&1 | grep -E '^    "|Domain|does not exist' \
+      | sed -E 's/SwiftUI[.]ModifiedContent<[^=]*AppWindow/~AppWindow/' | cut -c1-120 | head -c 1600
+    echo "[prefs files]"
+    ls -la "\(home)/Library/Preferences/\(bundleID).plist" "\(container)/Preferences/\(bundleID).plist" 2>&1
+    } 2>&1 | head -c 3500
+    """
+    return shell(script)
+}
+
+private func shell(_ script: String) -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-c", script]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    do {
+        try process.run()
+    } catch {
+        return "run_error=\(error)"
+    }
+    let deadline = Date().addingTimeInterval(20)
+    while process.isRunning, Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+    if process.isRunning {
+        process.terminate()
+        return "TIMED_OUT " + (String(data: pipe.fileHandleForReading.availableData, encoding: .utf8) ?? "")
+    }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    return (String(data: data, encoding: .utf8) ?? "undecodable").replacingOccurrences(of: "\n", with: " ¶ ")
+}
+
+@MainActor
+final class UIStateBeforeSweep: XCTestCase {
+    func testDumpWhileHealthy() {
+        XCTFail("PROBE BEFORE state={\(persistedStateDump())}")
+    }
+}
+
 @MainActor
 final class WindowRelaunchProbe: XCTestCase {
     typealias Ident = AccessibilityIdentifiers
@@ -25,49 +80,21 @@ final class WindowRelaunchProbe: XCTestCase {
         continueAfterFailure = true
     }
 
-    func testAWalklessRelaunch() {
-        probe("A") {}
+    func testADumpAfterSweep() {
+        XCTFail("PROBE AFTER state={\(persistedStateDump())}")
     }
 
-    func testBStepFifteenQueriesThenRelaunch() {
-        probe("B") {
-            _ = self.app.menuBarItems.count
-            _ = self.app.descendants(matching: .any).matching(identifier: Ident.Shell.privacyPolicy).count
-        }
-    }
-
-    func testCWholeAppSnapshotThenRelaunch() {
-        probe("C") {
-            _ = try? self.app.snapshot()
-        }
-    }
-
-    func testDWalklessRelaunchWithActivate() {
-        probe("D", activateOnRelaunch: true) {}
-    }
-
-    private func probe(_ name: String, activateOnRelaunch: Bool = false, between action: () -> Void) {
-        launch("light")
-        let first = reading()
-        action()
-        app.terminate()
-
+    func testBPassingSuitesLaunchShape() {
         app = XCUIApplication()
-        launch("dark")
-        if activateOnRelaunch {
-            app.activate()
-        }
-        let second = reading()
-        XCTFail("PROBE \(name) first={\(first)} relaunch={\(second)}")
+        app.launchPinned(showing: LaunchState.encodeDestination) // ShellTests.swift:136
+        XCTFail("PROBE B launch={\(reading())}")
     }
 
-    /// The sweep's launch, byte for byte: `VisibleStringSweep.swift:110-111`.
-    private func launch(_ scheme: String) {
-        if app == nil {
-            app = XCUIApplication()
-        }
-        app.launchArguments = ["-UITestColorScheme", scheme]
+    func testCIgnorePersistedState() {
+        app = XCUIApplication()
+        app.launchArguments = ["-UITestColorScheme", "dark", "-ApplePersistenceIgnoreState", "YES"]
         app.launchPinned(onlySurface: LaunchState.encodeDestination)
+        XCTFail("PROBE C launch={\(reading())} then_state={\(persistedStateDump())}")
     }
 
     /// The sweep's first wait, then the same numbers `awaitFirstDestination()` reports.

@@ -121,7 +121,20 @@ struct AppMain: App {
     /// A zero-sized backing view in the content's `.background`, which is the
     /// supported route from SwiftUI content to its own window. Nothing is
     /// drawn.
-    private struct UITestWindowSizer: NSViewRepresentable {
+    ///
+    /// **INTERNAL, AND IT MUST NOT BE MADE `private` OR `fileprivate`.** This
+    /// type sits in the scene's root content type, and SwiftUI on macOS names
+    /// the window's persisted identity after that type — the `NSWindow Frame`
+    /// and `NSSplitView Subview Frames` defaults keys and its restoration
+    /// state. A private type's name renders as `(unknown context at $<addr>)`,
+    /// and that address moves with ASLR on EVERY LAUNCH, so every launch got a
+    /// new window identity. Measured 2026-09-12: 50 distinct identities in one
+    /// preferences file, a fresh key pair per launch; and on the CI runner, once
+    /// one launch had saved restorable state, every later launch "restored"
+    /// a window no process could match and presented NONE — `windows=0` with a
+    /// built menu bar, until `-ApplePersistenceIgnoreState YES` brought it
+    /// back in 1.2 s (UL-087). An internal type's name is stable across launches.
+    struct UITestWindowSizer: NSViewRepresentable {
         let requested: CGSize?
 
         func makeNSView(context _: Context) -> UITestWindowSizingView {

@@ -130,7 +130,15 @@
 #                test/icon_set_test.rb and test/store_copy_test.rb document
 #                for their own --root.
 
-USAGE = "Usage: ruby test/screenshot_set_test.rb [--root DIR]"
+#   --families A,B  judge only the named device families. Used by `bin/submit.rb`,
+#                   which submits per PLATFORM while this gate's population is the
+#                   whole delivered set: an iOS-only submit must not fail on absent
+#                   macOS tiles it was never going to upload. An unknown key is a
+#                   REFUSAL (exit 2), never a silent narrowing — a typo that filtered
+#                   the population to nothing would turn this gate green by inspecting
+#                   no files at all, which is the defect class this file exists inside.
+
+USAGE = "Usage: ruby test/screenshot_set_test.rb [--root DIR] [--families KEY,KEY]"
 
 def no_verdict(message)
   warn "CANNOT RUN: #{message}"
@@ -138,10 +146,12 @@ def no_verdict(message)
 end
 
 root = nil
+families_arg = nil
 argv = ARGV.dup
 until argv.empty?
   case (arg = argv.shift)
   when "--root"       then root = argv.shift or no_verdict("--root needs a directory. #{USAGE}")
+  when "--families"   then families_arg = argv.shift or no_verdict("--families needs a comma-separated list. #{USAGE}")
   when "-h", "--help" then puts USAGE ; exit 0
   else no_verdict("unrecognised argument #{arg.inspect}. #{USAGE}")
   end
@@ -226,6 +236,32 @@ FAMILIES = [
                 "refused."
   }.freeze,
 ].freeze
+
+# ─── --families, applied here because FAMILIES is the population it narrows ───
+#
+# REFUSES rather than narrows on anything it does not recognise. A gate whose
+# population can be emptied by a caller's typo reports compliance it never looked
+# for, and every assertion below is over `population`, which is built from FAMILIES.
+unless families_arg.nil?
+  wanted  = families_arg.split(",").map(&:strip).reject(&:empty?)
+  known   = FAMILIES.map { |f| f[:key] }
+  unknown = wanted - known
+  no_verdict("--families named #{unknown.map(&:inspect).join(', ')}, which #{unknown.length == 1 ? 'is not a' : 'are not'} known device " \
+             "#{unknown.length == 1 ? 'family' : 'families'}. Known: #{known.join(', ')}") unless unknown.empty?
+  no_verdict("--families selected no family at all, so this run would assert nothing") if wanted.empty?
+  SELECTED_FAMILY_KEYS = wanted.freeze
+else
+  SELECTED_FAMILY_KEYS = FAMILIES.map { |f| f[:key] }.freeze
+end
+
+# ALL_FAMILIES RECOGNISES; FAMILIES JUDGES. The distinction is load-bearing and was
+# found by driving `--families macos` red: narrowing FAMILIES alone made every iOS
+# tile match no known prefix, so the "every file belongs to a known device family"
+# clause fired 14 times on a set that was completely correct. A deselected family is
+# OUT OF SCOPE for this run; it is not an unrecognised export, and conflating the two
+# turns a scoping flag into a false red.
+ALL_FAMILIES = FAMILIES
+FAMILIES = FAMILIES.select { |f| SELECTED_FAMILY_KEYS.include?(f[:key]) }.freeze
 
 # ─── assertion harness (test/icon_set_test.rb, test/store_copy_test.rb verbatim shape) ───
 
@@ -355,15 +391,22 @@ Member = Struct.new(:rel, :abs, :family, keyword_init: true)
 
 population = []
 unmatched  = []
+out_of_scope = []
 
 [[MACOS_DIR_REL, MACOS_DIR_ABS, macos_files], [IOS_DIR_REL, IOS_DIR_ABS, ios_files]].each do |dir_rel, dir_abs, files|
   files.each do |fname|
     rel     = File.join(dir_rel, fname)
     abs     = File.join(dir_abs, fname)
-    matches = FAMILIES.select { |f| f[:dir] == dir_rel && fname.start_with?(f[:prefix]) }
+    matches = ALL_FAMILIES.select { |f| f[:dir] == dir_rel && fname.start_with?(f[:prefix]) }
     case matches.length
     when 1
-      population << Member.new(rel: rel, abs: abs, family: matches.first)
+      # A file belonging to a family this run deselected is OUT OF SCOPE, not
+      # unmatched. Counted and printed so the narrowing is never silent.
+      if FAMILIES.include?(matches.first)
+        population << Member.new(rel: rel, abs: abs, family: matches.first)
+      else
+        out_of_scope << rel
+      end
     when 0
       unmatched << rel
     else
@@ -496,6 +539,8 @@ puts "screenshot_ios_dir=#{IOS_DIR_REL}"
 puts "screenshot_ios_dir_exists=#{ios_dir_exists}"
 puts "screenshot_ios_count=#{ios_files.length}"
 puts "screenshot_total=#{macos_files.length + ios_files.length}"
+puts "screenshot_families_judged=#{FAMILIES.map { |f| f[:key] }.join(',')}"
+puts "screenshot_out_of_scope=#{out_of_scope.length}"
 puts "screenshot_matched=#{population.length}"
 puts "screenshot_unmatched=#{unmatched.length}"
 puts "screenshot_unmatched_paths=#{unmatched.join(',')}"

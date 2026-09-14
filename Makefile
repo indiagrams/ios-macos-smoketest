@@ -146,6 +146,13 @@ icons:
 
 screenshots: _check-bundle
 	@ci/take-screenshots.sh
+# THE CAPTURE IS NOT THE VERDICT. `ci/take-screenshots.sh` exiting 0 says the run
+# finished, not that it produced a usable set: UL-077 recorded `fastlane snapshot`
+# exiting 0 with a green heart having written ZERO screenshots. This gate reads what
+# is actually on disk -- per-family counts, exact pixel sizes, no alpha, and since
+# 2026-09-14 the TILE IDENTITY rather than merely the count. It is the difference
+# between "the capture ran" and "the set is deliverable".
+	@ruby test/screenshot_set_test.rb
 
 release-dryrun: _check-bundle
 	@$(_BUNDLE) exec fastlane release tag:v0.0.0 skip_upload:true skip_tag:true

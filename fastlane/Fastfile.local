@@ -1,0 +1,480 @@
+# encoding: utf-8
+#
+# THE MAGIC COMMENT ABOVE IS LOAD-BEARING AND MUST STAY ON LINE 1.
+#
+# fastlane reads THIS file with the locale's encoding and the template's own
+# Fastfile with UTF-8:
+#
+#   fast_file.rb:19   content = File.read(path, encoding: "utf-8")   <- initialize, PINNED
+#   fast_file.rb:261  parse(File.read(path), path)                   <- import,     UNPINNED
+#
+# So with LANG and LC_ALL unset -- normal on a fresh machine, a cron job or a
+# bare container -- this file arrives tagged US-ASCII and ANY non-ASCII byte in
+# a STRING LITERAL raises `SyntaxError: invalid multibyte char (US-ASCII)` at
+# PARSE time, before any lane runs, taking every lane in the repository with it.
+# A non-ASCII byte in a COMMENT is tolerated; a string literal is not.
+# Measured 2026-09-11 with both discriminators driven -- the bytes AND the
+# missing locale, either alone green -- and the magic comment measured to FIX it
+# rather than assumed to. This is UL-048's class, at the template's own
+# documented extension point. See docs/UPSTREAM-LEDGER.md UL-071.
+# fastlane/Fastfile.local — FORK-OWNED.
+#
+# fastlane/Fastfile is TEMPLATE-OWNED: bin/refork-smoketest.sh:206 runs
+# `gh repo delete "$APP_REPO" --yes` and recreates this repository from
+# apple-shipkit, so anything added to a template-owned file is deleted wholesale
+# on the next refork. This file is the sanctioned extension point; the template
+# imports it at its own EOF, AFTER every lane is defined, specifically so
+# `override_lane` can replace one (fastlane/Fastfile:2055-2073).
+#
+# NO `before_all` IS DEFINED HERE, and none may be. The template claims it for
+# `setup_ci` in CI mode plus the `asc_api_key` bootstrap, and fastlane's
+# `before_all` is last-write-wins — defining one here would silently drop the ASC
+# bootstrap that every signed lane depends on.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT THIS FILE ROUTES AROUND — three defects in the template's macOS delivery
+# path, each measured in this repository on 2026-09-11 rather than inferred, and
+# each recorded in docs/UPSTREAM-LEDGER.md because they are the template's bugs
+# and this fork is not allowed to fix them in place.
+#
+#  (1) `fastlane mac upload_screenshots` (Fastfile:2014-2029) passes no
+#      `screenshots_path:`, so deliver falls back to
+#      Deliver::DetectValues#find_folders, which defaults it to
+#      ./fastlane/screenshots — the iOS directory. ci/extract-mac-screenshots.sh
+#      writes to fastlane/Mac_screenshots/en-US/, and its own header says why the
+#      two directories must stay separate: "when iOS + macOS share one parent
+#      (fastlane/screenshots/en-US/), the iOS lane tries to upload macOS PNGs and
+#      Apple's API rejects with 'Display Type Not Allowed' (the parallel macOS
+#      lane has the same problem in reverse)". The lane's own `desc` and
+#      ci/take-screenshots.sh:188 both print the iOS path too, so the code and
+#      the documentation agree with each other and disagree with the extractor.
+#
+#  (2) `do_submit_for_review` (Fastfile:858-908) runs deliver with
+#      `skip_metadata: false` and NO `metadata_path:`, and passes no
+#      `description:` / `keywords:` / `release_notes:` either. deliver's
+#      UploadMetadata#load_from_filesystem then fills those keys off disk from
+#      the DEFAULT path — the iOS tree — for the macOS platform too. Driven
+#      offline against the installed gem with platform: "osx": the description
+#      it loads is the iOS file byte for byte
+#      (sha256 1e84815f…6522a, against the macOS file's 5c8fc4b0…8ac6), and the
+#      keywords likewise. So a `make submit` undoes the per-platform macOS
+#      listing that `fastlane mac upload_metadata` had just delivered. The
+#      template already fixed exactly this shape for the six ASC_* fields — its
+#      own comment at :620-628 explains it for the URLs — and the disk-only
+#      fields were left out of that fix.
+#
+#  (3) `__dir__` is "." inside the Fastfile, because fastlane eval's it with a
+#      bare relative filename (fast_file.rb:47-62). So
+#      `File.join(__dir__, "metadata")` is the string "./metadata", and a LANE
+#      BODY resolves that at <repo>/fastlane (correct) while an ACTION resolves
+#      it at <repo> (Runner#execute_action chdir's ".."). One string, two
+#      directories: `metadata_path: "./metadata"` at :706 therefore points
+#      `deliver` at a <repo>/metadata that does not exist.
+#
+# The fix for (3) is the rule this file follows everywhere: build ABSOLUTE paths
+# once, from FastlaneCore::FastlaneFolder.path, which resolves to <repo>/fastlane
+# from BOTH cwds (measured from each). Never hand `deliver` a relative path.
+#
+# Evidence: .planning/…/evidence/08-10-lane-reachability.txt (not in git;
+# .planning/ is gitignored) and docs/UPSTREAM-LEDGER.md rows UL-069 and UL-070.
+
+# ─── Fork-owned paths, absolute, one meaning ─────────────────────────────────
+
+def fork_fastlane_dir
+  # FastlaneFolder.path answers "./fastlane/" from the repo root and "./" from
+  # inside fastlane/, so this is the same absolute directory in a lane body and
+  # in an action. Both were measured; neither was assumed.
+  File.expand_path(FastlaneCore::FastlaneFolder.path || Dir.pwd)
+end
+
+# The fork-owned macOS listing tree (plan 08-08). Carries ONLY the per-platform
+# fields; name/subtitle/privacy_url deliberately live in the iOS tree alone
+# because they are one shared App Store record, not two.
+def fork_macos_metadata_dir
+  File.join(fork_fastlane_dir, "metadata-macos")
+end
+
+# The fork-owned macOS screenshot directory, written by
+# ci/extract-mac-screenshots.sh. Gitignored (UL-068).
+def fork_macos_screenshots_dir
+  File.join(fork_fastlane_dir, "Mac_screenshots")
+end
+
+# The ONE home on disk for the records that are shared across both platforms.
+def fork_shared_metadata_dir
+  File.join(fork_fastlane_dir, "metadata")
+end
+
+def fork_review_information_dir
+  File.join(fork_shared_metadata_dir, "review_information")
+end
+
+def fork_primary_locale
+  v = ENV["ASC_PRIMARY_LOCALE"].to_s.strip
+  v.empty? ? "en-US" : v
+end
+
+# Read one locale-scoped metadata file with the encoding PINNED, and return nil
+# rather than raising when it is absent.
+#
+# The pin is not style. With LANG and LC_ALL unset, Encoding.default_external is
+# US-ASCII, an unpinned read hands back a String tagged US-ASCII whose bytes are
+# not, and the next `strip` raises Encoding::CompatibilityError. That is UL-048,
+# and this repository has produced four instances of it.
+#
+# The nil is not style either. The template's own build_asc_metadata_args reads
+# privacy_url.txt unconditionally through read_text, and pointing it at the macOS
+# tree RAISES Errno::ENOENT — measured, which is why this file re-implements the
+# resolution instead of reusing that helper for macOS.
+def fork_read_locale_text(dir, name)
+  path = File.join(dir, fork_primary_locale, "#{name}.txt")
+  return nil unless File.exist?(path)
+
+  value = File.read(path, encoding: "UTF-8").strip
+  value.empty? ? nil : value
+end
+
+def fork_read_root_text(dir, name)
+  path = File.join(dir, "#{name}.txt")
+  return nil unless File.exist?(path)
+
+  value = File.read(path, encoding: "UTF-8").strip
+  value.empty? ? nil : value
+end
+
+# ─── App Store category: the ENUM, never the display name ────────────────────
+#
+# This fork's category is DEVELOPER_TOOLS — the App Store Connect identifier,
+# read read-only from GET /v1/appCategories, agreeing with the shipped
+# LSApplicationCategoryType public.app-category.developer-tools. It has zero
+# subcategories, so there is nothing to set beneath it and no secondary.
+#
+# The hazard this guard exists for: deliver's map_category_from_itc returns an
+# UNRECOGNISED string UNCHANGED, so the human-readable form would be sent to
+# Apple as a category identifier that does not exist, silently and with no local
+# error. The macOS overrides below pass NO category at all — category is an
+# app-level record shared by both platforms under Universal Purchase
+# (deliver NON_LOCALISED_APP_VALUES), so the iOS lane owns it — but if an
+# operator exports a malformed one, every lane in this process should refuse
+# before it can reach any route, not just this one.
+FORK_ASC_CATEGORY_ID    = /\A[A-Z][A-Z0-9_]*\z/
+FORK_ASC_PRIMARY_CATEGORY = "DEVELOPER_TOOLS".freeze
+
+def fork_assert_category_env!
+  %w[ASC_PRIMARY_CATEGORY ASC_SECONDARY_CATEGORY].each do |key|
+    value = ENV[key].to_s.strip
+    next if value.empty?
+    next if value =~ FORK_ASC_CATEGORY_ID
+
+    UI.user_error!(
+      "#{key}=#{value.inspect} is not an App Store Connect category identifier. " \
+      "deliver's map_category_from_itc passes an unrecognised string through " \
+      "UNCHANGED, so this would ship a category id that does not exist, with no " \
+      "error. Use the enum — this fork's primary category is " \
+      "#{FORK_ASC_PRIMARY_CATEGORY}, not its display name."
+    )
+  end
+end
+
+# ─── The macOS listing fields, resolved from the macOS tree ──────────────────
+#
+# Which fields belong here was read out of deliver rather than inferred from
+# where a file happens to sit (Deliver::UploadMetadata, measured):
+#
+#   LOCALISED_VERSION_VALUES  description keywords release_notes support_url
+#                             marketing_url promotional_text  -> per AppStoreVersion,
+#                                                                i.e. PER PLATFORM
+#   NON_LOCALISED_VERSION_VALUES  copyright                   -> PER PLATFORM
+#   LOCALISED_APP_VALUES      name subtitle privacy_url       -> SHARED
+#   NON_LOCALISED_APP_VALUES  primary_category …              -> SHARED
+#
+# Everything in the first two families is set here. Nothing in the last two is:
+# deliver skips a key that is absent from the options hash (`next unless
+# current`, upload_metadata.rb:143) rather than blanking it, so omitting the
+# shared records leaves them exactly as the iOS lane delivered them. That was
+# measured too — omission is safe, and it is the only way to keep one shared
+# record with one home on disk.
+def fork_macos_metadata_args
+  locale = fork_primary_locale
+  dir    = fork_macos_metadata_dir
+  args   = {}
+
+  # Disk-only: no env var reaches any of these, in the template or here.
+  %w[description keywords release_notes promotional_text].each do |stem|
+    value = fork_read_locale_text(dir, stem)
+    args[stem.to_sym] = { locale => value } unless value.nil?
+  end
+
+  # Per-platform but org-stable: env first, then the macOS tree — the same
+  # resolution order the template uses in build_asc_metadata_args.
+  { support_url: "ASC_SUPPORT_URL", marketing_url: "ASC_MARKETING_URL" }.each do |key, env_name|
+    value = ENV[env_name].to_s.strip
+    value = fork_read_locale_text(dir, key.to_s) if value.empty?
+    args[key] = { locale => value } unless value.nil? || value.to_s.empty?
+  end
+
+  # copyright is attached to the VERSION, so Apple stores one per platform — but
+  # the fork keeps ONE tracked copy of the text. Read that one home rather than
+  # adding a second file that could drift.
+  copyright = ENV["ASC_COPYRIGHT"].to_s.strip
+  copyright = fork_read_root_text(fork_shared_metadata_dir, "copyright") if copyright.empty?
+  args[:copyright] = copyright unless copyright.nil? || copyright.to_s.empty?
+
+  args
+end
+
+# Report what is about to be sent, without printing any of it. Wrapped in a
+# rescue because it is diagnostics, not the contract: a lane that can deliver
+# must not fail because its own log line could not be produced.
+def fork_macos_metadata_preflight(args)
+  fields = args.keys.sort.map do |key|
+    value = args[key]
+    size  = value.is_a?(Hash) ? value.values.map { |v| v.to_s.bytesize }.sum : value.to_s.bytesize
+    "#{key}(#{size}B)"
+  end
+  UI.message("macOS listing fields resolved from #{fork_macos_metadata_dir}: #{fields.join(' ')}")
+  UI.message("macOS listing fields deliberately NOT sent (shared app-level records, owned by the iOS lane): name subtitle privacy_url primary_category secondary_category")
+rescue StandardError => e
+  UI.important("macOS metadata preflight could not report (non-fatal): #{e.class}: #{e.message[0, 200]}")
+end
+
+# The submit path, with the two things do_submit_for_review leaves out:
+# metadata_path (defect 2) and the disk-only fields. Everything else mirrors
+# fastlane/Fastfile:880-899 so the two paths cannot drift apart on anything else.
+def fork_mac_deliver_for_review(submit:)
+  fork_assert_category_env!
+  args = fork_macos_metadata_args
+  fork_macos_metadata_preflight(args)
+
+  deliver(**args.merge(
+    api_key:                  asc_api_key,
+    app_identifier:           APP_IDENTIFIER,
+    platform:                 "osx",
+    metadata_path:            fork_macos_metadata_dir,
+    screenshots_path:         fork_macos_screenshots_dir,
+    app_review_information:   build_review_info(fork_review_information_dir),
+    skip_metadata:            false,
+    skip_binary_upload:       true,
+    skip_screenshots:         false,
+    force:                    true,
+    submit_for_review:        submit,
+    automatic_release:        false,
+    submission_information: {
+      export_compliance_uses_encryption: false,
+      export_compliance_encryption_updated: false,
+      add_id_info_uses_idfa: false,
+      content_rights_contains_third_party_content: false,
+    },
+    precheck_include_in_app_purchases: false
+  ))
+end
+
+# ─── The overrides ───────────────────────────────────────────────────────────
+#
+# All three lanes live inside `platform :mac` in the template, so the overrides
+# must live inside the same platform block (Fastfile.local.example:84-90).
+# fastlane has no `super` for override_lane, so each body is written out in full.
+platform :mac do
+  # DEFECT 2, upload half. The template's `do_upload_metadata(platform: :osx)`
+  # reads fastlane/metadata — the iOS tree — for the macOS platform.
+  override_lane :upload_metadata do
+    fork_assert_category_env!
+    args = fork_macos_metadata_args
+    fork_macos_metadata_preflight(args)
+
+    deliver(**args.merge(
+      api_key:                  asc_api_key,
+      app_identifier:           APP_IDENTIFIER,
+      platform:                 "osx",
+      metadata_path:            fork_macos_metadata_dir,
+      screenshots_path:         fork_macos_screenshots_dir,
+      app_review_information:   build_review_info(fork_review_information_dir),
+      skip_metadata:            false,
+      skip_binary_upload:       true,
+      skip_screenshots:         true,
+      force:                    true,
+      submit_for_review:        false,
+      automatic_release:        false,
+      precheck_include_in_app_purchases: false
+    ))
+    UI.success("macOS metadata uploaded from fastlane/metadata-macos/. Shared records (name, subtitle, privacy URL, category) were not touched — `fastlane ios upload_metadata` owns those.")
+  end
+
+  # DEFECT 1. The only substantive change is screenshots_path:. Quoting
+  # ci/extract-mac-screenshots.sh's own header, which is why the two directories
+  # are separate in the first place:
+  #
+  #   "fastlane's deliver action globs ALL files under its `screenshots_path`
+  #    and assigns display types from PNG dimensions — when iOS + macOS share
+  #    one parent (fastlane/screenshots/en-US/), the iOS lane tries to upload
+  #    macOS PNGs and Apple's API rejects with 'Display Type Not Allowed' (the
+  #    parallel macOS lane has the same problem in reverse). Separate top-level
+  #    dirs let the Fastfile pass `screenshots_path:` per platform."
+  #
+  # The template's submit path does pass it per platform (Fastfile:887). The
+  # standalone lane does not, which is the defect — not a preference.
+  override_lane :upload_screenshots do
+    deliver(
+      api_key:                  asc_api_key,
+      app_identifier:           APP_IDENTIFIER,
+      platform:                 "osx",
+      metadata_path:            fork_macos_metadata_dir,
+      screenshots_path:         fork_macos_screenshots_dir,
+      skip_metadata:            true,
+      skip_binary_upload:       true,
+      skip_screenshots:         false,
+      overwrite_screenshots:    true,
+      force:                    true,
+      submit_for_review:        false,
+      automatic_release:        false,
+      precheck_include_in_app_purchases: false
+    )
+    UI.success("macOS screenshots uploaded from fastlane/Mac_screenshots/en-US/ — not the iOS directory.")
+  end
+
+  # DEFECT 2, submit half. Without this, everything the upload lane above just
+  # delivered is re-read off the iOS tree and overwritten the moment
+  # `make submit` runs.
+  override_lane :stage_for_review do
+    fork_mac_deliver_for_review(submit: false)
+    UI.success("Staged macOS for review from fastlane/metadata-macos/. Nothing was submitted; open App Store Connect to review.")
+  end
+
+  # Same corrected shape, with one fork-specific safeguard in front of it.
+  #
+  # TWO lanes in this file can write a REVIEW SUBMISSION — this one and the iOS
+  # one below — and BOTH are gated. This comment used to say "the only one in
+  # this file", which stopped being true the moment `f6f2789` added the iOS
+  # `submit_for_review` override, and stayed false until the close-out review of
+  # 2026-09-14 (CR-01) measured it. The iOS half mattered more, not less: UL-018
+  # records that one unplanned call permanently consumed record 6807393045's
+  # single open iOS review slot, which is still occupied. So the submit is gated
+  # on an explicit opt-in rather than on discipline. It refuses loudly and names
+  # the variable — it does NOT quietly stage instead, because a lane that does
+  # something other than what its name says is worse than one that stops.
+  override_lane :submit_for_review do
+    unless ENV["FORK_ALLOW_ASC_SUBMIT"].to_s.strip == "yes"
+      UI.user_error!(
+        "mac submit_for_review would write a REVIEW SUBMISSION to App Store Connect, " \
+        "and this record's open review slot is not reusable (UL-018). Re-run with " \
+        "FORK_ALLOW_ASC_SUBMIT=yes once the submission has been reviewed and approved, " \
+        "or use `fastlane mac stage_for_review`, which prepares the same listing and " \
+        "submits nothing."
+      )
+    end
+    fork_mac_deliver_for_review(submit: true)
+    UI.success("Submitted macOS for App Review from fastlane/metadata-macos/.")
+  end
+end
+
+# ─── The iOS half, and a defect that is not a path but a TYPE ────────────────
+#
+# DEFECT 4, measured 2026-09-11 by running the lane: `fastlane ios
+# upload_screenshots` CANNOT RUN AT ALL. It dies in 1.1 seconds, before any
+# network call, with:
+#
+#   [!] 'platform' value must be a String! Found Symbol instead.
+#   Called from Fastfile at line 1967
+#
+# fastlane/Fastfile:1970 passes `platform: :ios` -- a SYMBOL -- to `deliver`.
+# deliver's own option declares no `type:` (deliver/lib/deliver/options.rb:95-103),
+# so FastlaneCore::ConfigItem defaults `is_string: true` (config_item.rb:104,158)
+# and rejects anything that is not a String at config-parse time
+# (config_item.rb:204).
+#
+# THE ASYMMETRY IS THE DEFECT, exactly as it was for UL-069. Every OTHER deliver
+# call site in the same file passes a String: `platform.to_s` at :705 and :883,
+# the literal "osx" at :2018, "ios"/"macos" at :1823 and :1839. The iOS
+# screenshot lane is the ONE Symbol in the file, and its own macOS twin twenty
+# lines further down gets it right.
+#
+# It is not this fork's accident: `git show upstream/main:fastlane/Fastfile`
+# carries the identical pair, `platform: :ios` at :2059 against `platform: "osx"`
+# at :2107. And it is reachable on the documented path -- ci/take-screenshots.sh:193
+# and ci/bump-asc-version.sh:143 both invoke it, and docs/SCREENSHOTS.md:145 tells
+# a forker to. See docs/UPSTREAM-LEDGER.md UL-075.
+#
+# THIS OVERRIDE CHANGES EXACTLY ONE TOKEN and nothing else. Every other argument
+# is byte-identical to the template's lane, `overwrite_screenshots: true`
+# included -- that flag was separately authorised for this upload after the live
+# set counts were measured at 0, and quietly dropping it here would be a second
+# change hiding inside a fix for the first.
+platform :ios do
+  override_lane :upload_screenshots do
+    deliver(
+      api_key:                  asc_api_key,
+      app_identifier:           APP_IDENTIFIER,
+      platform:                 "ios",
+      skip_metadata:            true,
+      skip_binary_upload:       true,
+      skip_screenshots:         false,
+      overwrite_screenshots:    true,
+      force:                    true,
+      submit_for_review:        false,
+      automatic_release:        false,
+      precheck_include_in_app_purchases: false
+    )
+    UI.success("iOS screenshots uploaded from fastlane/screenshots/en-US/ through the fork override (UL-075).")
+  end
+
+  # ─── The category guard, on the route that actually sends a category ───────
+  #
+  # `fork_assert_category_env!` was invoked from three `platform :mac` bodies
+  # and nowhere else. Those lanes pass NO category at all — the comment on the
+  # guard says so in its own words — so the guard had never once evaluated on a
+  # run that could ship one. It was a correct check pointed at the wrong
+  # population, which is this project's signature defect arriving again inside
+  # the fix for a different one.
+  #
+  # The route that DOES send it, enumerated from the template rather than
+  # assumed. `ASC_PRIMARY_CATEGORY` / `ASC_SECONDARY_CATEGORY` are read straight
+  # off ENV in `build_asc_metadata_args` (fastlane/Fastfile:648-649), which has
+  # exactly two callers — `do_upload_metadata` (:700) and `do_submit_for_review`
+  # (:878) — and those two are reached from exactly six lanes: three under
+  # `platform :ios` and three under `platform :osx`. The macOS three are already
+  # overridden above. These are the other three, and with them the guard's own
+  # claim — "every lane in this process should refuse before it can reach any
+  # route, not just this one" — is true for the first time.
+  #
+  # EACH BODY ADDS EXACTLY ONE LINE to the template's, same discipline as the
+  # screenshot override above. The template's bodies are one line each
+  # (fastlane/Fastfile:1984-1998) and are reproduced verbatim beneath the guard;
+  # fastlane has no `super` for `override_lane`, so writing them out is the only
+  # option and keeping them to the single delegating call is what stops this
+  # override from silently forking the lane's behaviour as well as guarding it.
+  override_lane :upload_metadata do
+    fork_assert_category_env!
+    do_upload_metadata(platform: :ios)
+  end
+
+  # GATED FOR THE SAME REASON THE macOS LANE IS, AND WITH MORE CAUSE. UL-018's
+  # stranded submission container is on THIS platform's record: one unplanned
+  # call permanently consumed record 6807393045's single open iOS review slot,
+  # no API route removes it, and Phases 9 and 10 have to submit THROUGH it.
+  #
+  # The guard was missing here from `f6f2789` until CR-01 found it, while the
+  # macOS lane had one — i.e. the safeguard sat on the platform that does NOT
+  # carry the recorded hazard. `PLATFORMS=ios,macos` dispatches iOS FIRST
+  # (`bin/submit.rb:285`) and that loop records a failure and CONTINUES, so the
+  # macOS refusal was never a tripwire for this lane. `docs/SHIPPING-RUNBOOK.md`
+  # telling a reader to "never set FORK_ALLOW_ASC_SUBMIT" is only true advice
+  # once this guard exists.
+  override_lane :submit_for_review do
+    unless ENV["FORK_ALLOW_ASC_SUBMIT"].to_s.strip == "yes"
+      UI.user_error!(
+        "ios submit_for_review would write a REVIEW SUBMISSION to App Store Connect, " \
+        "and this record's open review slot is ALREADY occupied and not reusable " \
+        "(UL-018). Re-run with FORK_ALLOW_ASC_SUBMIT=yes once the submission has been " \
+        "reviewed and approved, or use `fastlane ios stage_for_review`, which prepares " \
+        "the same listing and submits nothing."
+      )
+    end
+    fork_assert_category_env!
+    do_submit_for_review(platform: :ios, submit: true)
+  end
+
+  override_lane :stage_for_review do
+    fork_assert_category_env!
+    do_submit_for_review(platform: :ios, submit: false)
+  end
+end

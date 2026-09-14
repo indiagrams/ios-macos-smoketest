@@ -47,7 +47,23 @@ on:
   # ubuntu-latest for a whole class of stuck PRs. Run it every time.
   pull_request:
   push:
-    branches: [main]
+    # `main`, plus this fork's phase branches. THE SECOND ENTRY IS WHAT LETS A
+    # NEW JOB EXECUTE BEFORE ANYBODY COULD MAKE IT REQUIRED, and it was added in
+    # 08-16 for exactly that. Measured on this repository 2026-09-11, not
+    # assumed: with no pull request open, a push to a topic branch started
+    # NOTHING — `pr.yml` is scoped to `[main, master]` on both of its events,
+    # and this workflow's push scope was `[main]` alone. The first execution of
+    # any job added below would therefore have happened inside a pull request,
+    # which is precisely where `locale-doctor-regression` was when it failed on
+    # its first ever run and left every pull request unmergeable.
+    #
+    # The cost is measured too, from run 34529382127 rather than estimated: the
+    # jobs here take 55s, 1m37s and 3m29s, in parallel, and
+    # `GET .../actions/runs/<id>/timing` reports billable.MACOS.total_ms = 0 on
+    # this public repository. Early signal on a phase branch is worth that.
+    branches:
+      - main
+      - 'gsd/**'
 
 # Least-privilege token, and nothing beyond it. This workflow checks out
 # untrusted pull-request content and runs Ruby over it, so it reads the repo and
@@ -787,4 +803,392 @@ jobs:
             fi
           fi
 
+          exit "$status"
+
+  # ---------------------------------------------------------------------------
+  # 08-16 — THE FIRST OF TWO NEW JOBS, AND DELIBERATELY *NOT* A REQUIRED STATUS
+  # CONTEXT IN THIS PHASE.
+  #
+  # `main` requires ELEVEN contexts (read read-only before and after this landed;
+  # the two lists are byte-identical and neither contains a name from these two
+  # jobs). THREE of the eleven are this file's own jobs — `review notes`,
+  # `built app entitlements`, `privacy manifest archive` — so adding a
+  # `ruby test/...` line to any of them would have turned a gate that had NEVER
+  # EXECUTED into a merge blocker on its first push. That is not hypothetical:
+  # `locale-doctor-regression` was written in 05-18 to protect a fixed defect,
+  # failed on its FIRST EVER RUN three weeks later, and failed on its own SETUP
+  # rather than on its subject — `ruby/setup-ruby` drops the Homebrew Ruby from
+  # PATH while `Makefile:48` selects Ruby by a filesystem test, so `make` found a
+  # Ruby with no gems and died before reaching the step under test. Every pull
+  # request was unmergeable until it was fixed.
+  #
+  # WHAT WOULD HAVE TO BE TRUE BEFORE ANYBODY ADDS THIS NAME TO PROTECTION:
+  # several green runs on real pushes AND a demonstrated red — somebody breaks
+  # the subject on purpose and watches this job catch it. Requiring it before
+  # both exist is requiring an untested belief with CI syntax.
+  store-copy-gate:
+    name: store copy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # this gate is stdlib-only; no gems to install
+
+      # THE SETUP, ASSERTED APART FROM THE SUBJECT, AS ITS OWN STEP.
+      # `locale-doctor-regression`'s failure was only legible because one of its
+      # checks asserted it had REACHED its subject. A broken environment must
+      # fail AS a broken environment, with its own message, before any verdict
+      # about store copy is even attempted.
+      - name: preconditions — the interpreter, the one require, and the trees the gate reads
+        run: |
+          set -euo pipefail
+          command -v ruby > /dev/null 2>&1 || { echo "::error::no ruby on PATH — nothing below ran"; exit 1; }
+          v=$(ruby -e 'print RUBY_VERSION')
+          echo "precondition_ruby=$v at $(command -v ruby)"
+          case "$v" in
+            3.3.*) ;;
+            *) echo "::error::expected Ruby 3.3.x (the interpreter this gate was measured under); got $v"; exit 1 ;;
+          esac
+          ruby -e 'require "json"' || { echo "::error::the one require this gate makes — json, a default gem — did not resolve, so bundler-cache: false is not the reason it would fail"; exit 1; }
+          for p in fastlane/metadata/en-US fastlane/metadata-macos/en-US fastlane/metadata/review_information/notes.txt app/Shared/Localizable.xcstrings; do
+            [ -e "$p" ] || { echo "::error::$p is missing from the checkout; the gate would refuse and this job would prove nothing about store copy"; exit 1; }
+            echo "precondition_path=$p"
+          done
+          n=$(find fastlane/metadata/en-US -maxdepth 1 -name '*.txt' | wc -l | tr -d ' ')
+          echo "precondition_ios_listing_files=$n"
+          [ "$n" -gt 0 ] || { echo "::error::the iOS listing tree holds no .txt file — a scan over an empty tree reports compliance it never looked for"; exit 1; }
+
+      # WHAT THIS GATE PROVES: that the copy which reaches App Review is the copy
+      # this repository reviewed. It enumerates both listing trees plus the
+      # review notes, holds them against `app/Shared/Localizable.xcstrings` — the
+      # strings a user actually reads — and fails on placeholder prefixes,
+      # example-domain URLs, byte-length ceilings App Store Connect enforces, and
+      # a macOS description that has silently drifted from the iOS one.
+      #
+      # WHY IT NEEDS NO GEM, so `bundler-cache: false` above stays honest: the
+      # file makes exactly ONE require, `json`, which is a DEFAULT gem shipped
+      # with the interpreter. It shells out to nothing at all — no IO.popen, no
+      # system(), no backticks — so it has no tool dependency either. Measured in
+      # a fresh clone of this repository before this job was written.
+      #
+      # EXIT 2 IS NOT A PASS. The gate refuses with `CANNOT RUN:` when a tree it
+      # must enumerate is missing or empty, because a scan over nothing asserts
+      # nothing and prints success. All three outcomes are discriminated below,
+      # and the gate's own printed facts are checked as well as its status — a
+      # green conclusion with no facts is a job that never reached its subject.
+      - name: Store listing copy — both trees, the review notes, and the strings catalog
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/store-copy.txt"
+          gate_exit=0
+          # Redirected to a FILE, with the status read on the next statement.
+          # Never piped: `ruby ... | tee` reports tee's status, which is how a
+          # red gate has gone green in this repository before.
+          ruby test/store_copy_test.rb > "$out" 2>&1 || gate_exit=$?
+          cat "$out"
+          echo "store_copy_gate_exit=$gate_exit"
+          case "$gate_exit" in
+            0) echo "store copy — the gate read both listing trees and every assertion held" ;;
+            1) echo "::error::store copy — the gate ran and FAILED. Its FAIL lines are above"; exit 1 ;;
+            2) echo "::error::store copy — the gate REFUSED (exit 2, CANNOT RUN). It inspected nothing, which is not a pass"; exit 1 ;;
+            *) echo "::error::store copy — exit $gate_exit is neither its pass (0), its failure (1) nor its refusal (2); that is evidence for no side"; exit 1 ;;
+          esac
+          ios=$(sed -n 's/^store_copy_from_ios=//p' "$out")
+          mac=$(sed -n 's/^store_copy_from_macos=//p' "$out")
+          tot=$(sed -n 's/^store_copy_total=//p' "$out")
+          echo "store_copy_from_ios=$ios store_copy_from_macos=$mac store_copy_total=$tot"
+          if [ -z "$ios" ] || [ -z "$mac" ] || [ -z "$tot" ]; then
+            echo "::error::store copy — the gate exited 0 without printing its own named facts; a conclusion with no facts does not show it reached its subject"
+            exit 1
+          fi
+          if [ "$ios" -le 0 ] || [ "$mac" -le 0 ] || [ "$tot" -le 0 ]; then
+            echo "::error::store copy — the gate reported an EMPTY population (ios=$ios macos=$mac total=$tot). Each source's contribution is asserted separately because a union that has stopped drawing from one source looks identical to one that never did"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 08-16 — THE SECOND NEW JOB, AND ALSO DELIBERATELY *NOT* A REQUIRED STATUS
+  # CONTEXT IN THIS PHASE. The reason above applies unchanged, and one more
+  # applies here specifically: `built app entitlements` (:453) already builds on
+  # macos-15 and is ALREADY a required context, so appending two `ruby test/...`
+  # lines to it would have been the cheapest possible way to make two
+  # never-executed gates block every merge in the repository. One extra macOS
+  # build is the price of that not happening, and it is the right price.
+  #
+  # WHY ONE JOB FOR TWO GATES: they need the SAME artefact, and building it twice
+  # would buy nothing. `test/icon_set_test.rb` needs `sips` and `iconutil` — by
+  # name; it refuses at exit 2 if either is off PATH — and takes the built bundle
+  # as its fifth source. `test/built_plist_test.rb` needs a built `.app` outright.
+  # Neither can run on ubuntu, and both read the same bundle.
+  #
+  # RELEASE, NOT DEBUG, and that is the one deliberate difference from the job at
+  # :453, which builds Debug. UL-063: a built-artefact gate pointed at a Debug
+  # build is a claim about a build nobody ships. Everything else mirrors that
+  # job — same `-project`, same `-scheme` paired with a destination (never an
+  # unpinned `-scheme`), same ad-hoc signing triple.
+  icon-and-built-plist:
+    name: icon set and built plist
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # app/App.xcodeproj is generated and gitignored, so it has to be produced
+      # before anything can build — the same reason the job at :453 installs a
+      # generator. XcodeGen only: both gates below read a built bundle, and the
+      # two generators resolve its icon and its plist keys from the same
+      # manifests, so running both would double the runtime and buy nothing here.
+      - name: install generator
+        run: brew install xcodegen
+
+      - name: regenerate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      - name: build macOS Release, ad-hoc signed
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project app/App.xcodeproj \
+            -scheme App-macOS \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd-macos-release" \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+
+      # Ruby is pinned AFTER the build on purpose. `locale-doctor-regression`
+      # died because this action removed the Homebrew Ruby from PATH underneath a
+      # Makefile that picked its interpreter by a filesystem test; nothing above
+      # this line depends on which Ruby is first on PATH any more, and nothing
+      # below it shells out to `make`. The two gates are pinned to 3.3 because
+      # 3.3 is the interpreter both were measured under.
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # both gates are stdlib-only; no gems to install
+
+      # THE SETUP, ASSERTED APART FROM THE SUBJECT. Every tool both gates depend
+      # on, the interpreter, the two requires, and the built bundle itself — each
+      # with its own failure message, so a broken runner fails AS a broken runner
+      # and is never mistaken for a bad icon or a missing plist key.
+      - name: preconditions — the macOS tools, the interpreter, and the built bundle
+        run: |
+          set -euo pipefail
+          for t in sips iconutil plutil; do
+            command -v "$t" > /dev/null 2>&1 || { echo "::error::$t is not on PATH. test/icon_set_test.rb refuses at exit 2 without sips or iconutil, and the plist read falls back to plutil; a run that cannot read a pixel or open a bundle has not inspected anything"; exit 1; }
+            echo "precondition_tool=$t at $(command -v "$t")"
+          done
+          [ -x /usr/libexec/PlistBuddy ] || { echo "::error::/usr/libexec/PlistBuddy is missing; source D resolves the bundle's icon name through it"; exit 1; }
+          echo "precondition_tool=PlistBuddy at /usr/libexec/PlistBuddy"
+          v=$(ruby -e 'print RUBY_VERSION')
+          echo "precondition_ruby=$v at $(command -v ruby)"
+          case "$v" in
+            3.3.*) ;;
+            *) echo "::error::expected Ruby 3.3.x (the interpreter both gates were measured under); got $v"; exit 1 ;;
+          esac
+          ruby -e 'require "json"' || { echo "::error::json did not resolve — test/icon_set_test.rb makes exactly one require and it is this one"; exit 1; }
+          ruby -e 'require "rexml/document"' || { echo "::error::rexml did not resolve — test/built_plist_test.rb makes exactly one require and it is this one"; exit 1; }
+          for p in bin/lib/xcconfig.rb app/Identity.xcconfig app/macOS/Resources/AppIcon.icns ci/check-app-icon.sh; do
+            [ -e "$p" ] || { echo "::error::$p is missing from the checkout; a gate that cannot open its own source of truth proves nothing"; exit 1; }
+            echo "precondition_path=$p"
+          done
+          products="$RUNNER_TEMP/dd-macos-release/Build/Products"
+          [ -d "$products" ] || { echo "::error::$products does not exist — the build step produced no products tree"; exit 1; }
+          # COUNTED, not truncated to a first hit. This repository has picked the
+          # wrong bundle three times by taking the head of a filtered directory
+          # walk (UL-043, UL-049); if the walk is ever ambiguous this says so and
+          # stops instead of silently inspecting whichever one sorted first.
+          count=$(find "$products" -maxdepth 2 -name '*.app' -type d | wc -l | tr -d ' ')
+          echo "precondition_built_app_candidates=$count"
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected exactly one .app under $products, found $count. Both gates below would be reading a bundle nobody chose"
+            find "$products" -maxdepth 2 -name '*.app' -type d || true
+            exit 1
+          fi
+          app=$(find "$products" -maxdepth 2 -name '*.app' -type d)
+          [ -f "$app/Contents/Info.plist" ] || { echo "::error::$app has no Contents/Info.plist, so it is not a macOS bundle and neither gate has a subject"; exit 1; }
+          echo "precondition_built_app=$app"
+          echo "BUILT_APP=$app" >> "$GITHUB_ENV"
+
+      # WHAT THIS GATE PROVES: that the icon a user sees is the icon this
+      # repository holds. It unions five sources — both `.appiconset`s, every
+      # member `iconutil` extracts from the shipped `.icns`, the generator's
+      # 1024px input, and the `.icns` INSIDE the built bundle — asserts each
+      # source's contribution separately, decodes the raw ARGB members to prove
+      # their mandatory alpha channel is fully opaque, and takes
+      # `ci/check-app-icon.sh`'s independent verdict alongside its own.
+      #
+      # WHY IT NEEDS NO GEM: exactly one require, `json`, a DEFAULT gem. Its
+      # dependencies are EXECUTABLES, not gems — `sips`, `iconutil`, PlistBuddy,
+      # and `/bin/bash` for the template gate — which is why this job exists on
+      # macos-15 at all and why the step above asserts each one by name.
+      #
+      # --built-app IS THE POINT OF RUNNING IT HERE. Without it the gate still
+      # passes, reporting `icon_slots_from_built_app=0` and saying so; a job that
+      # accepted that would be green on four sources while claiming five. The
+      # contribution is therefore asserted to be non-zero below.
+      - name: App icon — five sources, including the .icns inside the built bundle
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/icon-set.txt"
+          gate_exit=0
+          ruby test/icon_set_test.rb --built-app "$BUILT_APP" > "$out" 2>&1 || gate_exit=$?
+          cat "$out"
+          echo "icon_gate_exit=$gate_exit"
+          case "$gate_exit" in
+            0) echo "icon set — the gate read all five sources and every assertion held" ;;
+            1) echo "::error::icon set — the gate ran and FAILED. Its FAIL lines are above"; exit 1 ;;
+            2) echo "::error::icon set — the gate REFUSED (exit 2, CANNOT RUN). It inspected nothing, which is not a pass; its own line above names the tool or file it could not reach"; exit 1 ;;
+            *) echo "::error::icon set — exit $gate_exit is neither its pass (0), its failure (1) nor its refusal (2); that is evidence for no side"; exit 1 ;;
+          esac
+          built=$(sed -n 's/^icon_slots_from_built_app=//p' "$out")
+          route=$(sed -n 's/^icon_built_app_route=//p' "$out")
+          unenum=$(sed -n 's/^icon_unenumerated=//p' "$out")
+          tmpl=$(sed -n 's/^icon_template_gate_exit=//p' "$out")
+          echo "icon_slots_from_built_app=$built icon_built_app_route=$route icon_unenumerated=$unenum icon_template_gate_exit=$tmpl"
+          if [ -z "$built" ] || [ -z "$route" ] || [ -z "$unenum" ]; then
+            echo "::error::icon set — the gate exited 0 without printing its own named facts; a conclusion with no facts does not show it reached its subject"
+            exit 1
+          fi
+          if [ "$built" -le 0 ]; then
+            echo "::error::icon set — source D contributed $built members, so --built-app never reached the bundle and this run inspected the repository sources only while reporting five (route: $route)"
+            exit 1
+          fi
+
+      # WHAT THIS GATE PROVES: that the submission-critical Info.plist keys are
+      # in the BUILT bundle rather than in a manifest that is supposed to produce
+      # them. Both `Generated-Info.plist` files are generated and gitignored, and
+      # the tracked manifests say `$(PRIVACY_POLICY_URL)` rather than a URL — only
+      # a build resolves it. It asserts the privacy URL is present, decomposes it
+      # (an xcconfig `//` opens a comment at any position, so a plainly written
+      # URL resolves to the six characters `https:` — measured on Xcode 26.1.1),
+      # requires it to EQUAL the one identity source rather than merely exist,
+      # asserts the macOS category, and asserts the export-compliance key is
+      # literally false.
+      #
+      # WHY IT NEEDS NO GEM: exactly one require, `rexml/document`, which ships
+      # with the interpreter; `bin/lib/xcconfig.rb` is `load`ed as a tracked file,
+      # the idiom `fastlane/Appfile` already uses, so the one-require promise
+      # holds under `bundler-cache: false`.
+      #
+      # EXIT 2 IS THIS GATE'S REFUSAL PATH AND IT IS THE TRAP THIS STEP IS BUILT
+      # AROUND. Run with no `--built-app` it exits 2 with `CANNOT RUN:` and prints
+      # every one of its facts as `unread` — measured in a fresh clone. A job that
+      # ran it bare would be green on a refusal. So the artefact is supplied, 0/1/2
+      # are discriminated separately, AND the facts are checked for the literal
+      # `unread`, because that string is what "nothing was inspected" looks like.
+      - name: Built Info.plist — the privacy URL, the category, and export compliance
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/built-plist.txt"
+          gate_exit=0
+          ruby test/built_plist_test.rb --built-app "$BUILT_APP" > "$out" 2>&1 || gate_exit=$?
+          cat "$out"
+          echo "built_plist_gate_exit=$gate_exit"
+          case "$gate_exit" in
+            0) echo "built plist — the gate read the bundle and every assertion held" ;;
+            1) echo "::error::built plist — the gate ran and FAILED. Its FAIL lines are above"; exit 1 ;;
+            2) echo "::error::built plist — the gate REFUSED (exit 2, CANNOT RUN). Nothing was inspected, which is NOT a pass and NOT a failure of the subject"; exit 1 ;;
+            *) echo "::error::built plist — exit $gate_exit is neither its pass (0), its failure (1) nor its refusal (2); that is evidence for no side"; exit 1 ;;
+          esac
+          status=0
+          for f in platform privacy_url category encryption parse_route; do
+            val=$(sed -n "s/^built_plist_$f=//p" "$out")
+            echo "built_plist_$f=$val"
+            if [ -z "$val" ]; then
+              echo "::error::built plist — built_plist_$f was never printed; a conclusion with no facts does not show the gate reached its subject"
+              status=1
+            elif [ "$val" = "unread" ]; then
+              echo "::error::built plist — built_plist_$f is 'unread', which is the value this gate prints when it inspected NOTHING. The exit code said otherwise and the facts win"
+              status=1
+            fi
+          done
+          exit "$status"
+
+  # ---------------------------------------------------------------------------
+  # PHASE 8 CLOSE-OUT (2026-09-14) — AND DELIBERATELY *NOT* A REQUIRED STATUS
+  # CONTEXT, for exactly the reason the 08-16 block above records.
+  #
+  # `app source rules` has NEVER EXECUTED on a runner. Adding `ruby
+  # test/app_source_rules_test.rb` to `review notes` — a required context — would
+  # have made a never-executed gate a merge blocker on its first push, which is
+  # the `locale-doctor-regression` failure verbatim: it died on its own SETUP
+  # rather than on its subject and left every pull request unmergeable. Its own
+  # job costs one ubuntu runner and risks nothing.
+  #
+  # WHAT WOULD HAVE TO BE TRUE BEFORE THIS NAME GOES INTO PROTECTION, unchanged
+  # from the bar 08-16 set: several green runs on real pushes AND a demonstrated
+  # red — somebody breaks one of the two subjects on purpose and watches this job
+  # catch it. Both subjects were driven red LOCALLY on 2026-09-14 (re-adding
+  # `private` to `UITestWindowSizer`; stripping the iOS submit guard), each going
+  # exit 1 with the right message and back to green on restore. Local is not a
+  # runner, so that is evidence for the gate and not yet for the context.
+  #
+  # WHAT IT PROVES: two source invariants that a compiler, a linter and a
+  # formatter all accept happily and that the shipped app is nonetheless wrong
+  # without — UL-087's window identity, and CR-01's ungated App Review
+  # submission. Both were, at the moment they were fixed, protected by a comment
+  # asking the next reader not to undo them.
+  app-source-rules:
+    name: app source rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # this gate is stdlib-only and makes ZERO requires
+
+      # THE SETUP, ASSERTED APART FROM THE SUBJECT — same shape and same reason
+      # as the store-copy gate above. A broken environment must fail AS a broken
+      # environment before any verdict about the source is attempted.
+      - name: preconditions — the interpreter and the two files the gate reads
+        run: |
+          set -euo pipefail
+          command -v ruby > /dev/null 2>&1 || { echo "::error::no ruby on PATH — nothing below ran"; exit 1; }
+          v=$(ruby -e 'print RUBY_VERSION')
+          echo "precondition_ruby=$v at $(command -v ruby)"
+          case "$v" in
+            3.3.*) ;;
+            *) echo "::error::expected Ruby 3.3.x (the interpreter this gate was measured under); got $v"; exit 1 ;;
+          esac
+          for p in app/Shared/App.swift fastlane/Fastfile.local; do
+            [ -e "$p" ] || { echo "::error::$p is missing from the checkout; the gate would report a file that does not exist and prove nothing about the source"; exit 1; }
+            echo "precondition_path=$p"
+          done
+
+      - name: app source rules — UL-087 window identity, CR-01 submission guard
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/app-source-rules.txt"
+          set +e
+          ruby test/app_source_rules_test.rb 2>&1 | tee "$out"
+          gate_exit=${PIPESTATUS[0]}
+          set -e
+          echo "app_source_rules_gate_exit=$gate_exit"
+          case "$gate_exit" in
+            0) echo "app source rules — both invariants hold" ;;
+            1) echo "::error::app source rules — the gate ran and FAILED. Its ✗ lines are above"; exit 1 ;;
+            *) echo "::error::app source rules — exit $gate_exit is neither its pass (0) nor its failure (1); that is evidence for no side"; exit 1 ;;
+          esac
+          # THE FACTS, ASSERTED SEPARATELY FROM THE EXIT CODE. A gate whose
+          # population is empty exits 0 while inspecting nothing, which is this
+          # phase's signature defect; these two numbers are what make that
+          # visible. The gate refuses on an empty wrapped-type list itself, and
+          # this is the second, independent reading of the same fact.
+          status=0
+          types=$(sed -n 's/^app_source_rules_wrapped_types=//p' "$out")
+          lanes=$(sed -n 's/^app_source_rules_submit_lanes=//p' "$out")
+          echo "app_source_rules_wrapped_types=$types"
+          echo "app_source_rules_submit_lanes=$lanes"
+          [ -n "$types" ] || { echo "::error::app source rules — no type was found wrapped into the scene's content, so the UL-087 clause asserted nothing"; status=1; }
+          [ "${lanes:-0}" -ge 2 ] || { echo "::error::app source rules — found ${lanes:-0} submit_for_review override(s), expected both platforms'; the CR-01 clause did not see the lanes it exists to check"; status=1; }
           exit "$status"

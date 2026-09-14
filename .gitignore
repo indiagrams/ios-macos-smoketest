@@ -65,6 +65,8 @@ fastlane/README.md
 # Screenshot output — regenerable from `make screenshots`. Don't track binaries.
 fastlane/screenshots/**/*.png
 fastlane/screenshots/**/*.html
+fastlane/Mac_screenshots/**/*.png
+fastlane/Mac_screenshots/**/*.html
 .bundle/
 vendor/bundle/
 

@@ -47,10 +47,11 @@ import XCTest
 /// reading a CI log three weeks from now with no access to the screen.
 ///
 /// AN EMPTY READ IS NOT NECESSARILY AN ABSENT ELEMENT. On macOS the three commonest SwiftUI text
-/// shapes publish their content in `AXValue` alone and XCUITest's `.label` never reads it, so an
-/// element that is present, correct and on screen still reads empty through `label`.
-/// ``XCUIElement/renderedText`` is what this function reads, so that case is already handled; a
-/// failure here means the text is in neither attribute, which is a genuine finding.
+/// shapes publish their content in `AXValue` alone and XCUITest's `.label` never reads it, and a
+/// MENU ITEM publishes in `AXTitle` and in neither of those — so an element that is present,
+/// correct and on screen still reads empty through `label`. ``XCUIElement/renderedText`` is what
+/// this function reads and it asks all three, so those cases are already handled; a failure here
+/// means the text is in none of the three, which is a genuine finding.
 @discardableResult
 func assertReadable(
     _ element: XCUIElement,
@@ -63,8 +64,9 @@ func assertReadable(
         text.isEmpty,
         "BLIND READ: \(what) renders nothing this test can read, so every assertion below it is "
             + "about the empty string rather than about the application. Either the element is "
-            + "absent, or its text is published in an attribute neither `label` nor `value` "
-            + "exposes — see `ElementText.swift`.",
+            + "absent, or its text is published in an attribute none of `label`, `value` and "
+            + "`title` exposes — see `ElementText.swift`, which names the shape each of the "
+            + "three was measured to carry.",
         file: file,
         line: line
     )

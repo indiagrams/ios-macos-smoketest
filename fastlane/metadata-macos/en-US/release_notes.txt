@@ -1,0 +1,8 @@
+First release.
+
+Three tools in a sidebar - Encode/decode, Hashing and Timestamps - each opening as a one-step
+sequence that extends in place. Base64, URL percent-encoding and HTML entities; MD5, SHA-1,
+SHA-256 and SHA-512; Unix epoch to ISO 8601 and local time with a time zone picker. One tool's
+output can be taken as the next tool's input, intermediate values stay visible, and steps can
+be removed or reordered without retyping the sequence. Sandboxed, with no networking
+entitlement.

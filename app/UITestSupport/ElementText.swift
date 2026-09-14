@@ -20,6 +20,20 @@ import XCTest
 //     a container + `.accessibilityLabel`     AXGroup        nil        content        reads
 //     a `NavigationLink`'s label              AXUnknown      nil        content        reads
 //
+// A SEVENTH SHAPE WAS ADDED ON 2026-09-11, AND IT IS WHY THIS FILE READS A THIRD ATTRIBUTE.
+// Every row above is an IN-WINDOW shape. A MENU ITEM is not, and it publishes its text in a
+// third place again:
+//
+//     shape                                   elementType    `.value`   `.label`       `.title`
+//     an item in a macOS menu                 menuItem (54)  ""         ""             content
+//
+// Measured on a running macOS app, twice and independently: a menu row read back
+// `type=54 label="" value="" title="<the item's text>"`, and a second suite reached a menu item
+// whose text it already knew and got it out of `title` alone. So on that shape the two-attribute
+// rule is STRUCTURALLY BLIND — it can only ever answer "", for an item rendering the right text
+// and one rendering the wrong text alike. That is the exact condition the guards in
+// `BlindReadGuards.swift` exist to name, and they did name it, on this shape's first execution.
+//
 // macOS publishes a plain SwiftUI `Text`'s content in **AXValue alone**. XCUITest's `.label` is
 // built from AXDescription, falling back to AXTitle, and never reads AXValue. So on macOS
 // `element.label` is a CONSTANT EMPTY STRING for the three commonest text shapes a SwiftUI author
@@ -27,13 +41,25 @@ import XCTest
 // On iOS the same `Text` publishes its content AS its label, which is why a suite can be green on
 // one platform for years while the other has never measured its subject.
 //
-// THE READ RULE IS `label` FIRST, THEN THE STRING `value`, AND THE ORDER IS LOAD-BEARING. Asking
-// `label` first keeps iOS byte-identical, keeps every element that already answers answering the
-// same thing, and reads through rather than going stale if a future macOS starts publishing an
-// AXDescription for these shapes. The fallback is asked only when the first answer is empty, so
-// this rule can never CHANGE a read — it can only turn a non-answer into an answer. That property
-// is asserted by the probe cited above (its check 4) and is the reason adopting this file at an
-// existing call site is not a behaviour change on iOS.
+// THE READ RULE IS `label` FIRST, THEN THE STRING `value`, THEN `title`, AND THE ORDER IS
+// LOAD-BEARING. Asking `label` first keeps iOS byte-identical, keeps every element that already
+// answers answering the same thing, and reads through rather than going stale if a future macOS
+// starts publishing an AXDescription for these shapes. Each fallback is asked ONLY when every
+// answer before it is empty, so this rule can never CHANGE a read — it can only turn a
+// non-answer into an answer. That property is asserted by the probe cited above (its check 4),
+// it is what made adopting this file at an existing call site not a behaviour change on iOS, and
+// it is equally what makes adding the third attribute not a behaviour change at any existing
+// call site: every read that answered before answers the same thing today.
+//
+// THREE NAMED ATTRIBUTES, AND DELIBERATELY NOT "WHATEVER IS NON-EMPTY". The rule is a list of
+// attributes each of which was MEASURED to carry a rendered string for a named shape, not a
+// search. Widening it to "try everything" would make `readable` mean "something, somewhere, was
+// non-empty" — and then an element whose text is genuinely unpublished would read as some
+// unrelated attribute's content and the blind-read guards would stop being able to fire. A
+// fourth attribute belongs here only with an eighth shape measured beside it.
+//
+// WHAT IS STILL REFUSED. An element that publishes its text in NONE of these three reads "" and
+// trips `assertReadable`. That is the whole point of the guards and it is unchanged.
 //
 // THIS IS A RULE ABOUT READING, NOT ABOUT FINDING. Element MATCHING is a separate mechanism with
 // separate inputs and it is NOT blind: on the same macOS run where `.label` read empty on three
@@ -48,9 +74,11 @@ extension XCUIElement {
     /// What this element is RENDERING, in whichever attribute the running platform publishes it in.
     ///
     /// `label` first — iOS's idiom, and the branch every already-answering element keeps taking —
-    /// then the element's own string `value`. Returns `""` when the platform publishes the text in
-    /// neither, which is a real answer and not a failure: see ``assertReadable(_:_:file:line:)``
-    /// for the guard that stops an empty read from being mistaken for a measurement.
+    /// then the element's own string `value`, then `title`, which is where a MENU ITEM publishes
+    /// its text and the only one of the three that is not an in-window shape. Returns `""` when
+    /// the platform publishes the text in none of them, which is a real answer and not a failure:
+    /// see ``assertReadable(_:_:file:line:)`` for the guard that stops an empty read from being
+    /// mistaken for a measurement.
     ///
     /// NOT A REPLACEMENT FOR `label` EVERYWHERE. An element whose `value` legitimately differs
     /// from its label — a text field holding typed text under a label naming the field, a slider,
@@ -62,7 +90,11 @@ extension XCUIElement {
         if !visible.isEmpty {
             return visible
         }
-        return (value as? String) ?? ""
+        let own = (value as? String) ?? ""
+        if !own.isEmpty {
+            return own
+        }
+        return title
     }
 }
 
@@ -76,7 +108,11 @@ extension XCUIElementSnapshot {
         if !label.isEmpty {
             return label
         }
-        return (value as? String) ?? ""
+        let own = (value as? String) ?? ""
+        if !own.isEmpty {
+            return own
+        }
+        return title
     }
 }
 

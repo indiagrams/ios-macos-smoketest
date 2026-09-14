@@ -1,0 +1,31 @@
+Shipkit Pipes is built around chaining. One tool's output becomes the next tool's input inside
+the app, every intermediate value stays visible, and any step can be removed or reordered with
+the values below it recomputing rather than merely renumbering.
+
+That chain is in place on every tool screen, with no separate mode to discover. Opening a tool
+gives a one-step sequence that extends where it stands. The difference is in how the work is
+organised, not in how many tools there are.
+
+Three tools ship:
+
+Encode/decode. Base64, URL percent-encoding, and HTML entities, in both directions.
+
+Hashing. MD5, SHA-1, SHA-256, and SHA-512.
+
+Timestamps. Unix epoch to ISO 8601 and to local time, and back, with a time zone picker that
+defaults to the machine's time zone.
+
+A worked example, with values to check against. Open the Encode/decode item in the sidebar and
+enter hello. The first step encodes it as aGVsbG8=. Add a Base64 decode step and it reads that
+back as hello. Add SHA-256 on top and it digests the value above it. Now delete the middle
+step: the digest re-chains onto the Base64 output above it and changes to the digest of
+aGVsbG8= rather than of hello. Nothing is retyped at any point.
+
+Everything runs on the machine. The app runs in the App Sandbox with no networking entitlement,
+has no network code path, and makes no requests, so nothing entered can leave it. There are no
+accounts and no sign-in, because there is nothing to sign in to. Nothing typed, no result, and
+no sequence of steps is written to disk, to a log, or off the machine. Five interface
+selections are remembered between launches and nothing else.
+
+Built for developers who would rather not paste a token, a payload, or a log line into a
+website in order to convert it.

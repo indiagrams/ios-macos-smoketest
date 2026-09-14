@@ -65,16 +65,25 @@ import SwiftUI
 
 /// The accessibility identifiers one surface attaches to its input area.
 ///
-/// A value rather than three parameters, so a surface cannot pass Hashing's
-/// input identifier beside Encode's worked-value button by accident. The three
-/// members below are the only three that exist, because they are the only three
-/// things in this block that are PER SURFACE. The keyboard's Done control is
-/// not: there is one software keyboard and only the focused field can have
-/// raised it, so it carries `AccessibilityIdentifiers.Input.done` directly and
-/// takes no member here.
+/// A value rather than separate parameters, so a surface cannot pass Hashing's
+/// input identifier beside Encode's worked-value button by accident. The members
+/// below are the only ones that exist, because they are the only things in this
+/// block that are PER SURFACE. The keyboard's Done control is not: there is one
+/// software keyboard and only the focused field can have raised it, so it carries
+/// `AccessibilityIdentifiers.Input.done` directly and takes no member here.
 struct InputAreaIdentifiers: Equatable, Sendable {
     /// The text field itself.
     let input: String
+
+    /// The "Input" label above the field.
+    ///
+    /// Added by plan 08-20. The App Store capture gate's ASSERTION 7 asserts that
+    /// everything showing where the pipeline STARTS is inside the captured frame,
+    /// and until this identifier existed the label was the one part of that head
+    /// the gate could not name — so two tiles shipped with the navigation bar
+    /// slicing it through the middle of its letterforms while every check was
+    /// green. It is per surface for the same reason ``input`` is.
+    let inputLabel: String
 
     /// The button that fills the field with ``InputExample``'s constant.
     let useExample: String
@@ -93,6 +102,7 @@ extension InputAreaIdentifiers {
     /// The Encode/decode surface's three.
     static let encode = InputAreaIdentifiers(
         input: AccessibilityIdentifiers.Encode.input,
+        inputLabel: AccessibilityIdentifiers.Encode.inputLabel,
         useExample: AccessibilityIdentifiers.Encode.useExample,
         count: AccessibilityIdentifiers.Encode.inputCount
     )
@@ -102,12 +112,14 @@ extension InputAreaIdentifiers {
     /// constant that no query uses is how a selector list rots.
     static let hashing = InputAreaIdentifiers(
         input: AccessibilityIdentifiers.Hashing.input,
+        inputLabel: AccessibilityIdentifiers.Hashing.inputLabel,
         useExample: AccessibilityIdentifiers.Hashing.useExample
     )
 
     /// The Timestamps surface's. No count line at all — see ``count``.
     static let timestamps = InputAreaIdentifiers(
         input: AccessibilityIdentifiers.Timestamps.input,
+        inputLabel: AccessibilityIdentifiers.Timestamps.inputLabel,
         useExample: AccessibilityIdentifiers.Timestamps.useExample
     )
 }
@@ -248,6 +260,7 @@ struct InputArea: View {
             Text("input.label")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier(identifiers.inputLabel)
             field
             trailingRow
         }

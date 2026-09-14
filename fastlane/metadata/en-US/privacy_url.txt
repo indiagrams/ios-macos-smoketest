@@ -1,1 +1,1 @@
-https://example.com/privacy
+https://indiagrams.github.io/ios-macos-smoketest/privacy/

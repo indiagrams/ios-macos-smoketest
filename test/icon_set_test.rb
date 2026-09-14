@@ -609,11 +609,22 @@ c1.members.each do |name|
                            nominal: nominal_side_from_name(name), kind: "icns_member", icns: c1)
 end
 from_icns = population.count { |m| m.source == "icns" }
-assert from_icns >= 1, "population", icns_rel_for_msg,
-       "source C1 contributes at least 1 extracted member (got #{from_icns}) via " \
-       "iconutil -c iconset. iconutil -l is NOT a route on this Xcode: it prints " \
-       "'invalid option -- l' at exit 1 (measured #{MEASURED_ON}), which is why " \
-       "icon_icns_route= is printed rather than assumed"
+# A FLOOR DERIVED FROM SOURCE B, NOT A FROZEN COUNT, AND NOT `>= 1`.
+# RAISED 2026-09-14 BY THE PHASE 8 CLOSE-OUT (VG-05). `>= 1` was unreachable by
+# construction: the `no_verdict` guard twenty lines above already refuses a
+# zero-member extraction, so the only inputs that could have made this clause red
+# never arrive — and a four-member .icns, which is EXACTLY the shape
+# `app/project.yml`'s postCompileScript exists to overwrite, passed it. The macOS
+# catalog declares the population this file must carry, so source B is the honest
+# floor: lose a slot in the .icns and this goes red, add one and it does not.
+assert from_icns >= from_macos, "population", icns_rel_for_msg,
+       "source C1 contributes at least as many members (#{from_icns}) as the macOS " \
+       "catalog declares slots (#{from_macos}), via iconutil -c iconset. A shipped " \
+       ".icns short of the catalog is actool's four-size artefact wearing the right " \
+       "filename — the exact defect the postCompileScript exists to overwrite. " \
+       "iconutil -l is NOT a route on this Xcode: it prints 'invalid option -- l' at " \
+       "exit 1 (measured #{MEASURED_ON}), which is why icon_icns_route= is printed " \
+       "rather than assumed"
 
 # The container walk and the extraction are two independent readings of the same
 # artefact. If they disagree, one of them is not seeing the whole file.
@@ -704,6 +715,36 @@ if built_app
         assert (d.png_count + d.argb_count) == d.members.length, "built-app", cand,
                "the container walk and iconutil agree on the built bundle's .icns " \
                "(#{d.png_count} PNG + #{d.argb_count} ARGB vs #{d.members.length} extracted)"
+        # ── D IS COMPARED WITH C1, WHICH IS THE WHOLE POINT OF READING IT ──
+        # ADDED 2026-09-14 BY THE PHASE 8 CLOSE-OUT (VG-04 / CR-02), the highest
+        # finding of that review and reproduced three times. Before this, source D's
+        # only structural claims were "opens", "non-empty" and "the two readings
+        # agree" — so a bundle shipping actool's FOUR-member .icns passed at exit 0
+        # while the run printed `icon_members_from_icns=10` beside
+        # `icon_slots_from_built_app=4`, and the CI step then said "the gate read all
+        # five sources and every assertion held". The one check that exists to prove
+        # the postCompileScript ran could not see the artefact it exists to replace.
+        #
+        # The phase is a verbatim `/bin/cp` of C1 into the bundle
+        # (app/project.yml:184, and app/Project.swift declares the identical phase),
+        # so "D equals C1" is an invariant of a CORRECT BUILD rather than a frozen
+        # expectation: change the icon and both sides move together.
+        assert d.members.sort == c1.members.sort, "built-app", cand,
+               "the .icns inside the built bundle carries the same members as the one " \
+               "that ships (#{d.members.length} vs #{c1.members.length}). Missing here: " \
+               "#{(c1.members - d.members).sort.join(', ')}; unexpected here: " \
+               "#{(d.members - c1.members).sort.join(', ')}. The postCompileScript copies " \
+               "#{ICNS_REL} verbatim, so any difference means it did not run — which is " \
+               "actool's four-size .icns shipping under the right filename"
+        # The stronger form, and free: a verbatim copy is byte-identical. Skipped when
+        # --icns points somewhere else, because then C1 is deliberately not the file
+        # the build phase copies and a byte difference would be the operator's intent.
+        unless icns_arg
+          assert File.binread(cand) == File.binread(ICNS_PATH), "built-app", cand,
+                 "the .icns inside the built bundle is byte-identical to #{ICNS_REL}. " \
+                 "The build phase is `/bin/cp`, so anything else means the bundle's icon " \
+                 "was written by something other than that copy"
+        end
         d.issues.each { |where, message| assert false, "alpha", where, message }
         d.members.each do |m|
           population << Member.new(source: "built_app", path: "#{cand}!#{m}",

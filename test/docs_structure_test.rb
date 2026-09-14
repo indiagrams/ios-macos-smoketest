@@ -687,6 +687,7 @@ end
 BOOTSTRAP_DOC       = "docs/BOOTSTRAP.md"
 GETTING_STARTED_DOC = "docs/GETTING-STARTED.md"
 MIGRATION_RUNBOOK   = "docs/MIGRATING-FROM-RENAME.md"
+SHIPPING_RUNBOOK    = "docs/SHIPPING-RUNBOOK.md"
 DOC02_NAMED         = [BOOTSTRAP_DOC, GETTING_STARTED_DOC].freeze
 
 # The retired script's stem, ASSEMBLED rather than spelled out. Criterion 2's
@@ -1053,6 +1054,82 @@ if doc03_present[CHANGELOG_DOC]
            "#{cited.empty? ? '' : " — found at line(s) #{cited.join(', ')}"}"
   end
 end
+
+# ─── DOC-04: the shipping runbook ────────────────────────────────────────────
+#
+# ADDED 2026-09-14 BY THE PHASE 8 CLOSE-OUT (VG-01). DOC-04 reads "a shipping
+# runbook documents the manual App Store Connect steps that cannot be automated",
+# `08-VALIDATION.md` recorded it COVERED 131/131 — and NOTHING IN THIS REPOSITORY
+# READ THE DOCUMENT. Measured before this block existed:
+# `grep -rn "SHIPPING-RUNBOOK" test/ ci/ .github/workflows/ bin/ Makefile` returned
+# ZERO rows (positive control: the same grep for `MIGRATING-FROM-RENAME` returned
+# three test files), and `git rm docs/SHIPPING-RUNBOOK.md` left this suite green at
+# 131/131 — inside the REQUIRED `review notes` context. A requirement whose only
+# evidence is a gate that never opens the file is an attestation wearing a gate's
+# clothes, which is this phase's own signature defect.
+#
+# WHY IT IS NOT IN `ALL_DOCS`. That constant's membership is what puts a document
+# under the EMAIL sweep at the bottom of this file. §3 of the runbook is "App
+# Review contact details", which is NOT PERFORMED today and whose whole purpose is
+# to record a contact — an address Apple requires. Adding this document to the
+# sweep would make honestly completing §3 turn the gate red, i.e. it would punish
+# the phase's own next step. It carries no email-shaped string today (measured
+# 2026-09-14) and it is deliberately not asserted to stay that way.
+#
+# WHAT IS ASSERTED, and each clause names the input that makes it red: the file
+# exists at all (delete it -> red, which is VG-01's own control); it still names
+# each manual surface DOC-04 is about (gut a section -> red); every numbered
+# section still carries the explicit performed-state marker its own "How to read
+# an entry" contract promises (drop a marker -> red); and the blocking section
+# survives (remove it -> red). None of these is a whole-file grep: each extracts
+# the heading line it judges.
+
+puts
+puts "#{SHIPPING_RUNBOOK} — DOC-04, the manual App Store Connect steps:"
+
+runbook = read_doc(SHIPPING_RUNBOOK)
+assert !runbook.strip.empty?, "#{SHIPPING_RUNBOOK}: exists and is not empty"
+
+runbook_headings = runbook.lines.filter_map { |l| l.chomp if l.start_with?("## ") }
+numbered_headings = runbook_headings.select { |h| h =~ /\A## \d+\./ }
+
+assert numbered_headings.length >= 4,
+       "#{SHIPPING_RUNBOOK}: carries numbered manual-step sections " \
+       "(found #{numbered_headings.length})"
+
+# The three surfaces App Store Connect exposes to no API this project can drive.
+# Named individually so gutting ONE of them is red rather than averaged away.
+{
+  "App Privacy"            => /^## \d+\. App Privacy/,
+  "Pricing and Availability" => /^## \d+\. Pricing and Availability/,
+  "App Review contact"     => /^## \d+\. App Review contact/
+}.each do |label, pattern|
+  assert runbook_headings.any? { |h| h =~ pattern },
+         "#{SHIPPING_RUNBOOK}: documents the manual step '#{label}'"
+end
+
+assert runbook_headings.any? { |h| h.include?("BLOCKING BEFORE SUBMISSION") },
+       "#{SHIPPING_RUNBOOK}: keeps its BLOCKING BEFORE SUBMISSION section"
+
+# Every MANUAL-STEP section states whether it has been done. The document's own
+# "How to read an entry" contract promises this, and a step whose state nobody can
+# read off the page is the thing this runbook exists to prevent.
+#
+# SCOPED TO THE STEP SECTIONS, and that scoping is a correction rather than a
+# convenience: asserting it over every numbered heading was tried first and went
+# red on §5, §7, §8, §9 and §10, which are narrative (what a tool refused, what is
+# automated, what is done, known gaps, the performed log) and own no state. A gate
+# that reds on a correct document is as broken as one that greens on a wrong one.
+STEP_HEADINGS = /^## \d+\. (App Privacy|Pricing and Availability|App Review contact|GitHub Pages)/
+step_sections = numbered_headings.select { |h| h =~ STEP_HEADINGS }
+assert step_sections.length >= 4,
+       "#{SHIPPING_RUNBOOK}: the four manual-step sections are all present " \
+       "(found #{step_sections.length})"
+
+unmarked = step_sections.reject { |h| h =~ /PERFORMED|NOT PERFORMED/ }
+assert unmarked.empty?,
+       "#{SHIPPING_RUNBOOK}: every manual-step section carries its performed-state marker" \
+       "#{unmarked.empty? ? '' : " — unmarked: #{unmarked.join('; ')}"}"
 
 # ─── across all five documents ───────────────────────────────────────────────
 

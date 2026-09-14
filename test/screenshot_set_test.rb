@@ -161,6 +161,22 @@ IOS_PARENT_REL   = File.join("fastlane", "screenshots")
 APPLE_ALPHA = "App Store Connect rejects a screenshot that carries an alpha channel"
 
 # ─── the three named families -- see THE COUNT TENSION in the header ────────
+# THE EIGHT TILES A FAMILY CAN CARRY, IN ORDINAL ORDER.
+# ADDED 2026-09-14 BY THE PHASE 8 CLOSE-OUT (VG-02). The floors below bound HOW
+# MANY tiles a family holds and say nothing about WHICH, and that gap was measured
+# rather than reasoned: renaming `-01-chain-light` to `-03-timestamps-light` and
+# `-05-chain-dark` to `-07-timestamps-dark` left the iPhone family at count=6 and
+# the whole gate green at 76/76, with every printed fact byte-identical to a clean
+# run -- while the shipped iPhone set carried NO CHAIN TILE IN EITHER APPEARANCE.
+# The chain is the app's differentiator and the surface META-02 names in words.
+#
+# The ordinals are the reviewer's reading order, so a set that silently loses one
+# surface and doubles another is exactly what this catalogue exists to refuse.
+SLUGS = %w[
+  01-chain-light 02-hashing-light 03-timestamps-light 04-encode-url-light
+  05-chain-dark  06-hashing-dark  07-timestamps-dark  08-encode-url-dark
+].freeze
+
 FAMILIES = [
   {
     key:    "macos",
@@ -169,6 +185,7 @@ FAMILIES = [
     width:  2880,
     height: 1800,
     floor:  8,
+    refused: [].freeze,
     provenance: "measured #{MEASURED_ON}: 8 of 8 macOS App Store tiles present, " \
                 "2880x1800, no alpha (08-UAT.md test 2, re-verified after plan " \
                 "08-21's chain-tile fix). No refusal has ever been recorded on " \
@@ -181,6 +198,10 @@ FAMILIES = [
     width:  1320,
     height: 2868,
     floor:  6,
+    # The two tiles UL-086 refuses. Listed as ALLOWED-ABSENT rather than removed
+    # from SLUGS: a later phase that makes them fit restores them and must stay
+    # green, which is the same reasoning the floor of 6 already carries.
+    refused: %w[03-timestamps-light 07-timestamps-dark].freeze,
     provenance: "measured #{MEASURED_ON}: 6 of a possible 8 iPhone tiles present. " \
                 "-03-timestamps-light and -07-timestamps-dark are REFUSED by " \
                 "AppStoreScreenshotTests' own capture-time measurement (778.954pt " \
@@ -198,6 +219,7 @@ FAMILIES = [
     width:  2064,
     height: 2752,
     floor:  8,
+    refused: [].freeze,
     provenance: "measured #{MEASURED_ON}: 8 of 8 iPad tiles present, 2064x2752, " \
                 "no alpha (08-UAT.md test 3). iPad never overflowed the content " \
                 "band on any surface, so no tile on this family has ever been " \
@@ -375,6 +397,36 @@ FAMILIES.each do |fam|
   assert count >= fam[:floor], "population", fam[:dir],
          "the #{fam[:key]} family (prefix #{fam[:prefix].inspect}) holds at " \
          "least #{fam[:floor]} tile(s); measured #{count}. #{fam[:provenance]}"
+end
+
+# ─── per-family IDENTITY -- which tiles, not just how many (VG-02) ──────────
+#
+# The floor above is a COUNT. These two clauses are the SET, and between them a
+# renamed, duplicated or substituted tile is named rather than averaged away.
+
+FAMILIES.each do |fam|
+  present = population.select { |m| m.family == fam }
+            .map { |m| File.basename(m.rel, ".png").delete_prefix(fam[:prefix]) }
+
+  unknown = (present - SLUGS).sort
+  assert unknown.empty?, "identity", fam[:dir],
+         "every #{fam[:key]} tile carries one of the #{SLUGS.length} known ordinal " \
+         "slugs; #{unknown.length} do(es) not (#{unknown.join(', ')}). A slug outside " \
+         "the catalogue is a tile nobody ordered -- a rename, a stale export, or a " \
+         "surface that shipped without this gate being taught it"
+
+  duplicated = present.tally.select { |_, n| n > 1 }.keys.sort
+  assert duplicated.empty?, "identity", fam[:dir],
+         "no #{fam[:key]} slug appears twice; duplicated: #{duplicated.join(', ')}"
+
+  required = SLUGS - fam[:refused]
+  missing  = (required - present).sort
+  assert missing.empty?, "identity", fam[:dir],
+         "every REQUIRED #{fam[:key]} tile is present. Missing: #{missing.join(', ')}. " \
+         "Required is the #{SLUGS.length}-slug catalogue minus this family's recorded " \
+         "refusals (#{fam[:refused].empty? ? 'none' : fam[:refused].join(', ')}), so a " \
+         "tile that vanishes or is renamed into another surface's slot fails here even " \
+         "when the count still clears the floor"
 end
 
 # ─── dimension + alpha, member by member, over the WHOLE matched population ─

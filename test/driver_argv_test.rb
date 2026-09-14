@@ -129,6 +129,8 @@
 #   A10 the reason behind every disposition, asserted rather than commented
 #   A11 bin/bootstrap-fork.rb, observed in a tree with no .bootstrap.env
 #   A12 restoration: the sandbox is gone and this repository was never the subject
+#   A14 bin/submit.rb's screenshot gate: it is REACHED, it is reached BEFORE the
+#       lane handoff, and a gate that refuses or fails STOPS the upload
 #
 # WHY THE TABLE IS ENUMERATED AND NOT LISTED (added 2026-09-04, plan 05-21,
 # gap GAP-05-04). The five drivers above were audited by hand. A hand-maintained
@@ -216,6 +218,14 @@ FIXTURE_BUNDLE_ID    = "com.example.driverargv.fixture"
 FIXTURE_TEAM         = "FIXTURETEAM"
 FIXTURE_ORG          = "example-org"
 FIXTURE_REPO         = "example-app"
+
+# Read ONLY by the sandbox's stub screenshot gate (written in the sandbox block
+# below), never by any tracked script. A14 sets it to drive the gate red and
+# watch bin/submit.rb refuse; it is cleared for every other case alongside the
+# keys the real drivers read, so a stray export cannot turn A14's red into a
+# green — or, worse, turn every other case's gate into a refusal and make A1
+# fail for a reason that has nothing to do with argv.
+GATE_EXIT_KEY = "DRIVER_ARGV_GATE_EXIT"
 
 # Every key the sandbox config carries. The union of what the five drivers read,
 # so a refusal below is about the ARGUMENT and never about an incomplete fixture.
@@ -725,6 +735,29 @@ DISPOSITIONS = {
     ]
   },
 
+  # ADDED 2026-09-14. It entered this population the moment `make screenshots`
+  # started invoking it (G-08), which is UL-052's point restated by the gate
+  # itself: the population is "what make reaches", so wiring a script into a
+  # recipe enlarges what this table must account for. It reads files and writes
+  # nothing; the only outward act available to it is exiting non-zero.
+  "test/screenshot_set_test.rb" => {
+    disposition: :already_correct,
+    why: "a read-only gate over tiles already on disk — no network, no build, no simulator, and " \
+         "its only effect is its exit code. Its front door refuses by name at exit 2, and an " \
+         "unknown --families key is a REFUSAL rather than a silent narrowing of its own population",
+    evidence: "static, against its source",
+    asserts: [
+      ["it consumes EVERY argument, so a second unrecognised one cannot slip past",
+       ->(c) { c[:src].include?("until argv.empty?") }],
+      ["a help flag prints and exits 0",
+       ->(c) { c[:src].include?('when "-h", "--help" then puts USAGE ; exit 0') }],
+      ["an unrecognised argument is refused BY NAME at exit 2",
+       ->(c) { c[:src].include?('unrecognised argument #{arg.inspect}') && c[:src].include?("exit 2") }],
+      ["an unknown --families key REFUSES rather than narrowing the population to nothing",
+       ->(c) { c[:src].include?("--families named") && c[:src].include?("selected no family at all") }]
+    ]
+  },
+
   # ── measured_safe: no front door, and the reason asserted ─────────────────
   "bin/mint-local-certs.rb" => {
     disposition: :measured_safe,
@@ -1040,6 +1073,15 @@ EXECUTED = [
     launcher: "bundle",
     a1_expect: "bundle exec fastlane ios #{STAGE_LANE}",
     a1_why: "the staging lane handoff -- an App Store Connect mutation",
+    # G-08: the screenshot gate is a child process this driver launches BEFORE
+    # the lane. Stated here rather than in A14's body so the driver that has a
+    # pre-lane gate, and the needle that identifies it, stay in the one table
+    # that already says what each executed driver launches.
+    pre_lane: {
+      needle: "screenshot-gate --families",
+      why: "test/screenshot_set_test.rb judges the delivered set, and a judgement " \
+           "that ran after the upload would be a report rather than a gate"
+    },
     usage_must: [
       ["bin/submit.rb", "the usage names the driver it describes"],
       ["App Store Connect", "the usage says the command contacts App Store Connect"],
@@ -1162,6 +1204,7 @@ run_case = lambda do |rel, argv, extra_env = {}, in_tree = nil|
   # child, then the caller's overrides are applied on top.
   FIXTURE_ENV.each_key { |k| env[k] = nil }
   env[SUBMIT_KEY] = nil
+  env[GATE_EXIT_KEY] = nil
   env.merge!(extra_env)
 
   out, err, status = Open3.capture3(
@@ -1257,6 +1300,39 @@ begin
   File.write(File.join(tree, "fastlane", "metadata", "en-US", "description.txt"), "fixture\n")
   File.write(File.join(tree, "fastlane", "screenshots", "en-US", "01-fixture.png"), "not-a-png\n")
   File.write(File.join(tree, "fastlane", "Mac_screenshots", "en-US", "01-fixture.png"), "not-a-png\n")
+
+  # ─── the stub screenshot gate ──────────────────────────────────────────────
+  #
+  # bin/submit.rb runs `ruby <__dir__>/../test/screenshot_set_test.rb --families …`
+  # as a PRE-UPLOAD gate (G-08). That is a CHILD PROCESS, not a library, so it
+  # belongs with `bundle` / `fastlane` / `gh` above and not with LIB_FILES — the
+  # rule there ("copied rather than stubbed: a stub would make a green result be
+  # about the stub") is about the driver's OWN logic, and this is not that.
+  #
+  # IT CANNOT BE THE REAL GATE, and the reason is the point. The real gate judges
+  # exact pixel dimensions, alpha and tile IDENTITY over the delivered set. This
+  # tree's tiles are the two-line string "not-a-png", by design, and the real
+  # tiles are gitignored and exist on exactly one Mac. Copying the real gate here
+  # would make every run of this suite fail on the fixtures rather than on argv.
+  #
+  # IT IS SHIMMED RATHER THAN SILENCED. A stub that merely `exit 0`-ed would be a
+  # gate that cannot fail sitting inside the suite written to catch those, and it
+  # would let the gate call be deleted from bin/submit.rb without a single check
+  # going red. So it records into the SAME ordered log as the PATH shims, with
+  # its own prefix, which is what lets A14 assert the two things that actually
+  # matter: the gate is reached, and it is reached BEFORE the lane.
+  #
+  # A PATH shim could not have caught this one: submit.rb resolves the gate from
+  # __dir__, so the only way to observe it is to BE the file at that path — which
+  # also means A14 keeps submit.rb honest about resolving it relative to itself
+  # rather than to the caller's CWD.
+  FileUtils.mkdir_p(File.join(tree, "test"))
+  File.write(File.join(tree, "test", "screenshot_set_test.rb"), <<~RUBY)
+    # FIXTURE STUB written by test/driver_argv_test.rb. NOT the real gate, and
+    # never copied back into the repository — see A12, which asserts exactly that.
+    File.open(#{shim_log.inspect}, "a") { |f| f.puts("screenshot-gate \#{ARGV.join(' ')}") }
+    exit Integer(ENV["#{GATE_EXIT_KEY}"] || 0)
+  RUBY
 
   # ─── the capturing shims ───────────────────────────────────────────────────
   #
@@ -1388,6 +1464,56 @@ begin
     assert !bare.stderr.match?(BACKTRACE), "A1", d[:rel],
            "the bare invocation reached the launch without raising, so the harness is " \
            "exercising the script's real path rather than dying early"
+
+    # ─── A14, first half: the pre-lane gate is REACHED, and reached FIRST ────
+    #
+    # Ordering is the assertion, not mere presence: the shim log is appended to
+    # in call order, so an index comparison is the whole proof. A gate that ran
+    # after `bundle exec fastlane` would still show up in the log.
+    next unless (gate = d[:pre_lane])
+
+    gate_i = bare.shim_argv.index { |l| l.include?(gate[:needle]) }
+    lane_i = bare.shim_argv.index { |l| l.include?(d[:a1_expect]) }
+    assert !gate_i.nil?, "A14", d[:rel],
+           "the bare invocation reached the pre-lane gate #{gate[:needle].inspect} -- " \
+           "#{gate[:why]} (recorded: #{bare.shim_argv.join(' | ')})"
+    assert !gate_i.nil? && !lane_i.nil? && gate_i < lane_i, "A14", d[:rel],
+           "the gate was reached BEFORE the lane handoff (gate at #{gate_i.inspect}, lane at " \
+           "#{lane_i.inspect}) -- #{gate[:why]}"
+  end
+
+  # ─── A14, second half: a gate that does not pass STOPS the upload ─────────
+  #
+  # THE RED CONTROL FOR THE STUB ABOVE. Without this, the stub is a fixture that
+  # always says yes, and "bin/submit.rb runs a screenshot gate" would be asserted
+  # only in the shape where the gate agrees -- which is the one shape that cannot
+  # tell a gate apart from a print statement.
+  #
+  # BOTH NON-ZERO OUTCOMES, because bin/submit.rb's own code distinguishes them
+  # and the distinction is load-bearing: exit 2 is the gate REFUSING (it inspected
+  # nothing, which is emphatically not a pass) and anything else is the gate
+  # FAILING. Both must stop the upload, and a driver that treated "cannot run" as
+  # "fine" is the exact defect the exit-2 branch was written for.
+  EXECUTED.select { |d| d[:pre_lane] }.each do |d|
+    { "1" => "FAILED", "2" => "REFUSED" }.each do |code, meaning|
+      res = run_case.call(d[:rel], [], { GATE_EXIT_KEY => code })
+
+      assert res.shim_argv.any? { |l| l.include?(d[:pre_lane][:needle]) }, "A14", d[:rel],
+             "the gate ran at all with #{GATE_EXIT_KEY}=#{code} -- otherwise 'the lane was not " \
+             "reached' below would be satisfied by a run that never got as far as the gate, " \
+             "which is the same green for the opposite reason (recorded: #{res.shim_argv.join(' | ')})"
+      assert res.shim_argv.none? { |l| l.include?(d[:a1_expect]) }, "A14", d[:rel],
+             "a gate that #{meaning} (exit #{code}) stopped the run BEFORE #{d[:a1_expect].inspect}. " \
+             "Reaching it would mean uploading a set the gate had just declined to pass " \
+             "(recorded: #{res.shim_argv.join(' | ')})"
+      assert res.status == 1, "A14", d[:rel],
+             "a gate that #{meaning} exits 1, this driver's documented code for a preflight " \
+             "refusal (got #{res.status.inspect}) -- not the gate's own #{code}, which would " \
+             "collide with the exit code this driver already documents for a failed lane"
+      assert !res.stderr.match?(BACKTRACE), "A14", d[:rel],
+             "it refused deliberately rather than crashing on the way -- a crash also fails to " \
+             "reach the lane, so the absence of a lane line is evidence only beside this"
+    end
   end
 
   # ─── A2: the usage flags ───────────────────────────────────────────────────

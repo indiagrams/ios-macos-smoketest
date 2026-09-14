@@ -216,28 +216,49 @@ unless Dir.exist?(screenshots_dir)
   Bootstrap::UI.fail!("#{screenshots_dir}/ missing. Run `make screenshots` first.")
 end
 
-# Per-platform screenshot existence. iOS + macOS screenshots live in
-# separate top-level dirs to keep deliver from cross-uploading (fastlane's
-# deliver action globs ALL files under its `screenshots_path` and assigns
-# display types from PNG dimensions — when iOS + macOS share one parent,
-# Apple's API rejects with "Display Type Not Allowed" because a 1440×900
-# macOS PNG has no valid iOS display type and vice versa).
+# Per-platform screenshot VERDICT, not merely existence. iOS + macOS screenshots
+# live in separate top-level dirs to keep deliver from cross-uploading (fastlane's
+# deliver action globs ALL files under its `screenshots_path` and assigns display
+# types from PNG dimensions -- when iOS + macOS share one parent, Apple's API
+# rejects with "Display Type Not Allowed" because a 1440x900 macOS PNG has no valid
+# iOS display type and vice versa).
 #   - iOS:   fastlane/screenshots/en-US/
 #   - macOS: fastlane/Mac_screenshots/en-US/
-mac_dir = "fastlane/Mac_screenshots/en-US"
-platforms.each do |p|
-  if p == "macos"
-    hits = Dir.glob(File.join(mac_dir, "*.{png,jpg,jpeg,PNG,JPG,JPEG}"))
-    if hits.empty?
-      Bootstrap::UI.fail!("No macOS screenshots in #{mac_dir}/. Run `make screenshots` (or place files in `#{mac_dir}/`) first.")
-    end
-  else
-    hits = Dir.glob(File.join(screenshots_dir, "*.{png,jpg,jpeg,PNG,JPG,JPEG}"))
-    if hits.empty?
-      Bootstrap::UI.fail!("No iOS screenshots in #{screenshots_dir}/. Run `make screenshots` (or place files in `#{screenshots_dir}/`) first.")
-    end
-  end
+#
+# WAS `Dir.glob(...).length > 0` PER PLATFORM, WHICH IS A GATE THAT BARELY FAILS.
+# One file of any size, any dimensions, any name satisfied it, and the set that
+# reaches App Review is judged on rather more than that. `test/screenshot_set_test.rb`
+# was written to be that judgement and, until 2026-09-14, was invoked by no workflow,
+# no recipe and no upload path -- it could only ever run on the one machine that
+# captured the tiles, by hand. This is the pre-upload wiring it was missing.
+#
+# SCOPED TO THE PLATFORMS BEING SUBMITTED. The gate's population is the whole
+# delivered set; an iOS-only submit must not fail on macOS tiles it was never going
+# to upload. An unknown family key makes the gate REFUSE rather than narrow, so a
+# typo here cannot quietly turn it into a pass over nothing.
+FAMILIES_FOR = {
+  "ios"   => %w[iphone_16_pro_max ipad_pro_13_m4],
+  "macos" => %w[macos]
+}.freeze
+
+wanted_families = platforms.flat_map { |p| FAMILIES_FOR.fetch(p, []) }.uniq
+if wanted_families.empty?
+  Bootstrap::UI.fail!("no screenshot families map to platforms #{platforms.inspect}; refusing to submit without judging the set")
 end
+
+gate = File.join(__dir__, "..", "test", "screenshot_set_test.rb")
+ok = system("ruby", gate, "--families", wanted_families.join(","))
+gate_status = $?.exitstatus
+case gate_status
+when 0 then Bootstrap::UI.ok("screenshot set judged deliverable for #{platforms.join(', ')} (#{wanted_families.join(', ')}).")
+when 2
+  Bootstrap::UI.fail!("test/screenshot_set_test.rb REFUSED (exit 2, CANNOT RUN) -- it inspected nothing. " \
+                      "That is not a pass. Run `make screenshots` first, or fix what it says it cannot read.")
+else
+  Bootstrap::UI.fail!("test/screenshot_set_test.rb FAILED (exit #{gate_status}) -- its FAIL lines are above. " \
+                      "The delivered set is not fit to upload; `make screenshots` re-captures it.")
+end
+_ = ok
 
 # ─── Read marketing version for the preflight summary ────────────────────────
 def read_marketing_version

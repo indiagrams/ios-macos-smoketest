@@ -725,6 +725,29 @@ DISPOSITIONS = {
     ]
   },
 
+  # ADDED 2026-09-14. It entered this population the moment `make screenshots`
+  # started invoking it (G-08), which is UL-052's point restated by the gate
+  # itself: the population is "what make reaches", so wiring a script into a
+  # recipe enlarges what this table must account for. It reads files and writes
+  # nothing; the only outward act available to it is exiting non-zero.
+  "test/screenshot_set_test.rb" => {
+    disposition: :already_correct,
+    why: "a read-only gate over tiles already on disk — no network, no build, no simulator, and " \
+         "its only effect is its exit code. Its front door refuses by name at exit 2, and an " \
+         "unknown --families key is a REFUSAL rather than a silent narrowing of its own population",
+    evidence: "static, against its source",
+    asserts: [
+      ["it consumes EVERY argument, so a second unrecognised one cannot slip past",
+       ->(c) { c[:src].include?("until argv.empty?") }],
+      ["a help flag prints and exits 0",
+       ->(c) { c[:src].include?('when "-h", "--help" then puts USAGE ; exit 0') }],
+      ["an unrecognised argument is refused BY NAME at exit 2",
+       ->(c) { c[:src].include?('unrecognised argument #{arg.inspect}') && c[:src].include?("exit 2") }],
+      ["an unknown --families key REFUSES rather than narrowing the population to nothing",
+       ->(c) { c[:src].include?("--families named") && c[:src].include?("selected no family at all") }]
+    ]
+  },
+
   # ── measured_safe: no front door, and the reason asserted ─────────────────
   "bin/mint-local-certs.rb" => {
     disposition: :measured_safe,

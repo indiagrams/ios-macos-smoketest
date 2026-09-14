@@ -31,7 +31,10 @@ Every entry carries four things, and an entry missing any of them is not finishe
 
 ## 1. App Privacy nutrition labels — **PERFORMED 2026-09-11.**
 
-**Performed:** not yet. The prescribed answer is **Data Not Collected**.
+**Performed:** 2026-09-11 — **Data Not Collected**, saved and Published in App Store Connect by
+the account holder. This is an ATTESTATION, not a measurement: no tool can verify it, because the
+App Privacy API does not exist (§10's row carries the two 404s and the 41-relationship
+enumeration behind that claim).
 **Where:** App Store Connect → Apps → *Shipkit Pipes* → **App Privacy** → Edit.
 
 ### Why there is no automated path — measured three ways on 2026-09-11

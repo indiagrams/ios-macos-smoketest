@@ -342,8 +342,11 @@ platform :mac do
 
   # Same corrected shape, with one fork-specific safeguard in front of it.
   #
-  # This lane is the only one in this file that can write a REVIEW SUBMISSION to
-  # App Store Connect, and in this fork that write is not reversible: UL-018
+  # TWO lanes in this file can write a REVIEW SUBMISSION — this one and the iOS
+  # one below — and BOTH are gated. This comment used to say "the only one in
+  # this file", which stopped being true the moment `f6f2789` added the iOS
+  # `submit_for_review` override, and stayed false until the close-out review of
+  # 2026-09-14 (CR-01) measured it. The iOS half mattered more, not less: UL-018
   # records that one unplanned call permanently consumed record 6807393045's
   # single open iOS review slot, which is still occupied. So the submit is gated
   # on an explicit opt-in rather than on discipline. It refuses loudly and names
@@ -444,7 +447,28 @@ platform :ios do
     do_upload_metadata(platform: :ios)
   end
 
+  # GATED FOR THE SAME REASON THE macOS LANE IS, AND WITH MORE CAUSE. UL-018's
+  # stranded submission container is on THIS platform's record: one unplanned
+  # call permanently consumed record 6807393045's single open iOS review slot,
+  # no API route removes it, and Phases 9 and 10 have to submit THROUGH it.
+  #
+  # The guard was missing here from `f6f2789` until CR-01 found it, while the
+  # macOS lane had one — i.e. the safeguard sat on the platform that does NOT
+  # carry the recorded hazard. `PLATFORMS=ios,macos` dispatches iOS FIRST
+  # (`bin/submit.rb:285`) and that loop records a failure and CONTINUES, so the
+  # macOS refusal was never a tripwire for this lane. `docs/SHIPPING-RUNBOOK.md`
+  # telling a reader to "never set FORK_ALLOW_ASC_SUBMIT" is only true advice
+  # once this guard exists.
   override_lane :submit_for_review do
+    unless ENV["FORK_ALLOW_ASC_SUBMIT"].to_s.strip == "yes"
+      UI.user_error!(
+        "ios submit_for_review would write a REVIEW SUBMISSION to App Store Connect, " \
+        "and this record's open review slot is ALREADY occupied and not reusable " \
+        "(UL-018). Re-run with FORK_ALLOW_ASC_SUBMIT=yes once the submission has been " \
+        "reviewed and approved, or use `fastlane ios stage_for_review`, which prepares " \
+        "the same listing and submits nothing."
+      )
+    end
     fork_assert_category_env!
     do_submit_for_review(platform: :ios, submit: true)
   end

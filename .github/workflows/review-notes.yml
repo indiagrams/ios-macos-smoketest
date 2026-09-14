@@ -1111,3 +1111,84 @@ jobs:
             fi
           done
           exit "$status"
+
+  # ---------------------------------------------------------------------------
+  # PHASE 8 CLOSE-OUT (2026-09-14) — AND DELIBERATELY *NOT* A REQUIRED STATUS
+  # CONTEXT, for exactly the reason the 08-16 block above records.
+  #
+  # `app source rules` has NEVER EXECUTED on a runner. Adding `ruby
+  # test/app_source_rules_test.rb` to `review notes` — a required context — would
+  # have made a never-executed gate a merge blocker on its first push, which is
+  # the `locale-doctor-regression` failure verbatim: it died on its own SETUP
+  # rather than on its subject and left every pull request unmergeable. Its own
+  # job costs one ubuntu runner and risks nothing.
+  #
+  # WHAT WOULD HAVE TO BE TRUE BEFORE THIS NAME GOES INTO PROTECTION, unchanged
+  # from the bar 08-16 set: several green runs on real pushes AND a demonstrated
+  # red — somebody breaks one of the two subjects on purpose and watches this job
+  # catch it. Both subjects were driven red LOCALLY on 2026-09-14 (re-adding
+  # `private` to `UITestWindowSizer`; stripping the iOS submit guard), each going
+  # exit 1 with the right message and back to green on restore. Local is not a
+  # runner, so that is evidence for the gate and not yet for the context.
+  #
+  # WHAT IT PROVES: two source invariants that a compiler, a linter and a
+  # formatter all accept happily and that the shipped app is nonetheless wrong
+  # without — UL-087's window identity, and CR-01's ungated App Review
+  # submission. Both were, at the moment they were fixed, protected by a comment
+  # asking the next reader not to undo them.
+  app-source-rules:
+    name: app source rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # this gate is stdlib-only and makes ZERO requires
+
+      # THE SETUP, ASSERTED APART FROM THE SUBJECT — same shape and same reason
+      # as the store-copy gate above. A broken environment must fail AS a broken
+      # environment before any verdict about the source is attempted.
+      - name: preconditions — the interpreter and the two files the gate reads
+        run: |
+          set -euo pipefail
+          command -v ruby > /dev/null 2>&1 || { echo "::error::no ruby on PATH — nothing below ran"; exit 1; }
+          v=$(ruby -e 'print RUBY_VERSION')
+          echo "precondition_ruby=$v at $(command -v ruby)"
+          case "$v" in
+            3.3.*) ;;
+            *) echo "::error::expected Ruby 3.3.x (the interpreter this gate was measured under); got $v"; exit 1 ;;
+          esac
+          for p in app/Shared/App.swift fastlane/Fastfile.local; do
+            [ -e "$p" ] || { echo "::error::$p is missing from the checkout; the gate would report a file that does not exist and prove nothing about the source"; exit 1; }
+            echo "precondition_path=$p"
+          done
+
+      - name: app source rules — UL-087 window identity, CR-01 submission guard
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/app-source-rules.txt"
+          set +e
+          ruby test/app_source_rules_test.rb 2>&1 | tee "$out"
+          gate_exit=${PIPESTATUS[0]}
+          set -e
+          echo "app_source_rules_gate_exit=$gate_exit"
+          case "$gate_exit" in
+            0) echo "app source rules — both invariants hold" ;;
+            1) echo "::error::app source rules — the gate ran and FAILED. Its ✗ lines are above"; exit 1 ;;
+            *) echo "::error::app source rules — exit $gate_exit is neither its pass (0) nor its failure (1); that is evidence for no side"; exit 1 ;;
+          esac
+          # THE FACTS, ASSERTED SEPARATELY FROM THE EXIT CODE. A gate whose
+          # population is empty exits 0 while inspecting nothing, which is this
+          # phase's signature defect; these two numbers are what make that
+          # visible. The gate refuses on an empty wrapped-type list itself, and
+          # this is the second, independent reading of the same fact.
+          status=0
+          types=$(sed -n 's/^app_source_rules_wrapped_types=//p' "$out")
+          lanes=$(sed -n 's/^app_source_rules_submit_lanes=//p' "$out")
+          echo "app_source_rules_wrapped_types=$types"
+          echo "app_source_rules_submit_lanes=$lanes"
+          [ -n "$types" ] || { echo "::error::app source rules — no type was found wrapped into the scene's content, so the UL-087 clause asserted nothing"; status=1; }
+          [ "${lanes:-0}" -ge 2 ] || { echo "::error::app source rules — found ${lanes:-0} submit_for_review override(s), expected both platforms'; the CR-01 clause did not see the lanes it exists to check"; status=1; }
+          exit "$status"

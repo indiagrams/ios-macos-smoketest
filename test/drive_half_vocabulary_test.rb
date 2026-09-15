@@ -30,16 +30,17 @@
 # pre-existing ones -- goes red. The exclusion is proof, not trust.
 #
 # THE PRODUCT NAME IS NEVER EXCLUDED. Even inside a file the blob comparison
-# above accepts, this gate still hunts the private product name (assembled from
-# fragments below, so this file's own source never spells it) and reports a hit
-# there as an upstream finding, not as a pass. A private product's own name
+# above accepts, this gate still hunts the private product name and reports a hit
+# there as an upstream finding, not as a pass. The name is matched by DIGEST, not by
+# spelling: see PRODUCT_TERM_SHA256 below. A private product's own name
 # reaching a public, byte-identical adopted file would be the one class of hit
 # an exclusion built for a DIFFERENT purpose (staying honest about a file this
 # fork does not own) must never quietly absorb.
 #
 # ITS OWN SOURCE IS SWEPT. This file is itself inside the population the moment
-# it is committed -- it is a file the phase adds. Every hunted term below is
-# built from single-character fragments at runtime for exactly that reason: a
+# it is committed -- it is a file the phase adds. Every generic hunted term
+# below is built from single-character fragments at runtime, and the product
+# name is held only as a digest, for exactly that reason: a
 # bare literal in a comment explaining the word list would BE a hit, and if this
 # file were carved out of its own population to avoid that, the carve-out would
 # be the same shape D-149 rejected, wearing a different name.
@@ -49,10 +50,11 @@
 # DRIVE_HALF_VOCABULARY_ENDPOINT) lets the SAME gate re-run, unchanged, at
 # whatever SHA the phase actually merges as, per D-149.
 #
-# Ruby stdlib only (open3, optparse) -- no gem, matching this repository's own
+# Ruby stdlib only (digest, open3, optparse) -- no gem, matching this repository's own
 # test/*_test.rb convention (test/contamination_test.rb's own self-assertion
 # that its gate has zero require lines).
 
+require "digest"
 require "open3"
 require "optparse"
 
@@ -89,10 +91,24 @@ GENERIC_TERMS = {
   built("o", "w", "n", "e", "r") => "generic term"
 }.freeze
 
-# The private checkout's own name -- the product name -- derived once and never
-# excluded, even inside a file the blob check above accepts (see "THE PRODUCT
-# NAME IS NEVER EXCLUDED" above).
-PRODUCT_TERM = built("p", "r", "i", "v", "a", "t", "e", "c", "l", "a", "w")
+# The private checkout's own name -- the product name -- is never excluded, even
+# inside a file the blob check above accepts (see "THE PRODUCT NAME IS NEVER
+# EXCLUDED" above). Unlike the six generic words, which are ordinary English,
+# the name is the one secret, so it is held only as the SHA-256 of its
+# lowercased form and matched token by token. A spelling assembled from
+# fragments kept the word out of THIS gate's own hits, but it could still be
+# read by anyone opening the file, and no literal sweep could find it. A
+# digest is not encryption: someone who already guesses the name can confirm
+# it. What it removes is the name being readable from the tree.
+#
+# Matching is unchanged from the literal version it replaces: `\b<name>\b` with
+# /i matched exactly when some maximal ASCII word run equals the name ignoring
+# case, and a word run is what `\w+` yields.
+PRODUCT_TERM_SHA256 = "ff16f5aa9b3db370248b852937b5f79e251464b754e420d92cab264cd70bc3b7"
+
+def product_term?(text)
+  text.scan(/\w+/).any? { |token| Digest::SHA256.hexdigest(token.downcase) == PRODUCT_TERM_SHA256 }
+end
 
 options = { root: ROOT_DEFAULT, endpoint: nil, pin: nil }
 OptionParser.new do |opts|
@@ -215,7 +231,7 @@ population.each do |path|
 
   info[:lines].each do |line_no, text|
     if file_is_identical
-      if text =~ /\b#{Regexp.escape(PRODUCT_TERM)}\b/i
+      if product_term?(text)
         failures += 1
         puts "FAIL vocabulary #{path}:#{line_no}: product name (upstream finding)"
       end
@@ -228,7 +244,7 @@ population.each do |path|
       failures += 1
       puts "FAIL vocabulary #{path}:#{line_no}: #{label}"
     end
-    if text =~ /\b#{Regexp.escape(PRODUCT_TERM)}\b/i
+    if product_term?(text)
       failures += 1
       puts "FAIL vocabulary #{path}:#{line_no}: product-specific term"
     end

@@ -132,6 +132,22 @@ end
 # .planning evidence for plan 05-18.
 EXEMPTIONS = [
   {
+    path:   "test/drive_half_vocabulary_test.rb",
+    anchor: "is_binary",
+    reason: "Not a file read. Iterates git's diff output captured by Open3, whose " \
+            "String is re-tagged UTF-8 and scrubbed inside the git helper upstream of " \
+            "this line, so the encoding is pinned where the text enters and cannot be " \
+            "pinned again here. Measured 2026-09-15 with the locale cleared over a " \
+            "non-ASCII added line: before the helper pinned it the hunk parser raised " \
+            "and exited 1, the same status as a real hit; after, it exits 0."
+  },
+  {
+    path:   "test/drive_half_vocabulary_test.rb",
+    anchor: "do |line|",
+    reason: "Same String as the is_binary entry above, iterated a second time for the " \
+            "hunk parse; pinned upstream in the git helper, measured the same way."
+  },
+  {
     path:   "bin/lib/bootstrap.rb",
     anchor: "out_err",
     reason: "Not a file read. This iterates the combined-output handle yielded by " \

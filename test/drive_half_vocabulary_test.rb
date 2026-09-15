@@ -111,8 +111,16 @@ endpoint_arg = options[:endpoint] || ENV["DRIVE_HALF_VOCABULARY_ENDPOINT"] || "H
 pin = options[:pin] || UPSTREAM_PIN
 pin_source = options[:pin] ? "override" : "constant"
 
+# Process output arrives tagged with the environment's default external
+# encoding -- US-ASCII when the locale is cleared -- and a regex match against
+# a non-ASCII added line then RAISES, exiting 1, which is the same status as a
+# real hit: a crash would masquerade as a detection. Pin UTF-8 here, at the one
+# place output enters, and scrub bytes that are not valid UTF-8 (a hunted word
+# is ASCII, so scrubbing cannot hide one). Measured 2026-09-15: before this,
+# a cleared-locale run over a non-ASCII added line died in the hunk parser.
 def git(root, *args)
-  Open3.capture3("git", *args, chdir: root)
+  out, err, status = Open3.capture3("git", *args, chdir: root)
+  [out.force_encoding(Encoding::UTF_8).scrub, err.force_encoding(Encoding::UTF_8).scrub, status]
 end
 
 def git!(root, *args, on_fail:)

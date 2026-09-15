@@ -225,8 +225,8 @@ final class PrivacyLinkTests: XCTestCase {
     func testStructuralCountsAreUnchangedOnEverySurface() {
         for surface in Self.surfaces {
             launch(surface.destination, probingPersistence: true)
-            awaitSurface(surface.probe, surface.name)
             recordWindowPersistence(on: surface.name)
+            awaitSurface(surface.probe, surface.name)
 
             let cards = count(AccessibilityIdentifiers.Step.card)
             let adds = count(AccessibilityIdentifiers.Step.addStep)

@@ -258,7 +258,13 @@ struct AppMain: App {
         static let flag = "-UITestPersistenceProbe"
 
         static let line: String? = {
-            guard CommandLine.arguments.contains(flag) else { return nil }
+            // VALUED, like every `-UITest*` flag: a bare flag takes the NEXT argument as its value
+            // in the argument domain, and on run 34984109925 that was `-settings.selection`,
+            // shifting every launch pin after it. `test/app_source_rules_test.rb` enforces the shape.
+            let args = CommandLine.arguments
+            guard let index = args.firstIndex(of: flag), index + 1 < args.count, args[index + 1] == "YES" else {
+                return nil
+            }
             let domain = Bundle.main.bundleIdentifier ?? "none"
             let values = UserDefaults.standard.persistentDomain(forName: domain) ?? [:]
             let frameKeys = values.keys.filter { $0.hasPrefix("NSWindow Frame") }.sorted()

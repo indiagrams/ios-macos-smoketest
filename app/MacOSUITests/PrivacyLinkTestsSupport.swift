@@ -128,7 +128,7 @@ extension PrivacyLinkTests {
     func launch(_ destination: String, probingPersistence: Bool = false) {
         app = XCUIApplication()
         if probingPersistence {
-            app.launchArguments += ["-UITestPersistenceProbe"]
+            app.launchArguments += ["-UITestPersistenceProbe", "YES"]
         }
         app.launchPinned(showing: destination)
     }
@@ -139,14 +139,22 @@ extension PrivacyLinkTests {
     /// visible frame, and the app's own read of its defaults domain (`App.swift`'s
     /// `uiTestPersistenceProbe`), which names the domain, its key count and any saved
     /// `NSWindow Frame` value. An absent probe element is recorded as absent, never as "no key".
+    ///
+    /// **Called BEFORE `awaitSurface`** (run 34984109925): that launch presented ZERO windows, the
+    /// wait failed first, and this line never ran. It waits a bounded time for a window itself and
+    /// records the window count either way, so a windowless launch reports on itself.
     func recordWindowPersistence(on surface: String) {
+        let windowAppeared = app.windows.firstMatch.waitForExistence(timeout: 30)
+        let windowCount = app.windows.count
         let window = app.windows.firstMatch.frame
         let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
         let probe = app.descendants(matching: .any)
             .matching(identifier: AccessibilityIdentifiers.Shell.uiTestPersistenceProbe).firstMatch
-        let probeLine = probe.exists ? ((probe.value as? String) ?? "value-unreadable") : "probe-element-absent"
+        let probeFound = windowAppeared && probe.waitForExistence(timeout: 5)
+        let probeLine = probeFound ? ((probe.value as? String) ?? "value-unreadable") : "probe-element-absent"
         record("window_persistence_\(surface) args=\(app.launchArguments.joined(separator: ",")) "
-            + "window=\(describe(window)) visibleFrame=\(visible.map(describe) ?? "none") \(probeLine)")
+            + "window_appeared=\(windowAppeared) windows=\(windowCount) "
+            + "window=\(windowAppeared ? describe(window) : "none") visibleFrame=\(visible.map(describe) ?? "none") \(probeLine)")
     }
 
     private func describe(_ rect: CGRect) -> String {

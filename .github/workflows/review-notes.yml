@@ -1460,11 +1460,11 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | xcbeautify --renderer github-actions
 
-      # bin/dump-failure-screenshots.sh (plan 08.5-01, upstream-adopted) ALWAYS
-      # exits 0 by its own header contract — a missing screenshot must not mask
-      # the real test failure — so it is deliberately its own step rather than
-      # chained onto the test step with `||`, which would have swallowed the
-      # test step's own non-zero exit.
+      # bin/dump-failure-screenshots.sh (plan 08.5-01, upstream-adopted) is
+      # deliberately its own step rather than chained onto the test step with `||`,
+      # which would have swallowed the test step's own non-zero exit. Its header
+      # says it always exits 0; it does not — it exits 1 on a missing bundle or no
+      # arguments (UL-096), which is one more reason for the outcome gate below.
       # Gated on the TEST step's own outcome, not on the job having failed: when
       # an earlier setup step fails, the test step never runs (outcome
       # `skipped`), there is no bundle, and extracting from nothing only adds a

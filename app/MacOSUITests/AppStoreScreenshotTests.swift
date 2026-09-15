@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 // macOS App Store screenshot capture — the twin of `app/UITests/AppStoreScreenshotTests.swift`,
@@ -90,20 +91,35 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// assertion with no input on which it fails, inside the harness whose subject is those.
     var scrollTargetCount = 0
 
-    /// **THE `/Users/runner` SELF-SKIP, MOVED HERE FROM THE ONE TEST BODY IT USED TO GUARD** so it
-    /// covers both appearances rather than one. Unchanged in substance and still LOAD-BEARING —
-    /// `ScreenshotContract.swift` §"The headless-runner self-skip" carries why, and why HOME is
-    /// the only detector available inside the runner.
+    /// **THE SKIP IS CONDITIONAL ON THE MEASURED CAUSE, NOT ON WHO THE RUNNER IS (D-137, retained
+    /// 2026-09-15).** The `/Users/runner` self-skip was lifted for a runner measurement, and run
+    /// 34978692666 named why these captures cannot run there. The runner display is 1024x768 (its
+    /// failure recording), so the window this suite forces overflows the screen:
+    /// `ScreenshotDriver.swift:72: Not hittable: Button, {{1101.0, 254.0}, {96.0, 16.0}},
+    /// identifier: 'Encode.useExample'`, and `AppStoreScreenshotTests.swift:248: … 1 of 2 values are
+    /// outside (0.0,77.0,1024.0,632.0)`. So the suite skips when, and only when, the screen's visible
+    /// frame cannot contain ``captureWindowSize``, and it prints both sizes. Any display large enough
+    /// runs it. Nothing keys on HOME. `ScreenshotContract.swift` §"The headless-runner self-skip"
+    /// carries the history.
     override func setUpWithError() throws {
+        let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.size
+        let visibleText = visible.map { "\($0.width)x\($0.height)" } ?? "none"
+        let parts = Self.captureWindowSize.split(separator: "x").compactMap { Double($0) }
+        print("capture_fit requested=\(Self.captureWindowSize) visibleFrame=\(visibleText)")
+        guard parts.count == 2, let visible, visible.width >= parts[0], visible.height >= parts[1] else {
+            throw XCTSkip(
+                "the screen's visible frame (\(visibleText) points) cannot contain the "
+                    + "\(Self.captureWindowSize)-point capture window, so every shot would overflow the "
+                    + "screen (run 34978692666, D-137)"
+            )
+        }
+
         // TRUE, AND IT IS THE STRICTER SETTING RATHER THAN THE LOOSER ONE — the iOS twin's
         // finding, carried across because the twins must not diverge on it. With `false` a refused
         // shot wrote no tile only because the method ABORTED — a side effect of XCTest unwinding
         // rather than a verdict — and that abort also cost every LATER shot its tile. The refusal
         // is now ``file(_:)``'s explicit decision. The gate still RECORDS before it judges.
         continueAfterFailure = true
-        if NSHomeDirectory() == "/Users/runner" {
-            throw XCTSkip("Skipped on headless GitHub Actions runner; runs in full locally via `make screenshots`.")
-        }
     }
 
     override func tearDownWithError() throws {

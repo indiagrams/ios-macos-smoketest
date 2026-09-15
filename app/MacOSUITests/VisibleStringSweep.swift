@@ -40,16 +40,16 @@ final class VisibleStringSweep: XCTestCase {
     /// and Swift `private` does not reach it. Nothing outside this target can see either.
     var app: XCUIApplication!
 
-    /// The application element's own `label`. EMPTY ON macOS, and that is a measurement rather than an
-    /// expectation: run 33959451763, job `app (macOS)`, failed clause 3 with
-    /// `XCTAssertGreaterThan failed: ("0") is not greater than ("3") - the application element carries
-    /// no name`, after a full 82.8-second walk. The iOS twin reads the display name straight off this
-    /// property; on macOS it is blank and the name has to come from the menu bar instead.
-    var applicationLabel = ""
+    /// The application element's own RENDERED TEXT — `ElementText.swift`'s snapshot rule, label then
+    /// value then title. Its `label` ALONE is EMPTY ON macOS, a measurement rather than an expectation:
+    /// run 33959451763, job `app (macOS)`, failed clause 3 with `("0") is not greater than ("3") - the
+    /// application element carries no name`. The rendered text carries it: run 34978692666 resolved
+    /// `resolved_name=<app> source=application-element-rendered-text` through `AppMenuIdentity.swift`'s
+    /// same rule. The iOS twin reads the display name straight off its label.
+    var applicationRenderedText = ""
 
-    /// The menu bar's top-level item titles, in order. Index 1 is the application menu, which is what
-    /// settles RESEARCH assumption A3 — whether AppKit resolves that title from `CFBundleDisplayName`
-    /// or `CFBundleName` was deliberately left unmeasured, and this reads it off the running app.
+    /// The menu bar's top-level item titles, in order. RECORDED for A3's failure message and matched BY
+    /// NAME in step 15 — never indexed to infer the app's name (criterion 6 row 12, adversarial #7).
     var menuBarItems: [String] = []
 
     /// The product name as the RUNNING APP presents it, with the source it came from.
@@ -57,11 +57,11 @@ final class VisibleStringSweep: XCTestCase {
     /// Never spelled here. Reading it from the app rather than from a plist is what lets clause 3 hold
     /// after a rename, and what keeps this file from naming an identity it exists to keep off screens.
     private var productName: (value: String, source: String) {
-        if !applicationLabel.isEmpty {
-            return (applicationLabel, "application-element-label")
-        }
-        if menuBarItems.count > 1 {
-            return (menuBarItems[1], "menu-bar-application-item")
+        // NO POSITIONAL FALLBACK. `menuBarItems[1]` was the positional-identity defect removed from
+        // `AppMenuIdentity.swift` in 08.5; an empty rendered text resolves to `none` and clause 3 fails
+        // BY NAME, naming the menu bar it refused to index.
+        if !applicationRenderedText.isEmpty {
+            return (applicationRenderedText, "application-element-rendered-text")
         }
         return ("", "none")
     }

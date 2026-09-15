@@ -73,24 +73,34 @@ import XCTest
 // DerivedData and the next build silently rebuilds it, so the failure presents as intermittent.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// THE HEADLESS-RUNNER SELF-SKIP, AND WHY HOME IS THE ONLY DETECTOR
+// THE HEADLESS-RUNNER SELF-SKIP — ITS HISTORY, AND WHY IT WAS LIFTED RATHER THAN DELETED
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 //
-// `setUpWithError` skips the whole suite when HOME is `/Users/runner`, which covers both
-// appearances rather than the one test body it used to guard. LOAD-BEARING: `app.activate()`
-// needs a GUI session, and on a headless GH-Actions image the runner refuses focus — `activate()`
-// sits ~60 s and XCTest records "Failed to activate application (current state: Running
-// Background)". `continueAfterFailure` is TRUE in this suite, so that failure no longer stops the
-// run — which makes the skip MORE load-bearing rather than less: without it every one of the eight
-// shots would spend ~60 s in `activate()`, record a failure, and be refused by `file(_:)`, so the
-// suite would burn the runner's time to produce nothing.
+// `setUpWithError` SKIPPED the whole suite when HOME was `/Users/runner`, covering both
+// appearances rather than the one test body it used to guard, from the day this file was written
+// until 2026-09-15. LOAD-BEARING WHILE IT STOOD: `app.activate()` needs a GUI session, and on a
+// headless GH-Actions image the runner refuses focus — `activate()` sat ~60 s and XCTest recorded
+// "Failed to activate application (current state: Running Background)". `continueAfterFailure` is
+// TRUE in this suite, so that failure did not stop the run — which made the skip MORE load-bearing
+// rather than less: without it every one of the eight shots would have spent ~60 s in
+// `activate()`, recorded a failure, and been refused by `file(_:)`, so the suite would have burned
+// the runner's time to produce nothing.
 //
-// Detection BY HOME, and that is forced rather than chosen: macOS XCUITest spawns the runner via
-// launchd, which scrubs the environment, so `CI` and `GITHUB_ACTIONS` are NOT visible inside the
-// runner even when the workflow sets them. The home directory IS inherited from the launchd user
-// session, and GH-Actions macos-* runners always log in as `runner` — a path no developer Mac can
-// match. The screenshot suite exists for `make screenshots`, not for CI smoke validation: the
-// `app (macOS)` matrix cells in pr.yml already compile this file and run `AppMacOSTests`.
+// Detection was BY HOME, and that was forced rather than chosen: macOS XCUITest spawns the runner
+// via launchd, which scrubs the environment, so `CI` and `GITHUB_ACTIONS` are NOT visible inside
+// the runner even when the workflow sets them. The home directory IS inherited from the launchd
+// user session, and GH-Actions macos-* runners always log in as `runner` — a path no developer Mac
+// can match.
+//
+// LIFTED 2026-09-15 PER D-137: attempt removal, retain only if MEASURED to fail on a runner —
+// never choose the outcome before the measurement. RETAINED 2026-09-15, WITH A MEASURED CONDITION
+// IN PLACE OF HOME: run 34978692666 executed both appearances on a 1024x768 runner display, and
+// every shot's worked-value control sat outside the screen because the forced capture window
+// overflowed it (the transcript lines are quoted at `AppStoreScreenshotTests.setUpWithError`).
+// `activate()` was not the failure this time. The suite now skips only when the screen's visible
+// frame cannot contain the capture window, and it prints both sizes. The screenshot suite exists for `make screenshots`, not for CI smoke
+// validation: the `app (macOS)` matrix cells in pr.yml already compile this file and run
+// `AppMacOSTests`.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE MENU ITEM IS UNREADABLE ON THIS PLATFORM — MEASURED 2026-09-11, NOT PREDICTED
@@ -122,11 +132,13 @@ import XCTest
 // summary says so), so whether a `CommandGroup` button carries its accessibility identifier into
 // the macOS menu bar is still open. The count is taken by IDENTIFIER first — matching is not the
 // blind half — and only the fallback reads text, through renderedText UNIONED WITH `title`,
-// because AXTitle is where AppKit publishes a menu item's text and the shared read layer does not
-// ask for it. Every component is recorded, so a zero is a measurement and not an absence.
+// because AXTitle is where AppKit publishes a menu item's text. Every component is recorded, so a
+// zero is a measurement and not an absence.
 //
-// NOT FIXED IN `app/UITestSupport/`: adding an AXTitle fallback to the shared read rule would
-// change every read on both platforms, which is a decision for a plan that owns that file.
+// SUPERSEDED 2026-09-11: the shared read rule in `app/UITestSupport/ElementText.swift` now asks
+// for `title` as its third attribute (the seventh, menu-item shape), so `renderedText` alone
+// reads a menu item. A CI macOS runner confirmed `.label` itself never falls back to AXTitle
+// (run 34984109925: `label=""`, `title="About …"` on every item of the app's own menu).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AND THEN THE RUN ANSWERED BOTH, 2026-09-11 — recorded here because they are expensive to
@@ -139,23 +151,26 @@ import XCTest
 //                  app_menu_items=19 menubar_items=7
 //
 // 1  A macOS MENU ITEM (elementType 54) PUBLISHES ITS TEXT IN **AXTitle** AND IN NEITHER OF THE
-//    TWO ATTRIBUTES THE SHARED READ RULE ASKS FOR. `label` and `value` are both empty on an item
-//    whose title is plainly "Base64 encode". `ElementText.swift`'s rule is `label` then `value`,
-//    measured over six IN-WINDOW shapes; a menu item is a seventh shape it never covered, and on
-//    that shape the rule is structurally blind. This is a finding ABOUT THE READ LAYER, not about
-//    this app.
+//    TWO ATTRIBUTES THE SHARED READ RULE THEN ASKED FOR. `label` and `value` are both empty on an
+//    item whose title is plainly "Base64 encode". `ElementText.swift`'s rule was `label` then
+//    `value`, measured over six IN-WINDOW shapes; a menu item was a seventh shape it never covered,
+//    and on that shape the rule was structurally blind. This is a finding ABOUT THE READ LAYER,
+//    not about this app. The rule now reads `title` third, and run 34984109925 re-measured the
+//    shape on a CI runner: `label=""`, `title` carries the text.
 //
 // 2  A SwiftUI `CommandGroup` BUTTON DOES **NOT** CARRY ITS ACCESSIBILITY IDENTIFIER INTO THE
 //    macOS MENU BAR. `08-UI-SPEC.md`'s Open Item 2 resolves NEGATIVE — the same answer 06-13
-//    measured for `Menu` containers. The item is reached by its ordinal instead, and its title
-//    reads correctly through the union above.
+//    measured for `Menu` containers. The item was then reached by its ordinal; it is now selected
+//    by identity — its identifier if the tree carries one, otherwise the ONE entry whose text equals
+//    the privacy title (`PrivacyLinkTestsSupport.swift` `thePrivacyItem`, adversarial #14 / C-19e).
 //
 //    **THIS FALSIFIES A LIVE FILE.** `app/MacOSUITests/PrivacyLinkTests.swift` takes exactly this
-//    fallback and then calls `assertReadable` / `assertRendersText` on the item — reads that go
-//    through `label` then `value`, both of which are empty here. That suite HAS NEVER EXECUTED
-//    ANYWHERE (08-11's own summary says so), and on its first execution it will fail with a BLIND
-//    READ on the branch it was written to take. Not fixed here: that file is outside this plan's
-//    scope. It is recorded in `deferred-items.md` with the numbers.
+//    fallback and then calls `assertReadable` / `assertRendersText` on the item — reads that then
+//    went through `label` then `value`, both empty here. SINCE EXECUTED ON A CI RUNNER: with
+//    `renderedText` reading `title` and the app menu selected by identity, all three
+//    PrivacyLinkTests cases passed in run 34987068938. With the privacy item deliberately removed,
+//    the same reads failed by name in run 34988709074 (BLIND READ / "renders "", expected "Privacy
+//    Policy""), so the prediction's blind-read path is real and now guarded.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ASSERTION 7 — THE HEAD OF THE PIPELINE IS IN THE PHOTOGRAPH, AND WHY ITS SECOND CLAUSE IS A

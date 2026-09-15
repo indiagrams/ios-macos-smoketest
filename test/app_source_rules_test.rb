@@ -125,8 +125,49 @@ starts.each do |i|
 end
 
 puts
+puts "UI-test launch flags — every `-UITest*` flag is passed WITH a value:"
+
+# A bare `-Flag` in launch arguments takes the NEXT argument as its value in the
+# argument domain. Run 34984109925: a valueless `-UITestPersistenceProbe` was
+# followed by launchPinned's `-settings.selection encode …`, so it consumed
+# `-settings.selection` and shifted every pin after it. Checked per occurrence in
+# the UI-test sources, comment lines skipped; `firstIndex(of:` is a READ, not a pass.
+FLAG_LITERAL = /"(-UITest[A-Za-z]+)"/
+def code_lines(glob)
+  Dir.glob(File.join(ROOT, glob)).sort.flat_map do |path|
+    File.read(path, encoding: "UTF-8").lines.each_with_index
+        .reject { |line, _| line.lstrip.start_with?("//") }
+        .map { |line, i| [path.delete_prefix("#{ROOT}/"), i + 1, line] }
+  end
+end
+
+app_flags = code_lines("app/Shared/**/*.swift").flat_map { |_, _, l| l.scan(FLAG_LITERAL).flatten }.uniq.sort
+assert !app_flags.empty?,
+       "found the `-UITest*` flags the app reads (#{app_flags.empty? ? 'NONE — this clause would assert nothing' : app_flags.join(', ')})"
+
+passed = Hash.new(0)
+%w[app/UITests/**/*.swift app/MacOSUITests/**/*.swift app/UITestSupport/**/*.swift].each do |glob|
+  code_lines(glob).each do |file, number, line|
+    line.to_enum(:scan, FLAG_LITERAL).each do
+      match = Regexp.last_match
+      next if match.pre_match =~ /firstIndex\(of:\s*\z/
+      # The value is the next token, and it must not itself be a flag: `["-UITestA", "-UITestB"]`
+      # passes A with NO value, which is the UL-094 defect this clause exists to catch.
+      valued = match.post_match =~ /\A\s*,\s*(?!"-)[^\s\]]/
+      assert valued, "#{file}:#{number}: #{match[1]} is passed with a value (line: #{line.strip})"
+      passed[match[1]] += 1 if valued
+    end
+  end
+end
+
+app_flags.each do |flag|
+  assert passed[flag].positive?, "#{flag}: the app reads it and at least one UI test passes it with a value (#{passed[flag]} found)"
+end
+
+puts
 puts "app_source_rules_wrapped_types=#{wrapped.join(',')}"
 puts "app_source_rules_submit_lanes=#{starts.length}"
+puts "app_source_rules_uitest_flags=#{app_flags.join(',')} passes=#{passed.values.sum}"
 puts
 if @failures.zero?
   puts "All #{@checks} app-source-rule assertions passed."

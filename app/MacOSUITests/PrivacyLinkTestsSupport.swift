@@ -80,8 +80,12 @@ extension PrivacyLinkTests {
         return read == PrivacyLinkTests.privacyPolicyTitle ? 1 : 0
     }
 
-    /// The privacy item itself, by whichever route this platform allows.
-    func thePrivacyItem(in menu: XCUIElement, on surface: String) -> XCUIElement {
+    /// The privacy item itself, by whichever route this platform allows. Throws (via
+    /// `XCTUnwrap`) rather than guessing a position when the identity scan below does not find
+    /// exactly one match — the same rule `AppMenuIdentity.swift`'s `resolvedApplicationName`
+    /// applies, for the same reason: a silent `?? 0` is exactly the positional-identity defect
+    /// run 34973317967 measured (evidence/08.5-07-ci-readback.txt).
+    func thePrivacyItem(in menu: XCUIElement, on surface: String) throws -> XCUIElement {
         let byIdentifier = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy)
         let found = byIdentifier.count
         record("macos_privacy_identifier_count_\(surface)=\(found)")
@@ -110,7 +114,11 @@ extension PrivacyLinkTests {
             "\(surface): \(matches.count) app-menu items render \"\(PrivacyLinkTests.privacyPolicyTitle)\", "
                 + "expected exactly 1 — \(titles)"
         )
-        return entries.element(boundBy: matches.first ?? 0)
+        let matchIndex = try XCTUnwrap(
+            matches.first,
+            "\(surface): no app-menu item renders \"\(PrivacyLinkTests.privacyPolicyTitle)\" to select — \(titles)"
+        )
+        return entries.element(boundBy: matchIndex)
     }
 
     // MARK: - Launching, and queries, all of them by identifier

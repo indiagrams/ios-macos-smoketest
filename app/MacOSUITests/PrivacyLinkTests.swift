@@ -203,13 +203,13 @@ final class PrivacyLinkTests: XCTestCase {
     // MARK: - Present is not the same as usable
 
     /// The item a reviewer has to choose is hit-testable and enabled.
-    func testThePrivacyControlIsHittableAndEnabled() {
+    func testThePrivacyControlIsHittableAndEnabled() throws {
         let surface = Self.surfaces[0]
         launch(surface.destination)
         awaitSurface(surface.probe, surface.name)
 
         let menu = openTheApplicationMenu(on: surface.name)
-        let item = thePrivacyItem(in: menu, on: surface.name)
+        let item = try thePrivacyItem(in: menu, on: surface.name)
         record("privacy_hittable_\(surface.name)=\(item.isHittable) privacy_enabled_\(surface.name)=\(item.isEnabled)")
         XCTAssertTrue(item.isHittable, "the privacy item in the app menu is not hit-testable on \(surface.name)")
         XCTAssertTrue(item.isEnabled, "the privacy item in the app menu is disabled on \(surface.name)")

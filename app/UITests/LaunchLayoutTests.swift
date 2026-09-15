@@ -125,6 +125,23 @@ final class LaunchLayoutTests: XCTestCase {
         )
         XCTAssertTrue(inside, "clause 2: \(surface)'s add-step rect \(describeRect(rects[0])) is not inside \(describeRect(window))")
 
+        // Clause 2's VISIBLE CONTENT AREA ends at the tab bar's top edge, not at the window's bottom: the
+        // window test above carries the tab bar's whole height as slack, so a rect already under the bar
+        // exited 0 (criterion 6 row 22, deferred 08-12). NOT CAUGHT HERE, by design: a bar-height change
+        // such as a large navigation title that still leaves the rect above the tab bar. That is a
+        // bar-height rule, not clause 2.
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.exists, "clause 2: \(surface) presents no tab bar, so the visible content area has no bottom edge")
+        let contentBottom = tabBar.frame.minY
+        let aboveTabBar = !rects[0].isEmpty && rects[0].maxY <= contentBottom
+        record("criterion5_above_tabbar_\(surface)=\(aboveTabBar) tabbar_minY=\(contentBottom) "
+            + "first_maxY=\(rects[0].maxY) margin=\(contentBottom - rects[0].maxY)")
+        XCTAssertTrue(
+            aboveTabBar,
+            "clause 2: \(surface)'s first add-step rect \(describeRect(rects[0])) ends below the tab bar's top edge "
+                + "at y=\(contentBottom), so it is not within the visible content area"
+        )
+
         // Clause 3 — structural, and recorded as the number it actually is.
         record("criterion5_priorinteraction_\(surface)=navigation-only")
         record("criterion5_taps_before_assertion_\(surface)=0")

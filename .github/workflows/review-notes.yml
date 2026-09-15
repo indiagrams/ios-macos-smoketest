@@ -1486,6 +1486,13 @@ jobs:
         if: failure() && steps.uitest.outcome == 'failure'
         run: |
           set -euo pipefail
+          # A test step that failed BEFORE writing a bundle (a compile error, say) leaves
+          # nothing to extract. Say so and exit 0, so the test step's own failure stays
+          # the only red (close-out WR-03; the script itself would exit 1, UL-096).
+          if [ ! -d "$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}.xcresult" ]; then
+            echo "no bundle at $RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}.xcresult — nothing to extract; the test step's own failure is the red"
+            exit 0
+          fi
           bin/dump-failure-screenshots.sh \
             "$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}.xcresult" \
             "$RUNNER_TEMP/failure-screenshots-${{ matrix.platform }}"
@@ -1521,18 +1528,35 @@ jobs:
           OUT="$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}-results.json"
           xcrun xcresulttool get test-results tests --path "$BUNDLE" > "$OUT"
           unexercised=0
+          unreadable=0
           for suite in ${{ matrix.suites }}; do
             echo "== $suite per-test results (${{ matrix.display }}) =="
-            jq -r --arg suite "$suite" '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | startswith($suite + "/")) | "\(.nodeIdentifier) result=\(.result)"] | .[]' "$OUT"
-            cases=$(jq -r --arg suite "$suite" '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | startswith($suite + "/"))] | length' "$OUT")
+            jq -r --arg suite "$suite" '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | startswith($suite + "/")) | "\(.nodeIdentifier) result=\(.result)"] | .[]' "$OUT" || true
+            cases=$(jq -r --arg suite "$suite" '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | startswith($suite + "/"))] | length' "$OUT" || true)
             echo "suite_test_cases_${suite}=${cases}"
-            if [ "$cases" -eq 0 ]; then
-              echo "::error::$suite has 0 test cases in the ${{ matrix.display }} result bundle — its selector matched nothing, so it was not exercised"
-              unexercised=$((unexercised + 1))
-            fi
+            # A count that is not a number (xcresulttool wrote nothing, or the JSON did not
+            # parse) must never reach an integer test: `[ "" -eq 0 ]` errors inside `if`,
+            # reads as false, and the suite would pass unexamined (close-out WR-01).
+            case "$cases" in
+              ''|*[!0-9]*)
+                echo "::error::$suite — the test-case count read from the ${{ matrix.display }} result bundle is '${cases}', not a number, so nothing about this suite can be asserted"
+                unreadable=$((unreadable + 1))
+                ;;
+              0)
+                # Zero cases means a dead selector only when the test step itself succeeded.
+                # After a failed test step (a compile error, say) every count is zero for that
+                # reason, and naming the selector would blame the wrong cause (close-out WR-02).
+                if [ "${{ steps.uitest.outcome }}" = "success" ]; then
+                  echo "::error::$suite has 0 test cases in the ${{ matrix.display }} result bundle — its selector matched nothing, so it was not exercised"
+                  unexercised=$((unexercised + 1))
+                else
+                  echo "$suite has 0 test cases, but the test step's outcome was ${{ steps.uitest.outcome }}, so this count is uninformative; the test step's own failure is the red"
+                fi
+                ;;
+            esac
           done
-          echo "suites_unexercised=${unexercised}"
-          [ "$unexercised" -eq 0 ]
+          echo "suites_unexercised=${unexercised} suite_counts_unreadable=${unreadable}"
+          [ "$unexercised" -eq 0 ] && [ "$unreadable" -eq 0 ]
 
       - name: upload xcresult + failure screenshots
         if: always()

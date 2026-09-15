@@ -90,10 +90,15 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// assertion with no input on which it fails, inside the harness whose subject is those.
     var scrollTargetCount = 0
 
-    /// **THE `/Users/runner` SELF-SKIP, MOVED HERE FROM THE ONE TEST BODY IT USED TO GUARD** so it
-    /// covers both appearances rather than one. Unchanged in substance and still LOAD-BEARING —
-    /// `ScreenshotContract.swift` §"The headless-runner self-skip" carries why, and why HOME is
-    /// the only detector available inside the runner.
+    /// **THE `/Users/runner` SELF-SKIP WAS LIFTED 2026-09-15, FOR MEASUREMENT (D-137).** It stood
+    /// here, moved from the one test body it used to guard so it covered both appearances, and was
+    /// LOAD-BEARING for the reason `ScreenshotContract.swift` §"The headless-runner self-skip"
+    /// still records in full (why `activate()` cost ~60 s and a recorded failure on a headless
+    /// runner, and why HOME was the only detector available inside the runner). D-137 forbids
+    /// choosing the outcome before the measurement: it is lifted here as an ATTEMPT, pending the CI
+    /// run recorded in `evidence/08.5-08-skip-measurement.txt` (plan 08.5-08 Task 3), which keeps
+    /// it removed only if that run captured, and restores it — with the run's own transcript as the
+    /// recorded reason — otherwise.
     override func setUpWithError() throws {
         // TRUE, AND IT IS THE STRICTER SETTING RATHER THAN THE LOOSER ONE — the iOS twin's
         // finding, carried across because the twins must not diverge on it. With `false` a refused
@@ -101,9 +106,6 @@ final class AppStoreScreenshotTests: XCTestCase {
         // rather than a verdict — and that abort also cost every LATER shot its tile. The refusal
         // is now ``file(_:)``'s explicit decision. The gate still RECORDS before it judges.
         continueAfterFailure = true
-        if NSHomeDirectory() == "/Users/runner" {
-            throw XCTSkip("Skipped on headless GitHub Actions runner; runs in full locally via `make screenshots`.")
-        }
     }
 
     override func tearDownWithError() throws {

@@ -74,9 +74,19 @@ import XCTest
 
 /// One privacy control reachable from every macOS surface — through the app
 /// menu, read the only way this platform can be read (META-06, D-117).
+///
+/// SPLIT ACROSS TWO FILES FOR ONE REASON, THE SAME ONE `ScreenshotContract.swift`'s header
+/// records for its own split: this file sat at `swiftlint --strict`'s 400-line file budget, and
+/// `--strict` promotes that WARNING to an error (UL-056). `PrivacyLinkTestsSupport.swift` beside
+/// this file carries the menu-opening, item-selection and query helpers — a cross-file
+/// extension of this class, the same shape `SweepDriver.swift` already is of
+/// `VisibleStringSweep.swift`. Properties and methods it needs are `internal`, NOT `private` —
+/// Swift `private` does not reach a different file's extension.
 @MainActor
 final class PrivacyLinkTests: XCTestCase {
-    private var app: XCUIApplication!
+    /// Internal, not private: `PrivacyLinkTestsSupport.swift` is a cross-file extension of this
+    /// class and Swift `private` does not reach it.
+    var app: XCUIApplication!
 
     /// The three surfaces, `LaunchLayoutTests.swift:59-63`'s rows reused rather
     /// than re-typed. The menu item is app-wide, so what this list varies is
@@ -91,7 +101,9 @@ final class PrivacyLinkTests: XCTestCase {
     /// Where `CommandGroup(after: .appInfo)` puts the item: immediately after
     /// About, which is menu item index 0. Used ONLY by the fallback branch, and
     /// only after the menu's own population has been asserted to reach it.
-    private static let privacyItemIndex = 1
+    ///
+    /// Internal, not private: read from `PrivacyLinkTestsSupport.swift`.
+    static let privacyItemIndex = 1
 
     /// The catalog value of `app.privacyPolicy`, which is what the menu item's
     /// title renders (`app/Shared/Localizable.xcstrings`; the macOS branch of
@@ -102,7 +114,9 @@ final class PrivacyLinkTests: XCTestCase {
     /// in this file FINDS an element by this string. An expectation has to come
     /// from outside the thing it judges or it judges nothing — that is the
     /// vacuous-comparison shape `assertRendersText` refuses by name.
-    private static let privacyPolicyTitle = "Privacy Policy"
+    ///
+    /// Internal, not private: read from `PrivacyLinkTestsSupport.swift`.
+    static let privacyPolicyTitle = "Privacy Policy"
 
     /// The root card is ALONE on a surface at launch. Read from the assertion
     /// that already carries it: `app/MacOSUITests/VisibleStringSweep.swift:389`.
@@ -130,18 +144,21 @@ final class PrivacyLinkTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
 
-        // SKIPPED DELIBERATELY — owner Phase 8.5. Why, and the transcript:
-        // `evidence/08-11-privacy-link-controls.txt` §11. MEASURED 2026-09-11,
-        // this class's first ever execution: the runner LAUNCHED cleanly (3
-        // tests, 170.9 s, no Gatekeeper refusal) and failed 5/5 on one
-        // assertion — `awaitSurface`, all three surfaces. `launchPinned`'s
-        // destination does not take effect on macOS (`NavigationSplitView`
-        // where iOS is `TabView`, `RootView.swift:157` vs `:179`), so every
-        // read below is of a window the app never navigated. NOT the `AXTitle`
-        // fix, which is real and exercised on iOS. UNSKIP only on a green run.
-        // OWED TO WHOEVER UNSKIPS THIS: WR-01's fix below is UNVERIFIED BY EXECUTION.
-        // Drive it red first — delete the privacy `CommandGroup`, expect a FAIL here.
-        throw XCTSkip("macOS launch-pinning does not present the surface — 5/5 at awaitSurface, 2026-09-11. Owner: Phase 8.5.")
+        // SKIP LIFTED 2026-09-15 FOR MEASUREMENT (D-137, G-10) — never assumed removed
+        // permanently; the CI run this lift produces decides whether it stays gone or is
+        // restored with THAT run's own reason (plan 08.5-08 Task 3), recorded in
+        // `evidence/08.5-08-skip-measurement.txt`, not assumed here.
+        //
+        // PRIOR HISTORY, KEPT FOR THE READER: MEASURED 2026-09-11, this class's first ever
+        // execution: the runner LAUNCHED cleanly (3 tests, 170.9 s, no Gatekeeper refusal) and
+        // failed 5/5 on one assertion — `awaitSurface`, all three surfaces. `launchPinned`'s
+        // destination did not take effect on macOS (`NavigationSplitView` where iOS is
+        // `TabView`, `RootView.swift:157` vs `:179`), so every read below was of a window the
+        // app never navigated. NOT the `AXTitle` fix, which is real and exercised on iOS.
+        //
+        // STILL OWED, UNCHANGED BY THIS LIFT: WR-01's identity fix below is UNVERIFIED BY
+        // EXECUTION. Drive it red first — delete the privacy `CommandGroup`, expect a FAIL here
+        // (plan 08.5-09).
     }
 
     override func tearDownWithError() throws {
@@ -260,140 +277,6 @@ final class PrivacyLinkTests: XCTestCase {
         }
     }
 
-    // MARK: - The menu, opened positionally and closed again
-
-    /// Opens the application's own menu and answers it, after asserting that the
-    /// menu bar has enough items for the ordinal to mean anything.
-    private func openTheApplicationMenu(on surface: String) -> XCUIElement {
-        let bar = app.menuBarItems
-        let items = bar.count
-        // Titles, not identifiers: this is EVIDENCE about the running app's menu
-        // bar, read the only way macOS allows, never a query.
-        let titles = (0 ..< items).map { readable(bar.element(boundBy: $0)) }
-        record("macos_menubar_items_\(surface)=\(items) titles=\(titles.joined(separator: " | "))")
-
-        // SELECTED BY IDENTITY, NOT POSITION — `bar.element(boundBy: 1)` recorded the Apple
-        // menu's own contents on run 34973317967 (evidence/08.5-07-ci-readback.txt). See
-        // `app/UITestSupport/AppMenuIdentity.swift`, the one shared helper this file and
-        // `DriveHalfTests.swift` both call.
-        return selectApplicationMenuBarItemByIdentity(on: app)
-    }
-
-    /// Puts the menu away so the next case does not inherit an open one.
-    private func closeTheMenu() {
-        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
-    }
-
-    /// THE `[OPEN]` MEASUREMENT, EMITTED ON EVERY RUN WHATEVER ITS VALUE, then
-    /// the assertion that holds either way. Answers a MEASURED count — `-1` the
-    /// ordinal was never safe, `byIdentifier` that route's count, `1`/`0` from the
-    /// positional read. Both exits returned the literal `1` until 2026-09-11, so
-    /// the caller's total compared 3 with 3 on every input (WR-01).
-    private func assertThePrivacyItemIsInTheMenu(_ menu: XCUIElement, on surface: String) -> Int {
-        let byIdentifier = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy).count
-        record("macos_privacy_identifier_survives_\(surface)=\(byIdentifier > 0) macos_privacy_identifier_count_\(surface)=\(byIdentifier)")
-
-        if byIdentifier > 0 {
-            XCTAssertEqual(
-                byIdentifier,
-                1,
-                "\(surface): \(byIdentifier) menu items carry \(AccessibilityIdentifiers.Shell.privacyPolicy), expected exactly 1"
-            )
-            let item = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy).element(boundBy: 0)
-            assertReadable(item, "the app menu's privacy item on \(surface)")
-            assertRendersText(item, Self.privacyPolicyTitle, "the app menu's privacy item on \(surface)")
-            return byIdentifier
-        }
-
-        // THE FALLBACK, THE EXPECTED PATH: a zero IDENTIFIER count is the `[OPEN]`
-        // resolved NEGATIVE (08-14 running, 06-13 `Menu` before it), not a defect.
-        record("macos_privacy_identifier_survives=false reason=no-menu-item-carries-\(AccessibilityIdentifiers.Shell.privacyPolicy)")
-        let entries = menu.descendants(matching: .menuItem)
-        let population = entries.count
-        let titles = (0 ..< population).map { readable(entries.element(boundBy: $0)) }
-        record("macos_app_menu_items=\(population) titles=\(titles.joined(separator: " | "))")
-        guard population > Self.privacyItemIndex else {
-            XCTFail("\(surface): the app menu holds \(population) items, so \(Self.privacyItemIndex) is not a safe read")
-            return -1
-        }
-
-        let positional = entries.element(boundBy: Self.privacyItemIndex)
-        assertReadable(positional, "the app menu's item at index \(Self.privacyItemIndex) on \(surface)")
-        assertRendersText(
-            positional,
-            Self.privacyPolicyTitle,
-            "the app menu's item at index \(Self.privacyItemIndex) on \(surface)"
-        )
-        let read = positional.renderedText
-        record("macos_privacy_read_\(surface)=\"\(read)\"")
-        return read == Self.privacyPolicyTitle ? 1 : 0
-    }
-
-    /// The privacy item itself, by whichever route this platform allows.
-    private func thePrivacyItem(in menu: XCUIElement, on surface: String) -> XCUIElement {
-        let byIdentifier = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy)
-        let found = byIdentifier.count
-        record("macos_privacy_identifier_count_\(surface)=\(found)")
-        if found > 0 {
-            return byIdentifier.element(boundBy: 0)
-        }
-        let entries = menu.descendants(matching: .menuItem)
-        XCTAssertGreaterThan(entries.count, Self.privacyItemIndex, "\(surface): the app menu holds \(entries.count) items")
-        return entries.element(boundBy: Self.privacyItemIndex)
-    }
-
-    // MARK: - Launching, and queries, all of them by identifier
-
-    /// A fresh application pinned to `destination`, because `selection` persists.
-    private func launch(_ destination: String) {
-        app = XCUIApplication()
-        app.launchPinned(showing: destination)
-    }
-
-    /// The surface really rendered before anything is counted on it.
-    private func awaitSurface(_ probe: String, _ name: String) {
-        XCTAssertTrue(
-            element(probe).waitForExistence(timeout: 30),
-            "the app did not present the \(name) surface — no element carries \(probe)"
-        )
-    }
-
-    /// How many elements carry `identifier` right now. One round trip.
-    private func count(_ identifier: String) -> Int {
-        all(identifier).count
-    }
-
-    /// Every element carrying `identifier`, whatever kind of element it is.
-    private func all(_ identifier: String) -> XCUIElementQuery {
-        app.descendants(matching: .any).matching(identifier: identifier)
-    }
-
-    /// The first element carrying `identifier`.
-    private func element(_ identifier: String) -> XCUIElement {
-        all(identifier).firstMatch
-    }
-
-    /// What an element is RENDERING, in whichever attribute this platform
-    /// publishes it in.
-    ///
-    /// **DELEGATES TO ``XCUIElement/renderedText``**, the convention
-    /// `app/MacOSUITests/SweepDriver.swift:92-135` established on 2026-09-10 and
-    /// the reason `app/UITestSupport/` exists. This file was born delegating on
-    /// 2026-09-11, so there is no local implementation it replaced — the line is
-    /// here so a reader looking for the rule finds the same pointer at every
-    /// site. The rule: `label` FIRST, then the element's own string `value`,
-    /// because macOS carries a plain `Text`'s content in `AXValue` alone and
-    /// `.label` never reads it.
-    private func readable(_ target: XCUIElement) -> String {
-        target.renderedText
-    }
-
-    /// One measured number, emitted twice. A `print` from this bundle does NOT
-    /// reach xcodebuild's pipe on macOS (06-01) — the runner is launched by
-    /// `testmanagerd`, whose stdout is not connected to it — so every number also
-    /// rides an `XCTContext` activity, which is the one channel that crosses.
-    private func record(_ line: String) {
-        print(line)
-        XCTContext.runActivity(named: line) { _ in }
-    }
+    // The menu-opening, item-selection, launch and query helpers below moved to
+    // `PrivacyLinkTestsSupport.swift` — see this class's own header comment.
 }

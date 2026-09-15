@@ -73,24 +73,32 @@ import XCTest
 // DerivedData and the next build silently rebuilds it, so the failure presents as intermittent.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// THE HEADLESS-RUNNER SELF-SKIP, AND WHY HOME IS THE ONLY DETECTOR
+// THE HEADLESS-RUNNER SELF-SKIP — ITS HISTORY, AND WHY IT WAS LIFTED RATHER THAN DELETED
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 //
-// `setUpWithError` skips the whole suite when HOME is `/Users/runner`, which covers both
-// appearances rather than the one test body it used to guard. LOAD-BEARING: `app.activate()`
-// needs a GUI session, and on a headless GH-Actions image the runner refuses focus — `activate()`
-// sits ~60 s and XCTest records "Failed to activate application (current state: Running
-// Background)". `continueAfterFailure` is TRUE in this suite, so that failure no longer stops the
-// run — which makes the skip MORE load-bearing rather than less: without it every one of the eight
-// shots would spend ~60 s in `activate()`, record a failure, and be refused by `file(_:)`, so the
-// suite would burn the runner's time to produce nothing.
+// `setUpWithError` SKIPPED the whole suite when HOME was `/Users/runner`, covering both
+// appearances rather than the one test body it used to guard, from the day this file was written
+// until 2026-09-15. LOAD-BEARING WHILE IT STOOD: `app.activate()` needs a GUI session, and on a
+// headless GH-Actions image the runner refuses focus — `activate()` sat ~60 s and XCTest recorded
+// "Failed to activate application (current state: Running Background)". `continueAfterFailure` is
+// TRUE in this suite, so that failure did not stop the run — which made the skip MORE load-bearing
+// rather than less: without it every one of the eight shots would have spent ~60 s in
+// `activate()`, recorded a failure, and been refused by `file(_:)`, so the suite would have burned
+// the runner's time to produce nothing.
 //
-// Detection BY HOME, and that is forced rather than chosen: macOS XCUITest spawns the runner via
-// launchd, which scrubs the environment, so `CI` and `GITHUB_ACTIONS` are NOT visible inside the
-// runner even when the workflow sets them. The home directory IS inherited from the launchd user
-// session, and GH-Actions macos-* runners always log in as `runner` — a path no developer Mac can
-// match. The screenshot suite exists for `make screenshots`, not for CI smoke validation: the
-// `app (macOS)` matrix cells in pr.yml already compile this file and run `AppMacOSTests`.
+// Detection was BY HOME, and that was forced rather than chosen: macOS XCUITest spawns the runner
+// via launchd, which scrubs the environment, so `CI` and `GITHUB_ACTIONS` are NOT visible inside
+// the runner even when the workflow sets them. The home directory IS inherited from the launchd
+// user session, and GH-Actions macos-* runners always log in as `runner` — a path no developer Mac
+// can match.
+//
+// LIFTED 2026-09-15 PER D-137: attempt removal, retain only if MEASURED to fail on a runner —
+// never choose the outcome before the measurement. The lift's own outcome is recorded in
+// `evidence/08.5-08-skip-measurement.txt` (plan 08.5-08 Task 3) and is NOT asserted here; read
+// that file, not this comment, for whether the skip stayed lifted or was restored with a
+// runner-measured reason. The screenshot suite exists for `make screenshots`, not for CI smoke
+// validation: the `app (macOS)` matrix cells in pr.yml already compile this file and run
+// `AppMacOSTests`.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE MENU ITEM IS UNREADABLE ON THIS PLATFORM — MEASURED 2026-09-11, NOT PREDICTED

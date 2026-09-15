@@ -1485,8 +1485,15 @@ jobs:
       # — not inferred from xcbeautify's log — so criterion 1's "exercised, not
       # merely present" claim has something machine-readable to assert against
       # downstream. Runs even when the test step never produced a bundle (e.g.
-      # a setup step failed first), in which case it says so and exits 0 rather
-      # than failing a step whose only job is to report.
+      # a setup step failed first), in which case it says so and exits 0 -- the
+      # earlier failure is already the red. A bundle missing after a SUCCESSFUL
+      # test step is not that case, and fails.
+      # ABSENCE IS RED (close-out WR-02). `-only-testing:` identifiers are unchecked
+      # strings: after a class rename or a typo, xcodebuild selects zero tests for
+      # that identifier and the test step can still succeed. Every suite named in
+      # `matrix.suites` must therefore own at least one test case in the bundle,
+      # whatever its result (a suite that skips by design still counts), or this
+      # step fails naming the suite.
       - name: "read back per-suite results (${{ matrix.suites }})"
         if: always()
         run: |
@@ -1494,14 +1501,27 @@ jobs:
           BUNDLE="$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}.xcresult"
           if [ ! -d "$BUNDLE" ]; then
             echo "no xcresult bundle at $BUNDLE — xcodebuild test did not produce one"
+            if [ "${{ steps.uitest.outcome }}" = "success" ]; then
+              echo "::error::the test step succeeded but left no result bundle, so no suite can be shown to have run"
+              exit 1
+            fi
             exit 0
           fi
           OUT="$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}-results.json"
           xcrun xcresulttool get test-results tests --path "$BUNDLE" > "$OUT"
+          unexercised=0
           for suite in ${{ matrix.suites }}; do
             echo "== $suite per-test results (${{ matrix.display }}) =="
             jq -r --arg suite "$suite" '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | startswith($suite + "/")) | "\(.nodeIdentifier) result=\(.result)"] | .[]' "$OUT"
+            cases=$(jq -r --arg suite "$suite" '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | startswith($suite + "/"))] | length' "$OUT")
+            echo "suite_test_cases_${suite}=${cases}"
+            if [ "$cases" -eq 0 ]; then
+              echo "::error::$suite has 0 test cases in the ${{ matrix.display }} result bundle — its selector matched nothing, so it was not exercised"
+              unexercised=$((unexercised + 1))
+            fi
           done
+          echo "suites_unexercised=${unexercised}"
+          [ "$unexercised" -eq 0 ]
 
       - name: upload xcresult + failure screenshots
         if: always()

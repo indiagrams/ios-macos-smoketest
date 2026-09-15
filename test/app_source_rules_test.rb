@@ -151,7 +151,9 @@ passed = Hash.new(0)
     line.to_enum(:scan, FLAG_LITERAL).each do
       match = Regexp.last_match
       next if match.pre_match =~ /firstIndex\(of:\s*\z/
-      valued = match.post_match =~ /\A\s*,\s*[^\s\]]/
+      # The value is the next token, and it must not itself be a flag: `["-UITestA", "-UITestB"]`
+      # passes A with NO value, which is the UL-094 defect this clause exists to catch.
+      valued = match.post_match =~ /\A\s*,\s*(?!"-)[^\s\]]/
       assert valued, "#{file}:#{number}: #{match[1]} is passed with a value (line: #{line.strip})"
       passed[match[1]] += 1 if valued
     end

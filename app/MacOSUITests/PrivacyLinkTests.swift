@@ -224,8 +224,7 @@ final class PrivacyLinkTests: XCTestCase {
     /// typed from a plan — plan literals go stale by allocation.
     func testStructuralCountsAreUnchangedOnEverySurface() {
         for surface in Self.surfaces {
-            launch(surface.destination, probingPersistence: true)
-            recordWindowPersistence(on: surface.name)
+            launch(surface.destination)
             awaitSurface(surface.probe, surface.name)
 
             let cards = count(AccessibilityIdentifiers.Step.card)

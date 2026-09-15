@@ -90,10 +90,6 @@ public enum AccessibilityIdentifiers {
         /// No platform suffix, like every other constant here: one selector
         /// serves both, which is what lets one sweep run against both targets.
         public static let privacyPolicy = "Shell.privacyPolicy"
-
-        /// The UI-test-only persisted-window-state probe (`App.swift`, `-UITestPersistenceProbe`).
-        /// Attached only when that flag is passed, so no shipped launch carries it.
-        public static let uiTestPersistenceProbe = "Shell.uiTestPersistenceProbe"
     }
 
     /// The encode/decode surface — a single in→out block (D-87).

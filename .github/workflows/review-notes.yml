@@ -1298,3 +1298,189 @@ jobs:
             *) echo "::error::drive half vocabulary sweep — pin source was '$pin_source_line', not the constant this job expects; an overridden pin in CI would certify nothing"; status=1 ;;
           esac
           exit "$status"
+
+  # ---------------------------------------------------------------------------
+  # 08.5-07 — THE FOURTH NEW JOB IN THIS FILE, AND DELIBERATELY *NOT* A REQUIRED
+  # STATUS CONTEXT (D-142b).
+  #
+  # WHY THIS LANDS HERE AND NOT IN pr.yml. `pr.yml` is template-owned (AGENTS.md)
+  # and its `app (…)` matrix cells are ALREADY required contexts — adding a step
+  # to an existing required job would make a never-executed-on-a-runner UI-test
+  # selector a merge blocker on its first push, the exact `locale-doctor-regression`
+  # failure this file's own header warns about. `review-notes.yml` is fork-owned
+  # and fires on `gsd/**` pushes (see the trigger comment above `on:`), which is
+  # what lets a brand-new job execute and earn its green runs before anyone could
+  # promote it to required. Promotion needs several green runs on real pushes
+  # PLUS a demonstrated red — somebody breaks a DriveHalfTests assertion on
+  # purpose, ON A RUNNER, and watches this job catch it (a later plan plants
+  # that red; this job only earns the green runs).
+  #
+  # WHAT THIS PROVES. Criterion 1 requires the drive half — the Robot base, the
+  # macOS window-activation dance, and the `final-state` XCTAttachment teardown
+  # capture (plan 08.5-03) — to be EXERCISED by at least one real run on EACH
+  # platform (D-136 pins "a real run" to CI, not a local green, since a local
+  # macOS UI run puts a Gatekeeper modal on the developer's own desktop).
+  # Criterion 4's wiring gap is closed here too: no other workflow in this fork
+  # gives a UI-test step a `-resultBundlePath` or uploads the resulting
+  # `.xcresult` — `ci/take-screenshots.sh` does the equivalent for the SUCCESS
+  # path only, and this job additionally captures the FAILURE path via the
+  # upstream-adopted `bin/dump-failure-screenshots.sh` (plan 08.5-01), which
+  # exists specifically because `xcresulttool export attachments
+  # --only-failures` cannot see a `tearDown`-scope screenshot (its own header
+  # explains why). The macOS cell ALSO runs `AppStoreScreenshotTests` and
+  # `PrivacyLinkTests` so a later plan can lift their headless-runner skips
+  # (D-137) by reading THIS job's xcresult, without touching this workflow
+  # again.
+  #
+  # WHAT IT DOES NOT DO. No new app-screen UI tests (D-142a) — both matrix
+  # cells run only DriveHalfTests plus, on macOS, the two suites named above.
+  # No secrets, no permissions beyond the workflow's own `contents: read`, and
+  # the trigger stays plain `pull_request` — never its writable-token variant.
+  ui-drive-half:
+    name: "ui drive half (${{ matrix.display }})"
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios-sim
+            display: iOS Simulator
+            scheme: App-iOS
+            only: "-only-testing:AppUITests/DriveHalfTests"
+          - platform: macos
+            display: macOS
+            scheme: App-macOS
+            only: "-only-testing:AppMacOSUITests/DriveHalfTests -only-testing:AppMacOSUITests/AppStoreScreenshotTests -only-testing:AppMacOSUITests/PrivacyLinkTests"
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: install xcbeautify + xcodegen
+        run: brew install xcbeautify xcodegen
+
+      - name: regenerate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      # iOS-only: probe whether this runner's simulator catalogue offers the
+      # device fastlane/Snapfile pins for App Store screenshot capture (read at
+      # execution time, never hardcoded — Snapfile's own header records that a
+      # hardcoded pin rots), resolve a destination via the upstream-adopted
+      # bin/uitest-destination.sh (plan 08.5-01), and pre-boot it exactly as
+      # pr.yml's `app` job does (same bootstatus -b -d 300 shape) so a stuck
+      # booter fails within minutes rather than idling inside xcodebuild's own
+      # prepare phase.
+      - name: iOS Simulator — probe capture device, resolve destination, pre-boot
+        if: matrix.platform == 'ios-sim'
+        id: sim
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          echo "== xcrun simctl list devices available =="
+          xcrun simctl list devices available
+
+          CAPTURE_DEVICE=$(sed -n '/^devices(/,/^])/p' fastlane/Snapfile \
+            | grep -oE '"[^"]+"' | sed 's/^"//; s/"$//' | grep -i iphone | head -1)
+          if [ -z "$CAPTURE_DEVICE" ]; then
+            echo "::error::could not read a pinned iPhone device name out of fastlane/Snapfile"
+            exit 1
+          fi
+          echo "capture_device_pinned=$CAPTURE_DEVICE"
+          if xcrun simctl list devices available 2>&1 | grep -F " $CAPTURE_DEVICE (" > /dev/null 2>&1; then
+            echo "ios_sim_offers_capture_device=yes"
+          else
+            echo "ios_sim_offers_capture_device=no"
+          fi
+
+          DEST=$(FORCE_SIMULATOR=1 bin/uitest-destination.sh)
+          echo "resolved_destination=$DEST"
+          SIM_NAME=$(echo "$DEST" | sed -n 's/^platform=iOS Simulator,name=//p')
+          if [ -z "$SIM_NAME" ]; then
+            echo "::error::bin/uitest-destination.sh did not print a simulator name under FORCE_SIMULATOR=1 (got: $DEST)"
+            exit 1
+          fi
+
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r --arg name "$SIM_NAME" '.devices | to_entries[]
+                | select(.key | contains("iOS"))
+                | .value[]
+                | select(.isAvailable and .name == $name)
+                | .udid' \
+            | head -1)
+          [ -n "$UDID" ] || { echo "::error::no available simulator UDID matches name '$SIM_NAME'"; exit 1; }
+          echo "Using simulator UDID=$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b -d 300
+          echo "Simulator pre-booted and responsive."
+
+      - name: "xcodebuild test — ${{ matrix.display }}"
+        run: |
+          set -o pipefail
+          if [ "${{ matrix.platform }}" = "ios-sim" ]; then
+            DEST="platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}"
+          else
+            DEST="platform=macOS"
+          fi
+          xcodebuild test \
+            -project app/App.xcodeproj \
+            -scheme "${{ matrix.scheme }}" \
+            -configuration Debug \
+            -destination "$DEST" \
+            ${{ matrix.only }} \
+            -resultBundlePath "$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}.xcresult" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions
+
+      # bin/dump-failure-screenshots.sh (plan 08.5-01, upstream-adopted) ALWAYS
+      # exits 0 by its own header contract — a missing screenshot must not mask
+      # the real test failure — so it is deliberately its own step rather than
+      # chained onto the test step with `||`, which would have swallowed the
+      # test step's own non-zero exit.
+      - name: extract failure screenshots
+        if: failure()
+        run: |
+          set -euo pipefail
+          bin/dump-failure-screenshots.sh \
+            "$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}.xcresult" \
+            "$RUNNER_TEMP/failure-screenshots-${{ matrix.platform }}"
+          count=$(find "$RUNNER_TEMP/failure-screenshots-${{ matrix.platform }}" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
+          echo "failure_screenshot_pngs=$count"
+
+      # Read back per-test DriveHalfTests results straight out of the xcresult
+      # — not inferred from xcbeautify's log — so criterion 1's "exercised, not
+      # merely present" claim has something machine-readable to assert against
+      # downstream. Runs even when the test step never produced a bundle (e.g.
+      # a setup step failed first), in which case it says so and exits 0 rather
+      # than failing a step whose only job is to report.
+      - name: read back DriveHalfTests results
+        if: always()
+        run: |
+          set -euo pipefail
+          BUNDLE="$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}.xcresult"
+          if [ ! -d "$BUNDLE" ]; then
+            echo "no xcresult bundle at $BUNDLE — xcodebuild test did not produce one"
+            exit 0
+          fi
+          OUT="$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}-results.json"
+          xcrun xcresulttool get test-results tests --path "$BUNDLE" > "$OUT"
+          echo "== DriveHalfTests per-test results (${{ matrix.display }}) =="
+          jq -r '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | test("DriveHalfTests")) | "\(.nodeIdentifier) result=\(.result)"] | .[]' "$OUT"
+
+      - name: upload xcresult + failure screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-drive-half-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/ui-drive-half-${{ matrix.platform }}.xcresult
+            ${{ runner.temp }}/failure-screenshots-${{ matrix.platform }}
+          if-no-files-found: warn
+          retention-days: 14

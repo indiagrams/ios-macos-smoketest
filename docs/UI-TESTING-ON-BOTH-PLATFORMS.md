@@ -108,9 +108,8 @@ counting `matching(identifier:)` hits **passed** — the query found all three �
 Same elements, same run. Finding them worked; reading them did not.
 
 **CITED.** A sibling project's macOS end-to-end suite addresses elements with subscript
-queries such as `app.staticTexts["System"]`
-(`~/code/privateclaw/owner-app/UITests/TestRobot.swift`). Nothing on this page contradicts
-that code or asks anyone to change it.
+queries such as `app.staticTexts["System"]`. Nothing on this page contradicts that pattern or
+asks anyone to change it.
 
 **OPEN, and stated as a question because it has not been measured here:** whether a
 *label-shaped* subscript — `app.staticTexts["some visible text"]` — reaches a plain
@@ -368,7 +367,7 @@ The pattern that works, and it is two artefacts rather than one:
 - **Prove the behaviour** in-bundle with `#expect` / `XCTFail`. Exit 65, each case naming its
   own input.
 
-## 7. macOS UI-test output does not reach `xcodebuild`'s pipe — an open template gap
+## 7. macOS UI-test output does not reach `xcodebuild`'s pipe — closed in this fork, open in the template
 
 **MEASURED** by this fork across several runs: `print` from a UI-test bundle reaches
 `xcodebuild`'s pipe on the **simulator** and **does not** on the **macOS** job. Every labelled
@@ -392,42 +391,39 @@ exactly it — 07-10's `aa2_min_gap_pt` / `aa3_min_distance_pt`, and 07-11's thr
 `criterion5_hittable_*_macos` rows, all recorded as UNRETRIEVABLE rather than inferred from
 their iOS twins.
 
-**Named as an open template gap rather than fixed here**, because `.github/workflows/` is
-template-owned in this fork and an edit to it would be deleted wholesale by the next refork.
-The upstream shape is small: give the macOS test step a `resultBundlePath`, then either upload
-that bundle as an artifact or extract the activities on the runner and echo them into the log.
-Either one turns a verdict into a measurement.
+**Closed in this fork, 2026-09-15; still open in the template.** This fork now has its own
+non-required `ui drive half` job in `.github/workflows/review-notes.yml`. On both platforms it
+writes `-resultBundlePath`, uploads the `.xcresult` as an artifact, and runs
+`bin/dump-failure-screenshots.sh` when a test fails. That shape is **MEASURED ON A RUNNER**: in
+run `34988709074`, a planted assertion failure on each platform produced the `.xcresult` and a
+decodable `final-state.png` in the uploaded artifact. The job lives in a fork-owned workflow,
+not in the template-owned `pr.yml`, so a refork does not delete it. The **template's** `pr.yml`
+still keeps no `.xcresult`, and that gap is ledger row `UL-067`'s subject. The upstream shape is
+the one this job demonstrates.
 
-## 8. What a v2 of this support layer should contribute, and from where
+## 8. The drive half, and where it lives in this repository
 
-Everything on this page is the **read** half, because that is what this repository measured.
-The **drive** half — the parts that make a macOS suite reliable rather than merely honest —
-is already built and battle-tested in a sibling project, and it should be contributed **from
-there**, by someone with that repository's runs behind them. Re-implementing it here untested
-would be worse than the gap.
+Everything above §7 is the **read** half. The **drive** half is the set of parts that make a
+macOS suite reliable rather than merely honest. It now exists in this repository, and it is
+executed by the `ui drive half` job on both platforms (run `34987068938`, both halves green).
+It was generalised from a sibling project's proven suite: the Robot base, window-activation
+dance and screenshot capture are generic ports, and the extraction script and conventions are
+adopted byte-for-byte from upstream.
 
-The prior art, by path, so the next contributor can find it (**CITED**, read-only; measured
-2026-09-10 at 29 Swift files / 7,429 lines, 11 of them Robot classes):
-
-| Piece | Where it lives | What it already solves |
+| Piece | Where it lives | What it solves |
 |---|---|---|
-| Robot Pattern base | `~/code/privateclaw/owner-app/UITests/TestRobot.swift` | One robot per behaviour cluster, every method returning `Self`; test bodies contain no raw `XCUIApplication` queries. Hand-rolled, no external library. |
-| macOS window-activation dance | the same file, `launch(args:env:)` | `app.activate()` after launch, then a `File ▸ New Window` menu fallback when no window appears within 8 s — because on CI runners and some local machines the app launches in the background and every query then misses. |
-| `XCTAttachment` screenshot capture | the same file, `e2eScreenshot(_:)` and `register(with:)` | Named screenshots into the xcresult, plus an automatic `final-state` teardown capture registered once in `setUp` so every case in a class is covered pass or fail. |
-| xcresult failure-screenshot extraction | `~/code/privateclaw/ci/dump_failure_screenshots.sh` | Works around `xcresulttool export attachments --only-failures`, which searches *inside* assertion records and therefore returns nothing for test-scope attachments; and filters the hundreds of auto-generated "Debug description" and "UI Snapshot" junk attachments a long `waitForExistence` produces. |
-| Naming convention | `~/code/privateclaw/owner-app/UITests/TEST-CONVENTION.md` | Files named after user-observable behaviour clusters rather than after SwiftUI views. |
+| Robot Pattern base | `app/UITestSupport/TestRobot.swift` (`TestRobot`, `launch(args:env:)`) | One robot per behaviour cluster, every method returning `Self`; test bodies contain no raw `XCUIApplication` queries. Hand-rolled, no external library. |
+| macOS window-activation dance | `app/UITestSupport/TestRobot.swift`, `presentWindow(within:)`; the earlier in-tree form is `app/MacOSUITests/ScreenshotDriver.swift` | `app.activate()` after launch, then a `File ▸ New Window` menu fallback when no window appears within 8 s. On CI runners and some local machines the app launches in the background, and every query then misses. |
+| `XCTAttachment` screenshot capture | `app/UITestSupport/TestRobot.swift`, `namedScreenshot(_:)` and `register(with:)` | Named screenshots go into the xcresult, plus an automatic `final-state` teardown capture registered once, so every case in a class is covered pass or fail. |
+| xcresult failure-screenshot extraction | `bin/dump-failure-screenshots.sh`, run by the `ui-drive-half` job in `.github/workflows/review-notes.yml` | Works around `xcresulttool export attachments --only-failures`, which searches *inside* assertion records and so returns nothing for test-scope attachments. Also filters out the hundreds of auto-generated "Debug description" and "UI Snapshot" attachments a long `waitForExistence` produces. |
+| Naming convention | `docs/UI-AUTOMATION.md`, §"Conventions worth stealing" | Files named after user-observable behaviour clusters rather than after SwiftUI views. |
 
-Note how directly the third and fourth rows answer §7: attachments are the channel macOS
-leaves you, and extracting them is the step a template has to make routine.
+The third and fourth rows answer §7 directly: attachments are the channel macOS leaves you, and
+extracting them is the step a template has to make routine.
 
-**UP-05 obligation, stated here rather than left to a reviewer to catch.** Those five paths are
-**this maintainer's local checkout of a PRIVATE repository**. They are legitimate in a fork-side
-document — the whole point of the section is that the next contributor can find the code — and
-they are **fork concretion** the moment this page travels upstream: a stranger cloning the
-template cannot resolve them, and a path that resolves for nobody is worse than a description.
-Before `git am`, replace this table's `Where it lives` column with the *shape* of each piece
-(what it does, why it exists, what it works around), keeping the "contribute it from the repo
-where it is proven" instruction and dropping the paths. See CONTRIBUTING-UPSTREAM.md §2.
+**Paths outside this repository were removed in Phase 8.5 (D-140).** This section previously
+cited five paths in a private checkout, and §1.3 cited one more. None of them could resolve for
+anyone cloning the template, so every path this page now cites is a file in this repository.
 
 ## 9. Evidence index
 
@@ -451,7 +447,9 @@ where it is proven" instruction and dropping the paths. See CONTRIBUTING-UPSTREA
 | 6 | a host-based trap kills the host | MEASURED | plan 07-02's two-artefact control |
 | 7 | `print` is lost on the macOS job | MEASURED | `evidence/07-10-step-edit.txt:148` |
 | 7 | `pr.yml` uploads no xcresult | MEASURED HERE 2026-09-10 | `grep -c 'upload-artifact\|resultBundlePath\|xcresult' .github/workflows/pr.yml` → 0 |
-| 8 | the v2 prior art | CITED, read-only | paths in §8's table |
+| 7 | a failure in the fork's `ui drive half` job yields the xcresult and a `final-state` PNG | MEASURED ON A RUNNER | run `34988709074` (planted failure, iOS 1320x2868 and macOS 1024x768 PNGs decoded) |
+| 8 | the drive half executes on both platforms | MEASURED ON A RUNNER | run `34987068938` (iOS and macOS `DriveHalfTests` green, one `final-state` per case) |
+| 8 | the drive half's pieces live in this repository | in-tree | the paths in §8's table, each checked with `test -e` |
 
 Evidence paths above are this fork's planning tree, which is untracked by design; the tables
 on this page are the durable record of what they say. Anything marked OPEN has not been

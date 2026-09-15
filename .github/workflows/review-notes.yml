@@ -1396,7 +1396,19 @@ jobs:
             echo "ios_sim_offers_capture_device=no"
           fi
 
-          DEST=$(FORCE_SIMULATOR=1 bin/uitest-destination.sh)
+          # SIMULATOR_NAME is passed explicitly. Left unset, the adopted
+          # bin/uitest-destination.sh derives a default whose capture stops at the
+          # FIRST parenthesis, so "iPhone SE (3rd generation)" becomes "iPhone SE" —
+          # a name no simulator has. Measured on run 34973317967, where this step's
+          # own UDID guard went red on exactly that name before xcodebuild started.
+          # The script stays byte-identical to upstream (D-131); the finding is a
+          # ledger row, not a local edit. The pinned capture device is used because
+          # the step above has just measured whether this runner offers it.
+          if ! xcrun simctl list devices available 2>&1 | grep -F " $CAPTURE_DEVICE (" > /dev/null 2>&1; then
+            echo "::error::this runner offers no simulator named '$CAPTURE_DEVICE' (the Snapfile-pinned capture device)"
+            exit 1
+          fi
+          DEST=$(SIMULATOR_NAME="$CAPTURE_DEVICE" FORCE_SIMULATOR=1 bin/uitest-destination.sh)
           echo "resolved_destination=$DEST"
           SIM_NAME=$(echo "$DEST" | sed -n 's/^platform=iOS Simulator,name=//p')
           if [ -z "$SIM_NAME" ]; then
@@ -1420,6 +1432,7 @@ jobs:
           echo "Simulator pre-booted and responsive."
 
       - name: "xcodebuild test — ${{ matrix.display }}"
+        id: uitest
         run: |
           set -o pipefail
           if [ "${{ matrix.platform }}" = "ios-sim" ]; then
@@ -1444,8 +1457,14 @@ jobs:
       # the real test failure — so it is deliberately its own step rather than
       # chained onto the test step with `||`, which would have swallowed the
       # test step's own non-zero exit.
+      # Gated on the TEST step's own outcome, not on the job having failed: when
+      # an earlier setup step fails, the test step never runs (outcome
+      # `skipped`), there is no bundle, and extracting from nothing only adds a
+      # second, misleading red — which is what run 34973317967 showed.
+      # `failure()` is still required: an `if:` without a status function gets
+      # an implicit `success()` and would never run after the failure it exists for.
       - name: extract failure screenshots
-        if: failure()
+        if: failure() && steps.uitest.outcome == 'failure'
         run: |
           set -euo pipefail
           bin/dump-failure-screenshots.sh \

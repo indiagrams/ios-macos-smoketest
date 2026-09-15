@@ -160,8 +160,9 @@ import XCTest
 //
 // 2  A SwiftUI `CommandGroup` BUTTON DOES **NOT** CARRY ITS ACCESSIBILITY IDENTIFIER INTO THE
 //    macOS MENU BAR. `08-UI-SPEC.md`'s Open Item 2 resolves NEGATIVE — the same answer 06-13
-//    measured for `Menu` containers. The item is reached by its ordinal instead, and its title
-//    reads correctly through the union above.
+//    measured for `Menu` containers. The item was then reached by its ordinal; it is now selected
+//    by identity — its identifier if the tree carries one, otherwise the ONE entry whose text equals
+//    the privacy title (`PrivacyLinkTestsSupport.swift` `thePrivacyItem`, adversarial #14 / C-19e).
 //
 //    **THIS FALSIFIES A LIVE FILE.** `app/MacOSUITests/PrivacyLinkTests.swift` takes exactly this
 //    fallback and then calls `assertReadable` / `assertRendersText` on the item — reads that then

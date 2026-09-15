@@ -46,11 +46,12 @@ final class DriveHalfTests: XCTestCase {
         robot.register(with: self)
         robot.launch(args: ["UI_TESTING"])
 
-        // Index 1: index 0 is the Apple menu, per ScreenshotContract.swift's own documented
-        // ordinal addressing — never a query by visible text.
-        let appMenu = robot.app.menuBarItems.element(boundBy: 1)
-        XCTAssertTrue(appMenu.waitForExistence(timeout: 10), "no application menu at menuBarItems index 1")
-        appMenu.click()
+        // SELECTED BY IDENTITY, NOT POSITION — `menuBarItems.element(boundBy: 1)` recorded the
+        // Apple menu's own contents on run 34973317967 (evidence/08.5-07-ci-readback.txt, and
+        // this very probe's own prior measurement of that run). See
+        // `app/UITestSupport/AppMenuIdentity.swift`, the one shared helper this file and
+        // `PrivacyLinkTests.swift` both call.
+        selectApplicationMenuBarItemByIdentity(on: robot.app)
 
         let items = robot.app.descendants(matching: .menuItem)
         let population = min(items.count, 12)

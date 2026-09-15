@@ -32,16 +32,21 @@ import XCTest
 // non-empty". An element publishing in none of the three still reads "" and still
 // trips the guard.
 //
-// THE MENU IS OPENED POSITIONALLY, NEVER BY ITS VISIBLE NAME. Index 0 of the
-// menu bar is the Apple menu, so the application's own menu is index 1; that is
-// an ordinal and not a query by visible text. SUBSCRIPTING the menu-bar query
-// with the app's display name is forbidden here, and the forbidden shape is
-// named in prose rather than written because `evidence/08-11-controls.rb` greps
-// this file for it — a file that spells what a gate scans for sweeps that gate
-// green by existing, which is the defect six Phase 5 plans hit in a row. The one
-// such query in this target (`AppStoreScreenshotTests.swift:69-75`) is a
-// headless-runner window fallback kept for its own reason and must not be
-// extended.
+// THE MENU IS OPENED BY IDENTITY, NOT BY POSITION — CHANGED 2026-09-15 AFTER A MEASURED
+// FAILURE. The prior rule here — "index 0 of the menu bar is the Apple menu, so the
+// application's own menu is index 1" — does NOT hold on every runner: run 34973317967 clicked
+// exactly that ordinal and recorded the Apple menu's own contents (About This Mac, Force
+// Quit…, Sleep), not the application's own menu (evidence/08.5-07-ci-readback.txt). The menu
+// is now opened by `app/UITestSupport/AppMenuIdentity.swift`'s
+// `selectApplicationMenuBarItemByIdentity(on:)`, the one shared helper this file and
+// `DriveHalfTests.swift` both call — it compares every top-level item's AXTitle against the
+// app's own name (never a hardcoded literal) and fails BY NAME if none matches. SUBSCRIPTING
+// the menu-bar query with the app's display name directly is still forbidden here, and the
+// forbidden shape is named in prose rather than written because `evidence/08-11-controls.rb`
+// greps this file for it — a file that spells what a gate scans for sweeps that gate green by
+// existing, which is the defect six Phase 5 plans hit in a row. The one such query in this
+// target (`AppStoreScreenshotTests.swift:69-75`) is a headless-runner window fallback kept for
+// its own reason and must not be extended.
 //
 // EVERY TEXT READ GOES THROUGH THE SHARED LAYER, AND ON THIS PLATFORM THAT IS
 // NOT A FORMALITY. `app/UITestSupport/ElementText.swift:23-28`: macOS publishes
@@ -82,9 +87,6 @@ final class PrivacyLinkTests: XCTestCase {
         Surface(LaunchState.hashingDestination, "hashing", AccessibilityIdentifiers.Hashing.input),
         Surface(LaunchState.timestampsDestination, "timestamps", AccessibilityIdentifiers.Timestamps.input)
     ]
-
-    /// The application's own menu, positionally: index 0 is the Apple menu.
-    private static let appMenuIndex = 1
 
     /// Where `CommandGroup(after: .appInfo)` puts the item: immediately after
     /// About, which is menu item index 0. Used ONLY by the fallback branch, and
@@ -268,16 +270,13 @@ final class PrivacyLinkTests: XCTestCase {
         // Titles, not identifiers: this is EVIDENCE about the running app's menu
         // bar, read the only way macOS allows, never a query.
         let titles = (0 ..< items).map { readable(bar.element(boundBy: $0)) }
-        record("macos_menubar_items=\(items) titles=\(titles.joined(separator: " | "))")
-        XCTAssertGreaterThan(
-            items,
-            Self.appMenuIndex,
-            "\(surface): the menu bar carries \(items) items, so index \(Self.appMenuIndex) is not a safe read — \(titles)"
-        )
+        record("macos_menubar_items_\(surface)=\(items) titles=\(titles.joined(separator: " | "))")
 
-        let menu = bar.element(boundBy: 1)
-        menu.click()
-        return menu
+        // SELECTED BY IDENTITY, NOT POSITION — `bar.element(boundBy: 1)` recorded the Apple
+        // menu's own contents on run 34973317967 (evidence/08.5-07-ci-readback.txt). See
+        // `app/UITestSupport/AppMenuIdentity.swift`, the one shared helper this file and
+        // `DriveHalfTests.swift` both call.
+        return selectApplicationMenuBarItemByIdentity(on: app)
     }
 
     /// Puts the menu away so the next case does not inherit an open one.

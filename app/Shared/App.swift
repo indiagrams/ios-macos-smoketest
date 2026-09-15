@@ -36,6 +36,10 @@ struct AppMain: App {
                 // branch inside this body. See `KeyboardDismiss.swift`, which
                 // established that shape for the same reason.
                 .uiTestWindowSize()
+                // Inert unless `-UITestPersistenceProbe` is passed; unconditional so the
+                // scene's content type, and with it the window's persisted identity
+                // (UL-087), is the same with and without the flag.
+                .uiTestPersistenceProbe()
         }
         // THE SCENE'S FIRST `.commands`, AND macOS ONLY (D-117, META-06).
         // `CommandGroup(after: .appInfo)` is the standard placement beside
@@ -227,9 +231,70 @@ struct AppMain: App {
         }
     }
 
+    // MARK: - The persisted-window-state UI test probe (08.5-08)
+
+    extension View {
+        /// UI test measurement: when launched with `-UITestPersistenceProbe`, expose what this
+        /// process's OWN defaults domain held at launch as one accessibility value, identifier
+        /// ``AccessibilityIdentifiers/Shell/uiTestPersistenceProbe``.
+        ///
+        /// **Why the app reads it and not the test.** The app is sandboxed, so its domain may live
+        /// in its container, and the UI-test runner is a different process. Only the app can prove
+        /// which domain it reads. Its standard output never reaches the xcresult, so the value
+        /// travels through the accessibility tree instead.
+        ///
+        /// **Why.** Run 34978692666: `PrivacyLinkTests` passes no window size, yet its worked-value
+        /// control sat at the same off-screen x as the 1440-point capture window's, in the
+        /// test that runs after the capture suite. The hypothesis is a frame saved under the
+        /// window's stable identity (UL-087) and restored. This line is how that gets measured
+        /// before anything is fixed. Real users never pass the flag, and it draws nothing.
+        func uiTestPersistenceProbe() -> some View {
+            background(UITestPersistenceProbeElement(line: UITestPersistenceProbe.line).frame(width: 1, height: 1))
+        }
+    }
+
+    /// Reads the defaults domain once, the first time the scene body asks.
+    enum UITestPersistenceProbe {
+        static let flag = "-UITestPersistenceProbe"
+
+        static let line: String? = {
+            guard CommandLine.arguments.contains(flag) else { return nil }
+            let domain = Bundle.main.bundleIdentifier ?? "none"
+            let values = UserDefaults.standard.persistentDomain(forName: domain) ?? [:]
+            let frameKeys = values.keys.filter { $0.hasPrefix("NSWindow Frame") }.sorted()
+            let frames = frameKeys.map { "\"\($0)\"=\"\(values[$0] ?? "")\"" }.joined(separator: " ")
+            let savedState = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("Saved Application State/\(domain).savedState")
+            let savedStateExists = savedState.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            return "persistence_probe domain=\(domain) home=\(NSHomeDirectory()) keys=\(values.count) "
+                + "window_frame_keys=\(frameKeys.count) saved_state_exists=\(savedStateExists) \(frames)"
+        }()
+    }
+
+    /// Internal, never private — it enters the scene's root content type (UL-087).
+    struct UITestPersistenceProbeElement: NSViewRepresentable {
+        let line: String?
+
+        func makeNSView(context _: Context) -> NSView {
+            let view = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+            guard let line else { return view }
+            view.setAccessibilityElement(true)
+            view.setAccessibilityRole(.staticText)
+            view.setAccessibilityIdentifier(AccessibilityIdentifiers.Shell.uiTestPersistenceProbe)
+            view.setAccessibilityValue(line)
+            return view
+        }
+
+        func updateNSView(_: NSView, context _: Context) {}
+    }
+
 #else
 
     extension View {
+        func uiTestPersistenceProbe() -> some View {
+            self
+        }
+
         /// No AppKit window to size on this platform, so nothing to do.
         ///
         /// The signature matches the macOS one so the scene above has a single

@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 // THE MENU-OPENING, ITEM-SELECTION, LAUNCH AND QUERY HELPERS, SPLIT OUT OF
@@ -124,9 +125,32 @@ extension PrivacyLinkTests {
     // MARK: - Launching, and queries, all of them by identifier
 
     /// A fresh application pinned to `destination`, because `selection` persists.
-    func launch(_ destination: String) {
+    func launch(_ destination: String, probingPersistence: Bool = false) {
         app = XCUIApplication()
+        if probingPersistence {
+            app.launchArguments += ["-UITestPersistenceProbe"]
+        }
         app.launchPinned(showing: destination)
+    }
+
+    /// MEASUREMENT, NOT A VERDICT (08.5-08, run 34978692666): this test passes no window size, yet
+    /// its worked-value control sat off-screen at the capture window's x. One line per launch, on
+    /// every run whatever follows: the launch arguments, the window's frame, the runner's screen
+    /// visible frame, and the app's own read of its defaults domain (`App.swift`'s
+    /// `uiTestPersistenceProbe`), which names the domain, its key count and any saved
+    /// `NSWindow Frame` value. An absent probe element is recorded as absent, never as "no key".
+    func recordWindowPersistence(on surface: String) {
+        let window = app.windows.firstMatch.frame
+        let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+        let probe = app.descendants(matching: .any)
+            .matching(identifier: AccessibilityIdentifiers.Shell.uiTestPersistenceProbe).firstMatch
+        let probeLine = probe.exists ? ((probe.value as? String) ?? "value-unreadable") : "probe-element-absent"
+        record("window_persistence_\(surface) args=\(app.launchArguments.joined(separator: ",")) "
+            + "window=\(describe(window)) visibleFrame=\(visible.map(describe) ?? "none") \(probeLine)")
+    }
+
+    private func describe(_ rect: CGRect) -> String {
+        "(\(rect.minX),\(rect.minY),\(rect.width),\(rect.height))"
     }
 
     /// The surface really rendered before anything is counted on it.

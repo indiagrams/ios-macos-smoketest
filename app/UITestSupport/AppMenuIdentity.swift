@@ -2,13 +2,14 @@ import XCTest
 
 // SELECT THE APP'S OWN MENU-BAR ITEM BY IDENTITY, NEVER BY POSITION.
 //
-// MEASURED DEFECT (run 34973317967, evidence/08.5-07-ci-readback.txt): `menuBarItems.element(boundBy:
-// 1)`, clicked, and its opened contents enumerated, recorded "About This Mac", "System Information",
-// "Force Quit…", "Force Quit ShipkitPipes", "Sleep" and their Apple-menu siblings — not the
-// application's own menu. The ordinal "index 0 is the Apple menu, index 1 is the app's own menu"
-// (`ScreenshotContract.swift`'s own documented addressing) does not hold on every runner. This file
-// replaces the ordinal CLICK with an identity read at the two call sites that took it:
-// `DriveHalfTests.swift` and `PrivacyLinkTests.swift`.
+// WHY, CORRECTED (UL-095). Run 34973317967 clicked `menuBarItems.element(boundBy: 1)` and then
+// enumerated "About This Mac", "Force Quit…", "Sleep" and the other Apple-menu items, which was read at
+// the time as index 1 being the Apple menu. That reading is WITHDRAWN: the enumeration used the app-wide
+// `descendants(matching: .menuItem)`, which lists the whole menu bar, Apple menu first, whether or not a
+// menu is open. On run 34978692666 the bar enumerated index 1 as the application's own menu. The ordinal
+// was never measured wrong; it is still an assumption about bar order, and an identity read is not. This
+// file is that identity read, at the two call sites that clicked by position: `DriveHalfTests.swift` and
+// `PrivacyLinkTests.swift`.
 //
 // THE PER-ITEM READ GOES THROUGH `ElementText.swift`'s `renderedText`, NEVER `.label` ALONE. A
 // macOS menu-bar item is measured to carry its text the same way a menu item does

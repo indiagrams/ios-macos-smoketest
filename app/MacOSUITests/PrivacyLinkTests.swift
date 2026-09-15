@@ -32,11 +32,12 @@ import XCTest
 // non-empty". An element publishing in none of the three still reads "" and still
 // trips the guard.
 //
-// THE MENU IS OPENED BY IDENTITY, NOT BY POSITION — CHANGED 2026-09-15 AFTER A MEASURED
-// FAILURE. The prior rule here — "index 0 of the menu bar is the Apple menu, so the
-// application's own menu is index 1" — does NOT hold on every runner: run 34973317967 clicked
-// exactly that ordinal and recorded the Apple menu's own contents (About This Mac, Force
-// Quit…, Sleep), not the application's own menu (evidence/08.5-07-ci-readback.txt). The menu
+// THE MENU IS OPENED BY IDENTITY, NOT BY POSITION — CHANGED 2026-09-15. The prior rule here —
+// "index 0 of the menu bar is the Apple menu, so the application's own menu is index 1" — is an
+// assumption about bar order. It was first reported as failing on run 34973317967, but that
+// reading came from an app-wide menu-item query that lists the whole bar, and it is WITHDRAWN
+// (UL-095): index 1 was the application's own menu. Identity is kept because it does not
+// depend on the order at all. The menu
 // is now opened by `app/UITestSupport/AppMenuIdentity.swift`'s
 // `selectApplicationMenuBarItemByIdentity(on:)`, the one shared helper this file and
 // `DriveHalfTests.swift` both call — it compares every top-level item's AXTitle against the

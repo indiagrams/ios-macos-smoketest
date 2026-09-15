@@ -23,8 +23,8 @@ extension PrivacyLinkTests {
         let titles = (0 ..< items).map { readable(bar.element(boundBy: $0)) }
         record("macos_menubar_items_\(surface)=\(items) titles=\(titles.joined(separator: " | "))")
 
-        // SELECTED BY IDENTITY, NOT POSITION — `bar.element(boundBy: 1)` recorded the Apple
-        // menu's own contents on run 34973317967 (evidence/08.5-07-ci-readback.txt). See
+        // SELECTED BY IDENTITY, NOT POSITION — bar order is an assumption, and an identity read is
+        // not. (Run 34973317967's "index 1 is the Apple menu" reading is withdrawn, UL-095.) See
         // `app/UITestSupport/AppMenuIdentity.swift`, the one shared helper this file and
         // `DriveHalfTests.swift` both call.
         return selectApplicationMenuBarItemByIdentity(on: app)
@@ -83,8 +83,8 @@ extension PrivacyLinkTests {
     /// The privacy item itself, by whichever route this platform allows. Throws (via
     /// `XCTUnwrap`) rather than guessing a position when the identity scan below does not find
     /// exactly one match — the same rule `AppMenuIdentity.swift`'s `resolvedApplicationName`
-    /// applies, for the same reason: a silent `?? 0` is exactly the positional-identity defect
-    /// run 34973317967 measured (evidence/08.5-07-ci-readback.txt).
+    /// applies, for the same reason: a silent `?? 0` would be a positional assumption wearing
+    /// an identity's name (run 34973317967's "index 1 is the Apple menu" reading is withdrawn, UL-095).
     func thePrivacyItem(in menu: XCUIElement, on surface: String) throws -> XCUIElement {
         let byIdentifier = app.menuItems.matching(identifier: AccessibilityIdentifiers.Shell.privacyPolicy)
         let found = byIdentifier.count

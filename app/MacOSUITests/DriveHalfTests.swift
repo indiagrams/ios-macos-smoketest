@@ -46,9 +46,9 @@ final class DriveHalfTests: XCTestCase {
         robot.register(with: self)
         robot.launch(args: ["UI_TESTING"])
 
-        // SELECTED BY IDENTITY, NOT POSITION — `menuBarItems.element(boundBy: 1)` recorded the
-        // Apple menu's own contents on run 34973317967 (evidence/08.5-07-ci-readback.txt, and
-        // this very probe's own prior measurement of that run). See
+        // SELECTED BY IDENTITY, NOT POSITION — bar order is an assumption, and an identity read is
+        // not. (Run 34973317967's "index 1 is the Apple menu" reading came from an app-wide menu-item
+        // query and is withdrawn, UL-095; index 1 was the application's menu.) See
         // `app/UITestSupport/AppMenuIdentity.swift`, the one shared helper this file and
         // `PrivacyLinkTests.swift` both call.
         let appMenu = selectApplicationMenuBarItemByIdentity(on: robot.app)

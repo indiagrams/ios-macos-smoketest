@@ -1334,6 +1334,12 @@ jobs:
   #
   # WHAT IT DOES NOT DO. No new app-screen UI tests (D-142a) — both matrix
   # cells run only DriveHalfTests plus, on macOS, the two suites named above.
+  # (AMENDED 2026-09-15, plan 08.5-12 per D-152, ruled by ios-macos-smoketest-74
+  # under the developer's delegation: the macOS cell also runs VisibleStringSweep,
+  # so criterion 6 row 12 is
+  # witnessed red and green on a gsd/** push. Existing suites, not new tests.
+  # Each cell names its suites in `suites`, which labels the test step and
+  # drives the per-suite read-back, so a red is attributable by suite.)
   # No secrets, no permissions beyond the workflow's own `contents: read`, and
   # the trigger stays plain `pull_request` — never its writable-token variant.
   ui-drive-half:
@@ -1348,10 +1354,12 @@ jobs:
             display: iOS Simulator
             scheme: App-iOS
             only: "-only-testing:AppUITests/DriveHalfTests"
+            suites: "DriveHalfTests"
           - platform: macos
             display: macOS
             scheme: App-macOS
-            only: "-only-testing:AppMacOSUITests/DriveHalfTests -only-testing:AppMacOSUITests/AppStoreScreenshotTests -only-testing:AppMacOSUITests/PrivacyLinkTests"
+            only: "-only-testing:AppMacOSUITests/DriveHalfTests -only-testing:AppMacOSUITests/AppStoreScreenshotTests -only-testing:AppMacOSUITests/PrivacyLinkTests -only-testing:AppMacOSUITests/VisibleStringSweep"
+            suites: "DriveHalfTests AppStoreScreenshotTests PrivacyLinkTests VisibleStringSweep"
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
@@ -1431,7 +1439,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b -d 300
           echo "Simulator pre-booted and responsive."
 
-      - name: "xcodebuild test — ${{ matrix.display }}"
+      - name: "xcodebuild test — ${{ matrix.display }} (${{ matrix.suites }})"
         id: uitest
         run: |
           set -o pipefail
@@ -1479,7 +1487,7 @@ jobs:
       # downstream. Runs even when the test step never produced a bundle (e.g.
       # a setup step failed first), in which case it says so and exits 0 rather
       # than failing a step whose only job is to report.
-      - name: read back DriveHalfTests results
+      - name: "read back per-suite results (${{ matrix.suites }})"
         if: always()
         run: |
           set -euo pipefail
@@ -1490,8 +1498,10 @@ jobs:
           fi
           OUT="$RUNNER_TEMP/ui-drive-half-${{ matrix.platform }}-results.json"
           xcrun xcresulttool get test-results tests --path "$BUNDLE" > "$OUT"
-          echo "== DriveHalfTests per-test results (${{ matrix.display }}) =="
-          jq -r '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | test("DriveHalfTests")) | "\(.nodeIdentifier) result=\(.result)"] | .[]' "$OUT"
+          for suite in ${{ matrix.suites }}; do
+            echo "== $suite per-test results (${{ matrix.display }}) =="
+            jq -r --arg suite "$suite" '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | startswith($suite + "/")) | "\(.nodeIdentifier) result=\(.result)"] | .[]' "$OUT"
+          done
 
       - name: upload xcresult + failure screenshots
         if: always()

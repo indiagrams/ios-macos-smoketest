@@ -1335,8 +1335,8 @@ jobs:
   # WHAT IT DOES NOT DO. No new app-screen UI tests (D-142a) — both matrix
   # cells run only DriveHalfTests plus, on macOS, the two suites named above.
   # (AMENDED 2026-09-15, plan 08.5-12 per D-152, ruled by ios-macos-smoketest-74
-  # under the developer's delegation: the macOS cell also runs VisibleStringSweep,
-  # so criterion 6 row 12 is
+  # under the developer's delegation: the macOS cell also runs VisibleStringSweep
+  # and the iOS cell LaunchLayoutTests, so criterion 6 rows 12 and 22 are
   # witnessed red and green on a gsd/** push. Existing suites, not new tests.
   # Each cell names its suites in `suites`, which labels the test step and
   # drives the per-suite read-back, so a red is attributable by suite.)
@@ -1353,8 +1353,8 @@ jobs:
           - platform: ios-sim
             display: iOS Simulator
             scheme: App-iOS
-            only: "-only-testing:AppUITests/DriveHalfTests"
-            suites: "DriveHalfTests"
+            only: "-only-testing:AppUITests/DriveHalfTests -only-testing:AppUITests/LaunchLayoutTests"
+            suites: "DriveHalfTests LaunchLayoutTests"
           - platform: macos
             display: macOS
             scheme: App-macOS

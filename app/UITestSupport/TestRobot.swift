@@ -125,10 +125,34 @@ class TestRobot {
     /// Register an automatic `final-state` teardown screenshot for `testCase`. Call this BEFORE
     /// `launch(args:env:)` — the teardown block is what still runs when the test fails midway
     /// through launching, and a block added only after a failing launch never gets a chance to run.
+    ///
+    /// **THE APP IS CAPTURED STRONGLY, NOT WEAKLY.** Run 34973317967 measured zero `final-state`
+    /// attachments across all three `DriveHalfTests` macOS cases despite every one of them calling
+    /// `register(with:)` before `launch(...)` (`evidence/08.5-07-ci-readback.txt`,
+    /// `evidence/08.5-07-final-state-diagnosis.txt`). Every call site holds its `TestRobot` only in
+    /// a local `let robot` inside the test method, so the robot — and the `weak self` this block
+    /// used to capture — is deallocated before teardown runs; the old `guard let app = self?.app`
+    /// then resolved `self` to `nil` and returned silently, producing no attachment and no signal
+    /// that anything had gone missing. `app` is captured BEFORE the block, by value, so the block
+    /// no longer depends on the robot outliving the test method — only `testCase` stays weak, since
+    /// an `XCTestCase` teardown block capturing its own test case strongly is the classic retain
+    /// cycle this pattern exists to avoid.
     @discardableResult
     func register(with testCase: XCTestCase) -> Self {
-        testCase.addTeardownBlock { [weak self, weak testCase] in
-            guard let app = self?.app, let tc = testCase, app.state != .notRunning else { return }
+        let app = app
+        testCase.addTeardownBlock { [weak testCase] in
+            guard let tc = testCase else { return }
+            guard app.state != .notRunning else {
+                // ABSENCE MADE OBSERVABLE, NOT SILENT. The old guard's bare `return` here was the
+                // second defect run 34973317967 measured: "absence is indistinguishable from 'app
+                // not running'" (`evidence/08.5-07-final-state-diagnosis.txt`). A named attachment
+                // records which branch was taken instead of leaving a reader to guess.
+                let unavailable = XCTAttachment(string: "final-state-unavailable: app state=\(app.state.rawValue)")
+                unavailable.name = "final-state-unavailable"
+                unavailable.lifetime = .keepAlways
+                tc.add(unavailable)
+                return
+            }
             let attachment = XCTAttachment(screenshot: app.screenshot())
             attachment.name = "final-state"
             attachment.lifetime = .keepAlways

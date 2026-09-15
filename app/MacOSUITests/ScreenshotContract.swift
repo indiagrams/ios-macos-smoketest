@@ -93,10 +93,12 @@ import XCTest
 // can match.
 //
 // LIFTED 2026-09-15 PER D-137: attempt removal, retain only if MEASURED to fail on a runner —
-// never choose the outcome before the measurement. The lift's own outcome is recorded in
-// `evidence/08.5-08-skip-measurement.txt` (plan 08.5-08 Task 3) and is NOT asserted here; read
-// that file, not this comment, for whether the skip stayed lifted or was restored with a
-// runner-measured reason. The screenshot suite exists for `make screenshots`, not for CI smoke
+// never choose the outcome before the measurement. RETAINED 2026-09-15, WITH A MEASURED CONDITION
+// IN PLACE OF HOME: run 34978692666 executed both appearances on a 1024x768 runner display, and
+// every shot's worked-value control sat outside the screen because the forced capture window
+// overflowed it (the transcript lines are quoted at `AppStoreScreenshotTests.setUpWithError`).
+// `activate()` was not the failure this time. The suite now skips only when the screen's visible
+// frame cannot contain the capture window, and it prints both sizes. The screenshot suite exists for `make screenshots`, not for CI smoke
 // validation: the `app (macOS)` matrix cells in pr.yml already compile this file and run
 // `AppMacOSTests`.
 //

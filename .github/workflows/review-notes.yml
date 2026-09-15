@@ -1214,7 +1214,9 @@ jobs:
   # later phase's added lines against this phase's word list, and go red on
   # the first ordinary use of a hunted word. Its job is done at the merge:
   # criterion 2's final reading is one run of the gate by hand with
-  # `--endpoint <merge sha>` (D-149), recorded at ship. The `if:` below runs
+  # `--endpoint <the phase-branch tip SHA that is merged>` (D-149, and the
+  # ROADMAP note under criterion 2), with the squash-merge SHA's reading
+  # recorded beside it, at ship. The `if:` below runs
   # it only for `gsd/phase-08.5-*` heads, on a push or as a pull request's head
   # branch, so it never runs on `main` or on a later phase.
   #
@@ -1508,12 +1510,15 @@ jobs:
       # a setup step failed first), in which case it says so and exits 0 -- the
       # earlier failure is already the red. A bundle missing after a SUCCESSFUL
       # test step is not that case, and fails.
-      # ABSENCE IS RED (close-out WR-02). `-only-testing:` identifiers are unchecked
-      # strings: after a class rename or a typo, xcodebuild selects zero tests for
-      # that identifier and the test step can still succeed. Every suite named in
-      # `matrix.suites` must therefore own at least one test case in the bundle,
-      # whatever its result (a suite that skips by design still counts), or this
-      # step fails naming the suite.
+      # ABSENCE IS RED AFTER A SUCCESSFUL TEST STEP (close-out WR-02). `-only-testing:`
+      # identifiers are unchecked strings: after a class rename or a typo, xcodebuild
+      # selects zero tests for that identifier and the test step can still succeed.
+      # When the test step succeeded, every suite named in `matrix.suites` must own at
+      # least one test case in the bundle, whatever its result (a suite that skips by
+      # design still counts), or this step fails naming the suite. When the test step
+      # did NOT succeed, a zero count is reported as uninformative rather than red, so
+      # a dead selector in an already-red run is silent until the next green run shows
+      # it. A count that is not a number is red in either case.
       - name: "read back per-suite results (${{ matrix.suites }})"
         if: always()
         run: |

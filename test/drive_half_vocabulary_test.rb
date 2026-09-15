@@ -103,10 +103,13 @@ GENERIC_TERMS = {
 #
 # On ASCII text this matches exactly where the literal version it replaces did:
 # `\b<name>\b` with /i matched when some maximal word run equalled the name
-# ignoring case, and a word run is what `\w+` yields. They differ only beside a
-# non-ASCII letter: Ruby's `\b` treats an accented letter as part of the word,
-# while `\w` does not, so a name written next to one is a hit here and was not
-# before. The digest matcher is the stricter of the two.
+# ignoring case, and a word run is what `\w+` yields. They can differ on non-ASCII
+# text, in both directions. Beside an accented letter, Ruby's `\b` treats the
+# letter as part of the word while `\w` does not, so a name written next to one
+# is a hit here and was not before. A Unicode case-fold look-alike inside the
+# name (for example KELVIN SIGN for `k`) matched the old `/i` pattern but splits
+# the `\w+` token here, so it is not a hit. Neither case occurred in the swept
+# population at the Phase 8.5 close-out (0 digest hits, 0 substring hits).
 PRODUCT_TERM_SHA256 = "ff16f5aa9b3db370248b852937b5f79e251464b754e420d92cab264cd70bc3b7"
 
 def product_term?(text)

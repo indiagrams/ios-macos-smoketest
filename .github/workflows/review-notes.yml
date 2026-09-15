@@ -1192,3 +1192,109 @@ jobs:
           [ -n "$types" ] || { echo "::error::app source rules — no type was found wrapped into the scene's content, so the UL-087 clause asserted nothing"; status=1; }
           [ "${lanes:-0}" -ge 2 ] || { echo "::error::app source rules — found ${lanes:-0} submit_for_review override(s), expected both platforms'; the CR-01 clause did not see the lanes it exists to check"; status=1; }
           exit "$status"
+
+  # ---------------------------------------------------------------------------
+  # 08.5-02 — THE THIRD NEW JOB IN THIS FILE, AND DELIBERATELY *NOT* A REQUIRED
+  # STATUS CONTEXT.
+  #
+  # This job is fork-owned and additive, the same reasoning as the two jobs
+  # above it: three of `main`'s eleven required contexts already come from
+  # this file, so wiring a job that has never executed straight into a
+  # required context would turn it into a merge blocker on its first push.
+  # Promotion needs several green runs on real pushes PLUS a demonstrated red
+  # — somebody breaks the subject on purpose, ON A RUNNER, and watches this
+  # job catch it. A later plan plants that red; this job only earns the
+  # several green runs.
+  #
+  # WHAT THIS JOB NEEDS THAT A PLAIN CHECKOUT DOES NOT CARRY. The sweep below
+  # compares this checkout against a commit from a PUBLIC repository this fork
+  # shares no history with, and against the commit where this fork's own
+  # phase branch was cut — neither is reachable from a shallow, default
+  # checkout. `fetch-depth: 0` below gets the first; the pin step fetches the
+  # second, by SHA, from a public URL, with no token and no secret.
+  #
+  # This comment block, and every line below it, is itself inside the sweep's
+  # own swept population once committed — so, like the gate's own source, it
+  # spells none of the terms the sweep hunts.
+  drive-half-vocabulary:
+    name: drive half vocabulary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The swept range starts at the branch cut, not at this checkout's
+          # tip — a depth-1 checkout would make that commit unreachable and
+          # the gate would refuse rather than report a false population.
+          fetch-depth: 0
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # this gate is stdlib-only and makes ZERO requires
+
+      - name: fetch the pinned public commit the sweep compares blobs against
+        run: |
+          set -euo pipefail
+          pin=$(sed -n 's/^UPSTREAM_PIN = "\([0-9a-f]\{40\}\)".*/\1/p' test/drive_half_vocabulary_test.rb)
+          if [ -z "$pin" ]; then
+            echo "::error::could not read UPSTREAM_PIN out of test/drive_half_vocabulary_test.rb"
+            exit 1
+          fi
+          echo "pin=$pin"
+          # Public repository, no token, no secret — the one exclusion this
+          # sweep allows compares blobs against this single commit, and the
+          # fork and this remote share no commit ancestry of their own.
+          git fetch --no-tags --depth=1 https://github.com/indiagrams/apple-shipkit.git "$pin"
+          echo "PIN=$pin" >> "$GITHUB_ENV"
+
+      - name: preconditions — the interpreter, the branch cut, and the pin
+        run: |
+          set -euo pipefail
+          v=$(ruby -e 'print RUBY_VERSION')
+          echo "precondition_ruby=$v"
+          case "$v" in
+            3.3.*) ;;
+            *) echo "::error::expected Ruby 3.3.x (the interpreter this gate was measured under); got $v"; exit 1 ;;
+          esac
+          git cat-file -e "8886de9^{commit}" || { echo "::error::8886de9 is not reachable in this checkout — fetch-depth: 0 above did not do its job"; exit 1; }
+          git cat-file -e "$PIN^{commit}" || { echo "::error::the pinned commit $PIN is not reachable — the fetch step above did not land it"; exit 1; }
+          echo "precondition_base=8886de9 precondition_pin=$PIN reachable"
+
+      - name: drive half vocabulary sweep
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/drive-half-vocabulary.txt"
+          set +e
+          ruby test/drive_half_vocabulary_test.rb 2>&1 | tee "$out"
+          gate_exit=${PIPESTATUS[0]}
+          set -e
+          echo "drive_half_vocabulary_gate_exit=$gate_exit"
+          case "$gate_exit" in
+            0) echo "drive half vocabulary sweep — literal zero holds" ;;
+            1) echo "::error::drive half vocabulary sweep — the gate ran and FAILED. Its FAIL lines are above"; exit 1 ;;
+            2) echo "::error::drive half vocabulary sweep — the gate refused to run (CANNOT RUN above); its own base, pin or endpoint precondition failed"; exit 1 ;;
+            *) echo "::error::drive half vocabulary sweep — exit $gate_exit is none of its three known outcomes"; exit 1 ;;
+          esac
+          # THE FACTS, ASSERTED SEPARATELY FROM THE EXIT CODE — a gate whose
+          # population is empty would exit 0 while sweeping nothing, and an
+          # overridden pin accepted here would make this job certify nothing.
+          status=0
+          population=$(sed -n 's/^drive_half_vocabulary_population=//p' "$out")
+          range=$(sed -n 's/^drive_half_vocabulary_range=//p' "$out")
+          identical=$(sed -n 's/^drive_half_vocabulary_upstream_identical=//p' "$out")
+          pin_source_line=$(sed -n 's/.*\(pin_source=[a-z]*\).*/\1/p' "$out")
+          echo "drive_half_vocabulary_population=$population"
+          echo "drive_half_vocabulary_range=$range"
+          echo "drive_half_vocabulary_upstream_identical=$identical"
+          echo "drive_half_vocabulary_pin_source_line=$pin_source_line"
+          [ -n "$population" ] && [ "$population" -gt 0 ] || { echo "::error::drive half vocabulary sweep — no population was printed, or it was zero; this job is supposed to have something to sweep every time it runs on this branch"; status=1; }
+          case "$range" in
+            8886de9..*) ;;
+            *) echo "::error::drive half vocabulary sweep — printed range '$range' does not start at the branch cut 8886de9"; status=1 ;;
+          esac
+          [ -n "$identical" ] || { echo "::error::drive half vocabulary sweep — no upstream-identical count was printed"; status=1; }
+          case "$pin_source_line" in
+            pin_source=constant) ;;
+            *) echo "::error::drive half vocabulary sweep — pin source was '$pin_source_line', not the constant this job expects; an overridden pin in CI would certify nothing"; status=1 ;;
+          esac
+          exit "$status"

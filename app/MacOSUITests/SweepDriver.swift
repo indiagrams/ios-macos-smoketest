@@ -71,8 +71,9 @@ extension VisibleStringSweep {
     /// One harvest point: one round trip, four properties per node, the whole tree.
     func snap(into out: inout SweepHarvest) throws {
         let root = try app.snapshot()
-        if !root.label.isEmpty {
-            applicationLabel = root.label
+        let rendered = root.renderedText
+        if !rendered.isEmpty {
+            applicationRenderedText = rendered
         }
         harvest(root, inherited: .rendered, into: &out)
     }
@@ -262,23 +263,34 @@ extension VisibleStringSweep {
     /// that has nothing to do with its subject; the click therefore lives in `PrivacyLinkTests`,
     /// which is new, whose arbiter is CI, and where a red is a finding rather than a regression.
     ///
-    /// WHAT IS ASSERTED HERE IS THE PRECONDITION THAT FILE DEPENDS ON: the menu bar carries more
-    /// than one item, so the application's own menu at index 1 is addressable at all. That is
-    /// falsifiable — a run where the menu bar did not populate fails it — and it is the fact
-    /// `productName` already leans on when it falls back to `menuBarItems[1]`. The identifier's
+    /// WHAT IS ASSERTED HERE IS THE PRECONDITION THAT FILE DEPENDS ON, BY IDENTITY: a live menu-bar
+    /// item's own rendered text equals the application element's rendered text, so the app's own menu
+    /// is addressable BY NAME. It replaced `menuBarItems.count > 1` (criterion 6 row 12, adversarial
+    /// #7), which a constant 7-item AppKit bar satisfied whatever the app's menu was. The name is read
+    /// LIVE here, not from the harvest, so this step and clause 3 fail independently. The identifier's
     /// presence in the tree is RECORDED beside it rather than asserted, because whether a
     /// `CommandGroup` button reaches a CLOSED menu's tree is exactly the `[OPEN]` this phase is
     /// measuring and not something to bake into a gate before it has an answer.
     func privacyControlOnThisSurface(_ surface: String) {
-        let items = app.menuBarItems.count
         let inTree = count(Ident.Shell.privacyPolicy)
-        recordCounter("step15_privacy_surface=\(surface) step15_menubar_items=\(items) "
-            + "step15_privacy_in_tree=\(inTree)")
-        XCTAssertGreaterThan(
-            items,
+        let expected: String
+        let titles: [String]
+        do {
+            expected = try app.snapshot().renderedText
+            titles = try app.menuBarSnapshotEntries().map(\.title)
+        } catch {
+            XCTFail("step 15: could not read the application or menu-bar snapshot on \(surface): \(error)")
+            return
+        }
+        let matches = titles.filter { !expected.isEmpty && $0 == expected }.count
+        recordCounter("step15_privacy_surface=\(surface) step15_menubar_items=\(titles.count) "
+            + "step15_app_menu_matches=\(matches) step15_privacy_in_tree=\(inTree)")
+        XCTAssertEqual(
+            matches,
             1,
-            "step 15: the menu bar carries \(items) item(s), so the application's own menu — index 1, "
-                + "the Apple menu being index 0 — is not addressable and the privacy item cannot be reached"
+            "step 15: \(matches) menu-bar item(s) are titled with the app's own name \"\(expected)\" on "
+                + "\(surface), expected exactly 1, so the app's own menu is not addressable by identity and "
+                + "the privacy item cannot be reached — menu bar: \(titles.joined(separator: " | "))"
         )
     }
 

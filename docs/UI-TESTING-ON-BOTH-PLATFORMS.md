@@ -423,11 +423,13 @@ extracting them is the step a template has to make routine.
 
 **Paths outside this repository were removed in Phase 8.5 (D-140).** This section previously
 cited five paths in a private checkout, and §1.3 cited one more. None of them could resolve for
-anyone cloning the template. Every source, script and doc path this page now cites is a file in
-this repository. The `evidence/…` names in §1, §5 and §9 are the exception: they are the
-project's untracked measurement records, not files in this repository, cited by name so a claim's
-status can be audited where those records exist. Where a claim was measured on a runner, its run id
-beside the name is the part anyone can open.
+anyone cloning the template. Every source path, script and repository doc this page now cites is a
+file in this repository. Its planning citations are the exception: `06-SIMULATOR-CRASH-FINDINGS.md`,
+`07-RESEARCH §7.4` and every `evidence/…` name, in §1, §4, §5 and §9. They are the project's
+untracked planning and measurement records, not files in this repository, cited by name so a
+claim's status can be audited where those records exist. A run id beside a claim can be opened only
+while GitHub keeps that run's logs and artifacts; both expire, so a run id is a pointer, not a
+permanent record.
 
 ## 9. Evidence index
 

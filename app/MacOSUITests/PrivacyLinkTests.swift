@@ -36,7 +36,7 @@ import XCTest
 // "index 0 of the menu bar is the Apple menu, so the application's own menu is index 1" — is an
 // assumption about bar order. It was first reported as failing on run 34973317967, but that
 // reading came from an app-wide menu-item query that lists the whole bar, and it is WITHDRAWN
-// (UL-095): index 1 was the application's own menu. Identity is kept because it does not
+// (UL-095): run 34978692666 enumerated index 1 as the application's own menu. Identity is kept because it does not
 // depend on the order at all. The menu
 // is now opened by `app/UITestSupport/AppMenuIdentity.swift`'s
 // `selectApplicationMenuBarItemByIdentity(on:)`, the one shared helper this file and

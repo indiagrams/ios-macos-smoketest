@@ -101,9 +101,12 @@ GENERIC_TERMS = {
 # digest is not encryption: someone who already guesses the name can confirm
 # it. What it removes is the name being readable from the tree.
 #
-# Matching is unchanged from the literal version it replaces: `\b<name>\b` with
-# /i matched exactly when some maximal ASCII word run equals the name ignoring
-# case, and a word run is what `\w+` yields.
+# On ASCII text this matches exactly where the literal version it replaces did:
+# `\b<name>\b` with /i matched when some maximal word run equalled the name
+# ignoring case, and a word run is what `\w+` yields. They differ only beside a
+# non-ASCII letter: Ruby's `\b` treats an accented letter as part of the word,
+# while `\w` does not, so a name written next to one is a hit here and was not
+# before. The digest matcher is the stricter of the two.
 PRODUCT_TERM_SHA256 = "ff16f5aa9b3db370248b852937b5f79e251464b754e420d92cab264cd70bc3b7"
 
 def product_term?(text)

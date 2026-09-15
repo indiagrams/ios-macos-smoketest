@@ -5,8 +5,9 @@ import XCTest
 // WHY, CORRECTED (UL-095). Run 34973317967 clicked `menuBarItems.element(boundBy: 1)` and then
 // enumerated "About This Mac", "Force Quit…", "Sleep" and the other Apple-menu items, which was read at
 // the time as index 1 being the Apple menu. That reading is WITHDRAWN: the enumeration used the app-wide
-// `descendants(matching: .menuItem)`, which lists the whole menu bar, Apple menu first, whether or not a
-// menu is open. On run 34978692666 the bar enumerated index 1 as the application's own menu. The ordinal
+// `descendants(matching: .menuItem)`, which lists the menu items of the whole menu bar, Apple menu first,
+// rather than those of the menu just opened. On run 34978692666 the bar enumerated index 1 as the
+// application's own menu. The ordinal
 // was never measured wrong; it is still an assumption about bar order, and an identity read is not. This
 // file is that identity read, at the two call sites that clicked by position: `DriveHalfTests.swift` and
 // `PrivacyLinkTests.swift`.

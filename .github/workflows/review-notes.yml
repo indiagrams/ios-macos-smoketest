@@ -1207,7 +1207,9 @@ jobs:
   # several green runs.
   #
   # PROMOTION IS CANCELLED, AND THE JOB IS SCOPED TO THIS PHASE'S BRANCHES
-  # (Phase 8.5 close-out, WR-04). The sweep's range starts at this phase's
+  # (Phase 8.5 close-out, WR-04; cancelled by ios-macos-smoketest-74 under the
+  # developer's delegation, 2026-09-15). The promotion plan in the paragraph
+  # above is superseded by this one. The sweep's range starts at this phase's
   # branch cut and has no fixed end, so after the merge it would sweep every
   # later phase's added lines against this phase's word list, and go red on
   # the first ordinary use of a hunted word. Its job is done at the merge:
@@ -1241,7 +1243,7 @@ jobs:
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: '3.3'
-          bundler-cache: false  # this gate is stdlib-only and makes ZERO requires
+          bundler-cache: false  # this gate is stdlib-only (digest, open3, optparse); no gem
 
       - name: fetch the pinned public commit the sweep compares blobs against
         run: |

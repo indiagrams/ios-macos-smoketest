@@ -51,9 +51,12 @@ final class DriveHalfTests: XCTestCase {
         // this very probe's own prior measurement of that run). See
         // `app/UITestSupport/AppMenuIdentity.swift`, the one shared helper this file and
         // `PrivacyLinkTests.swift` both call.
-        selectApplicationMenuBarItemByIdentity(on: robot.app)
+        let appMenu = selectApplicationMenuBarItemByIdentity(on: robot.app)
 
-        let items = robot.app.descendants(matching: .menuItem)
+        // THE SELECTED MENU'S OWN ITEMS, NOT THE APPLICATION'S: `robot.app.descendants(matching:
+        // .menuItem)` read the whole bar, Apple menu first, and produced plan 07's "wrong menu"
+        // reading (run 34978692666). Plan 08.5-11's IN-04 uses only this scoped population.
+        let items = openedMenuItems(of: appMenu)
         let population = min(items.count, 12)
         var lines: [String] = []
         for index in 0 ..< population {
@@ -72,6 +75,34 @@ final class DriveHalfTests: XCTestCase {
         add(attachment)
 
         XCTAssertGreaterThan(population, 0, "the application menu presented no items to measure")
+    }
+
+    /// THE STANDING RED HALF of `AppMenuIdentity.swift`'s safety assertion. Opens bar item 0 — the
+    /// Apple menu, its title recorded rather than assumed — and aims the assertion at it. STRICT, and
+    /// matched on the exclusion's own wording: the case passes only if that exact message fires, so
+    /// an empty read, a click failure or anything else inside the block stays a real failure.
+    func testAppleMenuExclusionFiresOnTheAppleMenu() {
+        let robot = TestRobot(app: XCUIApplication())
+        robot.register(with: self)
+        robot.launch(args: ["UI_TESTING"])
+
+        let wrong = robot.app.menuBarItems.element(boundBy: 0)
+        let title = wrong.renderedText
+        let attachment = XCTAttachment(string: "wrong_selection index=0 title=\"\(title)\"")
+        attachment.name = "apple-menu-control-selection"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        driveHalfRecord("apple_menu_control index=0 title=\"\(title)\"")
+
+        wrong.click()
+        let options = XCTExpectedFailure.Options()
+        options.issueMatcher = { issue in
+            issue.compactDescription.contains(Self.appleMenuExclusionWording)
+        }
+        XCTExpectFailure("bar item 0 is the Apple menu, so the exclusion must fire", options: options) {
+            assertOpenedMenuIsNotTheAppleMenu(wrong, selectedName: "menu bar index 0 (\(title))")
+        }
+        robot.app.typeKey(.escape, modifierFlags: [])
     }
 
     /// Bounded probe (T-08.5-11): the wall-clock cost of an UNCONDITIONAL `app.activate()`,

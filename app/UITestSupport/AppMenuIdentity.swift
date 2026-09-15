@@ -31,10 +31,19 @@ import XCTest
 // ordering disagrees with the snapshot's is exactly the case this guards: it fails BY NAME, naming
 // the runner's actual titles, rather than clicking whatever sits at a fixed position.
 //
-// THE SAFETY ASSERTION. Once selected and clicked, the opened menu's own items are checked against
-// the two Apple-menu entries run 34973317967 actually recorded at the old ordinal — "About This Mac"
-// and "Force Quit…" — so a selection that is STILL wrong fails immediately, by name, rather than
-// silently handing the wrong menu's contents to a caller.
+// THE SAFETY ASSERTION. Once selected and clicked, the SELECTED ITEM'S OWN SUBMENU is checked
+// against the two Apple-menu entries run 34973317967 recorded — "About This Mac" and "Force Quit…" —
+// so a selection that is STILL wrong fails immediately, by name, rather than silently handing the
+// wrong menu's contents to a caller.
+//
+// SCOPED TO THE SELECTED ITEM, NEVER THE APPLICATION (run 34978692666). The first version read
+// `app.descendants(matching: .menuItem)`: every menu item across the WHOLE bar, Apple menu first,
+// so it failed on a CORRECT selection (`resolved_name="ShipkitPipes"`) every time. The same
+// whole-bar query is why run 34973317967 appeared to show index 1 opening the Apple menu; that run
+// was never a red half. An EMPTY scoped read fails too, by its own message, so a query that reaches
+// nothing cannot pass for "no Apple-menu content". The genuine red half is a standing control:
+// `DriveHalfTests.testAppleMenuExclusionFiresOnTheAppleMenu` opens bar item 0 and expects exactly
+// this assertion's message.
 //
 // SWIFT 5.9 / `SWIFT_STRICT_CONCURRENCY: minimal`, matching both UI-test targets. macOS only — the
 // menu bar this file addresses does not exist on iOS.
@@ -87,6 +96,13 @@ import XCTest
         return ("", "none")
     }
 
+    /// The direct items of a top-level menu-bar item's OWN submenu — never the application's whole
+    /// menu tree. Shared by the safety assertion and `DriveHalfTests`' attribute probe so the two
+    /// cannot read different scopes again.
+    func openedMenuItems(of selected: XCUIElement) -> XCUIElementQuery {
+        selected.menus.firstMatch.children(matching: .menuItem)
+    }
+
     extension XCTestCase {
         /// The `.keepAlways` `menu-bar-enumeration` attachment — every top-level item's index,
         /// title and first submenu entry, plus the resolved expectation, so a reader can see what
@@ -107,19 +123,29 @@ import XCTest
             add(attachment)
         }
 
-        /// THE SAFETY ASSERTION — see the file header. Run 34973317967's Apple-menu items at the
-        /// old ordinal are this assertion's runner red half (evidence/08.5-07-ci-readback.txt):
-        /// "About This Mac", "Force Quit…", "Force Quit ShipkitPipes", "Sleep" — an Apple-menu
-        /// content set, not this app's own. If a selection made by identity still opens that
-        /// content, this fails immediately rather than letting a caller search it downstream.
-        private func assertOpenedMenuIsNotTheAppleMenu(
-            _ app: XCUIApplication,
+        /// The exclusion message's fixed wording. `DriveHalfTests`' control matches on it, so an
+        /// unrelated failure inside that control's expected-failure block stays a real failure.
+        static let appleMenuExclusionWording = "opened Apple-menu content"
+
+        /// THE SAFETY ASSERTION — see the file header. Reads only `selected`'s own submenu: its first
+        /// `menu` descendant's direct `menuItem` children, bounded to 12. Internal so the standing
+        /// control can aim it at a deliberately wrong selection.
+        func assertOpenedMenuIsNotTheAppleMenu(
+            _ selected: XCUIElement,
             selectedName: String,
-            file: StaticString,
-            line: UInt
+            file: StaticString = #filePath,
+            line: UInt = #line
         ) {
-            let opened = app.descendants(matching: .menuItem)
+            let opened = openedMenuItems(of: selected)
             let openedCount = min(opened.count, 12)
+            guard openedCount > 0 else {
+                XCTFail(
+                    "the menu selected as \"\(selectedName)\" presented no items of its own to check — an "
+                        + "empty scoped read cannot stand for \"no Apple-menu content\"",
+                    file: file, line: line
+                )
+                return
+            }
             var sawAboutThisMac = false
             var sawForceQuit = false
             for itemIndex in 0 ..< openedCount {
@@ -133,9 +159,8 @@ import XCTest
             }
             XCTAssertFalse(
                 sawAboutThisMac || sawForceQuit,
-                "the menu selected by identity (\"\(selectedName)\") opened Apple-menu content (About "
-                    + "This Mac / Force Quit) — the same shape run 34973317967 measured at the old "
-                    + "ordinal click (evidence/08.5-07-ci-readback.txt)",
+                "the menu selected as \"\(selectedName)\" \(Self.appleMenuExclusionWording) (About This Mac / "
+                    + "Force Quit) in its own submenu",
                 file: file, line: line
             )
         }
@@ -189,7 +214,7 @@ import XCTest
                 if candidate.renderedText == expected.value {
                     candidate.click()
                     assertOpenedMenuIsNotTheAppleMenu(
-                        app, selectedName: expected.value, file: file, line: line
+                        candidate, selectedName: expected.value, file: file, line: line
                     )
                     return candidate
                 }

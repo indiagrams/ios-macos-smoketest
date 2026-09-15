@@ -132,11 +132,13 @@ import XCTest
 // summary says so), so whether a `CommandGroup` button carries its accessibility identifier into
 // the macOS menu bar is still open. The count is taken by IDENTIFIER first — matching is not the
 // blind half — and only the fallback reads text, through renderedText UNIONED WITH `title`,
-// because AXTitle is where AppKit publishes a menu item's text and the shared read layer does not
-// ask for it. Every component is recorded, so a zero is a measurement and not an absence.
+// because AXTitle is where AppKit publishes a menu item's text. Every component is recorded, so a
+// zero is a measurement and not an absence.
 //
-// NOT FIXED IN `app/UITestSupport/`: adding an AXTitle fallback to the shared read rule would
-// change every read on both platforms, which is a decision for a plan that owns that file.
+// SUPERSEDED 2026-09-11: the shared read rule in `app/UITestSupport/ElementText.swift` now asks
+// for `title` as its third attribute (the seventh, menu-item shape), so `renderedText` alone
+// reads a menu item. A CI macOS runner confirmed `.label` itself never falls back to AXTitle
+// (run 34984109925: `label=""`, `title="About …"` on every item of the app's own menu).
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // AND THEN THE RUN ANSWERED BOTH, 2026-09-11 — recorded here because they are expensive to
@@ -149,11 +151,12 @@ import XCTest
 //                  app_menu_items=19 menubar_items=7
 //
 // 1  A macOS MENU ITEM (elementType 54) PUBLISHES ITS TEXT IN **AXTitle** AND IN NEITHER OF THE
-//    TWO ATTRIBUTES THE SHARED READ RULE ASKS FOR. `label` and `value` are both empty on an item
-//    whose title is plainly "Base64 encode". `ElementText.swift`'s rule is `label` then `value`,
-//    measured over six IN-WINDOW shapes; a menu item is a seventh shape it never covered, and on
-//    that shape the rule is structurally blind. This is a finding ABOUT THE READ LAYER, not about
-//    this app.
+//    TWO ATTRIBUTES THE SHARED READ RULE THEN ASKED FOR. `label` and `value` are both empty on an
+//    item whose title is plainly "Base64 encode". `ElementText.swift`'s rule was `label` then
+//    `value`, measured over six IN-WINDOW shapes; a menu item was a seventh shape it never covered,
+//    and on that shape the rule was structurally blind. This is a finding ABOUT THE READ LAYER,
+//    not about this app. The rule now reads `title` third, and run 34984109925 re-measured the
+//    shape on a CI runner: `label=""`, `title` carries the text.
 //
 // 2  A SwiftUI `CommandGroup` BUTTON DOES **NOT** CARRY ITS ACCESSIBILITY IDENTIFIER INTO THE
 //    macOS MENU BAR. `08-UI-SPEC.md`'s Open Item 2 resolves NEGATIVE — the same answer 06-13
@@ -161,11 +164,12 @@ import XCTest
 //    reads correctly through the union above.
 //
 //    **THIS FALSIFIES A LIVE FILE.** `app/MacOSUITests/PrivacyLinkTests.swift` takes exactly this
-//    fallback and then calls `assertReadable` / `assertRendersText` on the item — reads that go
-//    through `label` then `value`, both of which are empty here. That suite HAS NEVER EXECUTED
-//    ANYWHERE (08-11's own summary says so), and on its first execution it will fail with a BLIND
-//    READ on the branch it was written to take. Not fixed here: that file is outside this plan's
-//    scope. It is recorded in `deferred-items.md` with the numbers.
+//    fallback and then calls `assertReadable` / `assertRendersText` on the item — reads that then
+//    went through `label` then `value`, both empty here. SINCE EXECUTED ON A CI RUNNER: with
+//    `renderedText` reading `title` and the app menu selected by identity, all three
+//    PrivacyLinkTests cases passed in run 34987068938. With the privacy item deliberately removed,
+//    the same reads failed by name in run 34988709074 (BLIND READ / "renders "", expected "Privacy
+//    Policy""), so the prediction's blind-read path is real and now guarded.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // ASSERTION 7 — THE HEAD OF THE PIPELINE IS IN THE PHOTOGRAPH, AND WHY ITS SECOND CLAUSE IS A

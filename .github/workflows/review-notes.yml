@@ -1206,6 +1206,16 @@ jobs:
   # job catch it. A later plan plants that red; this job only earns the
   # several green runs.
   #
+  # PROMOTION IS CANCELLED, AND THE JOB IS SCOPED TO THIS PHASE'S BRANCHES
+  # (Phase 8.5 close-out, WR-04). The sweep's range starts at this phase's
+  # branch cut and has no fixed end, so after the merge it would sweep every
+  # later phase's added lines against this phase's word list, and go red on
+  # the first ordinary use of a hunted word. Its job is done at the merge:
+  # criterion 2's final reading is one run of the gate by hand with
+  # `--endpoint <merge sha>` (D-149), recorded at ship. The `if:` below runs
+  # it only for `gsd/phase-08.5-*` heads, on a push or as a pull request's head
+  # branch, so it never runs on `main` or on a later phase.
+  #
   # WHAT THIS JOB NEEDS THAT A PLAIN CHECKOUT DOES NOT CARRY. The sweep below
   # compares this checkout against a commit from a PUBLIC repository this fork
   # shares no history with, and against the commit where this fork's own
@@ -1218,6 +1228,7 @@ jobs:
   # spells none of the terms the sweep hunts.
   drive-half-vocabulary:
     name: drive half vocabulary
+    if: startsWith(github.head_ref || github.ref_name, 'gsd/phase-08.5-')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

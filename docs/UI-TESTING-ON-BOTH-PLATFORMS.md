@@ -423,7 +423,11 @@ extracting them is the step a template has to make routine.
 
 **Paths outside this repository were removed in Phase 8.5 (D-140).** This section previously
 cited five paths in a private checkout, and §1.3 cited one more. None of them could resolve for
-anyone cloning the template, so every path this page now cites is a file in this repository.
+anyone cloning the template. Every source, script and doc path this page now cites is a file in
+this repository. The `evidence/…` names in §1, §5 and §9 are the exception: they are the
+project's untracked measurement records, not files in this repository, cited by name so a claim's
+status can be audited where those records exist. Where a claim was measured on a runner, its run id
+beside the name is the part anyone can open.
 
 ## 9. Evidence index
 

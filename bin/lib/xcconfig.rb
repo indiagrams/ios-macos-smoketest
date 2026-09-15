@@ -23,9 +23,13 @@
 #
 # Every one of those was a hand-rolled reader that was right about the happy
 # value and wrong about the next one. This module is the single body, and
-# test/xcconfig_test.rb is the fixture set that keeps it honest: 45 assertions,
-# whose expected values were OBSERVED with `xcodebuild -showBuildSettings` on
-# Xcode 26.1.1 (04-RESEARCH.md Q1, probe 2026-09-02) and recorded in
+# test/xcconfig_test.rb is the fixture set that keeps it honest. The suite
+# prints its own assertion count on every run and this comment deliberately
+# does NOT freeze one: the number this line carried read 45 while the suite
+# ran 61, because a count written into prose goes stale by allocation as
+# fixtures are added and nothing re-reads the sentence. The fixtures' expected
+# values were OBSERVED with `xcodebuild -showBuildSettings` on Xcode 26.1.1
+# (04-RESEARCH.md Q1, probe 2026-09-02) and recorded in
 # evidence/03-SEC-T0306-comment-value-fix.txt. Do not change a behaviour below
 # without re-measuring against Xcode and moving the fixture in the same commit.
 #

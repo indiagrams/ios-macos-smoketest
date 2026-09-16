@@ -1112,6 +1112,107 @@ jobs:
           done
           exit "$status"
 
+      # META-06(b) — THE iOS BRANCH OF THE SAME GATE, EXECUTED.
+      #
+      # test/built_plist_test.rb resolves its platform from the bundle shape
+      # (Contents/Info.plist is macOS, a root Info.plist is iOS) and its iOS
+      # branch RECORDS the category key rather than asserting it, because
+      # GENERATE_INFOPLIST_FILE is NO on iOS. That branch was sound and had never
+      # run: the only job invoking this gate builds `dd-macos-release` alone, so
+      # every green it has ever produced was a statement about macOS. A branch
+      # that has never executed is not covered by the gate that contains it —
+      # which is this phase's subject, one layer down from the capture guard.
+      #
+      # THE SIMULATOR SDK, NOT THE DEVICE ONE, and unsigned: this step needs a
+      # built Info.plist, not a signable artefact, and `generic/platform=iOS
+      # Simulator` needs no booted device and no UDID lookup.
+      - name: build iOS Debug for the simulator, unsigned
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project app/App.xcodeproj \
+            -scheme App-iOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd-ios-debug" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      # THE SETUP, ASSERTED APART FROM THE SUBJECT — the same shape as the macOS
+      # half above, for the same reason. The candidate count is COUNTED and not
+      # truncated to a first hit (UL-043, UL-049), and the products directory is
+      # tested for existence before `find` walks it, because `find` on a missing
+      # path exits non-zero and would kill this step under `set -e` before the
+      # gate ever ran (UL-113).
+      - name: preconditions — the iOS built bundle
+        run: |
+          set -euo pipefail
+          products="$RUNNER_TEMP/dd-ios-debug/Build/Products"
+          [ -d "$products" ] || { echo "::error::$products does not exist — the iOS build step produced no products tree"; exit 1; }
+          count=$(find "$products" -maxdepth 2 -name '*.app' -type d | wc -l | tr -d ' ')
+          echo "precondition_ios_app_candidates=$count"
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected exactly one .app under $products, found $count. The gate below would be reading a bundle nobody chose"
+            find "$products" -maxdepth 2 -name '*.app' -type d || true
+            exit 1
+          fi
+          app=$(find "$products" -maxdepth 2 -name '*.app' -type d)
+          # A ROOT Info.plist is what makes this an iOS bundle rather than a macOS
+          # one. Asserting it here is what stops a second macOS bundle being
+          # inspected twice and counted as two platforms.
+          [ -f "$app/Info.plist" ] || { echo "::error::$app has no root Info.plist, so it is not an iOS bundle and the gate has no iOS subject"; exit 1; }
+          [ ! -f "$app/Contents/Info.plist" ] || { echo "::error::$app carries Contents/Info.plist, which is the macOS shape — this step resolved the wrong bundle"; exit 1; }
+          echo "precondition_ios_built_app=$app"
+          echo "IOS_BUILT_APP=$app" >> "$GITHUB_ENV"
+
+      # The SAME verdict discipline as the macOS half: 0/1/2 discriminated
+      # separately so a refusal can never read as a pass, and the facts checked
+      # for the literal `unread`, which is what "nothing was inspected" looks
+      # like. Plus one assertion the macOS half does not need —
+      # built_plist_platform=ios — because without it a second macOS bundle
+      # inspected twice would look exactly like coverage of two platforms.
+      - name: Built Info.plist — the iOS branch, executed
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/built-plist-ios.txt"
+          gate_exit=0
+          ruby test/built_plist_test.rb --built-app "$IOS_BUILT_APP" > "$out" 2>&1 || gate_exit=$?
+          cat "$out"
+          echo "built_plist_ios_gate_exit=$gate_exit"
+          case "$gate_exit" in
+            0) echo "built plist (iOS) — the gate read the bundle and every assertion held" ;;
+            1) echo "::error::built plist (iOS) — the gate ran and FAILED. Its FAIL lines are above"; exit 1 ;;
+            2) echo "::error::built plist (iOS) — the gate REFUSED (exit 2, CANNOT RUN). Nothing was inspected, which is NOT a pass and NOT a failure of the subject"; exit 1 ;;
+            *) echo "::error::built plist (iOS) — exit $gate_exit is neither its pass (0), its failure (1) nor its refusal (2); that is evidence for no side"; exit 1 ;;
+          esac
+          status=0
+          for f in platform privacy_url parse_route; do
+            val=$(sed -n "s/^built_plist_$f=//p" "$out")
+            echo "built_plist_ios_$f=$val"
+            if [ -z "$val" ]; then
+              echo "::error::built plist (iOS) — built_plist_$f was never printed; a conclusion with no facts does not show the gate reached its subject"
+              status=1
+            elif [ "$val" = "unread" ]; then
+              echo "::error::built plist (iOS) — built_plist_$f is 'unread', which is the value this gate prints when it inspected NOTHING. The exit code said otherwise and the facts win"
+              status=1
+            fi
+          done
+          # THE ASSERTION IS AGAINST THE GATE'S OWN OUTPUT FILE, not against a
+          # variable this step composed — and `-x` requires the WHOLE line, so a
+          # substring like `built_plist_platform=ios-simulator` could not satisfy
+          # it. This workflow's own prose cannot satisfy it either, because the
+          # subject is "$out" and not this file (grep-gate hygiene).
+          platform=$(sed -n 's/^built_plist_platform=//p' "$out")
+          if ! grep -qx 'built_plist_platform=ios' "$out"; then
+            echo "::error::built plist (iOS) — the gate did not print built_plist_platform=ios (it printed '$platform'). This step inspected a bundle whose shape is not iOS, so the iOS branch still has not executed and the macOS half would have been counted twice"
+            status=1
+          fi
+          privacy=$(sed -n 's/^built_plist_privacy_url=//p' "$out")
+          echo "RESULT meta06b built_plist_platform=$platform privacy_url=$privacy"
+          exit "$status"
+
   # ---------------------------------------------------------------------------
   # PHASE 8 CLOSE-OUT (2026-09-14) — AND DELIBERATELY *NOT* A REQUIRED STATUS
   # CONTEXT, for exactly the reason the 08-16 block above records.

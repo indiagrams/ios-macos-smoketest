@@ -103,6 +103,33 @@ import XCTest
 // `AppMacOSTests`.
 //
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// AND AS OF 08.6-03 THE SKIP IS NO LONGER THE DEFAULT — IT HAS TO BE DECLARED (D-154, D-155)
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+//
+// The paragraph above describes the guard as it stood between 2026-09-15 and plan 08.6-03, and it
+// is left as written because the MEASURED CAUSE half of it still governs. What changed is the
+// ANSWER a short display gets. It is now `CaptureFit.captureDeclaration` in `CaptureFit.swift`
+// beside this file that decides, on three outcomes rather than two:
+//
+//   proceed  — the visible frame holds the capture window. Nothing else is consulted.
+//   refuse   — it does not, and this run declared NOTHING. The suite FAILS with a named message.
+//   skip     — it does not, and this run declared itself a NON-CAPTURE run.
+//
+// DEFAULT-STRICT, because the skip is not free: `ci/take-screenshots.sh:187` goes on to
+// `ci/extract-mac-screenshots.sh`, whose `rm` at `:53` DELETES the existing
+// `fastlane/Mac_screenshots/en-US/macos-*.png` tiles before it discovers at `:156` that the run
+// produced no attachment. They are untracked and gitignored, so a skip on that path destroys the
+// previous set and exits 0. A red is recoverable; those tiles are not.
+//
+// THE ONLY PATH PERMITTED TO DECLARE is a FORK-OWNED invocation boundary that provably cannot
+// reach that `rm` — one that invokes `xcodebuild` directly and never `ci/take-screenshots.sh`.
+// Those are the hosted-runner cells at 1024x768, where skipping is the correct answer and a
+// permanently red cell would simply stop being read (D-154). `CaptureFit.swift`'s own header
+// carries the mechanism, including why the name a CI step SETS and the name this process READS
+// are two different spellings; `test/capture_suite_invokers_test.rb` is the gate that fails when
+// a new invoker appears without one.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE MENU ITEM IS UNREADABLE ON THIS PLATFORM — MEASURED 2026-09-11, NOT PREDICTED
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 //
@@ -321,5 +348,47 @@ extension AppStoreScreenshotTests {
             ValueSource(AccessibilityIdentifiers.Encode.output, 1),
             ValueSource(AccessibilityIdentifiers.Step.output, appended)
         ]
+    }
+}
+
+/// **ASSERTION 7's MEASURED CLAUSES, MOVED HERE 2026-09-15 (plan 08.6-03, standing rule 15).**
+/// `AppStoreScreenshotTests.swift` sat at 397 of `swiftlint --strict`'s 400-line budget (UL-056)
+/// and 08.6-03 adds the capture declaration to `setUpWithError`, so matching volume moved to this
+/// file — the sink standing rule 15 designates for that row. The move also makes the twins
+/// SYMMETRIC rather than merely smaller: the iOS half has carried this same function in a separate
+/// file since plan 08-13 (`app/UITests/ScreenshotFraming.swift:60`), and the macOS half was the
+/// asymmetric one. Not one character of the clause below changed in the move.
+extension AppStoreScreenshotTests {
+    /// **ASSERTION 7 (head) — the head of the pipeline is in the photograph.** Two clauses, and the
+    /// second is THIS PLATFORM'S defect in its general form: content clipped at the TOP is the
+    /// defect, content continuing past the bottom fold is not.
+    ///
+    /// **THE TOP CLAUSE IS SHARPER HERE THAN ON iOS AND THE MESSAGE SAYS SO.** `band.minY` is the
+    /// LOCATED toolbar's maxY. iPhone's navigation bar is OPAQUE and cuts a clipped line cleanly;
+    /// this platform's title bar is TRANSLUCENT, so a card pushed above the band top is composited
+    /// THROUGH it and renders as a blurred half-line bleeding under the window title — a RENDERING
+    /// BUG rather than a crop, which is what the UAT found by cropping the title band.
+    func assertHeadInFrame(_ shot: String, _ measure: FitMeasurement) {
+        let band = measure.band
+        let outside = measure.head.filter { $0.frame.isEmpty || !band.contains($0.frame) }
+        XCTAssertTrue(outside.isEmpty, "\(shot) ASSERTION 7 (head): \(outside.count) of \(measure.head.count) head "
+            + "elements are outside the visible content area \(describeRect(band)): "
+            + "\(outside.map { "\($0.identifier)\(describeRect($0.frame))" }.joined(separator: " ")) — this tile "
+            + "does not show where the pipeline starts")
+
+        // AND THE SAME FILTER HERE MADE THE SAME SUBSTITUTION as `topmost(_:)`'s: over a per-card
+        // population it silently promotes the SECOND card to "the first step card" once the root's
+        // frame degenerates, and this clause does not record which card won. An empty member of a
+        // NON-EMPTY population is a card that is not in the photograph.
+        let allCards = frames(AccessibilityIdentifiers.Step.card)
+        let cardTops = allCards.filter { !$0.isEmpty }.map(\.minY)
+        XCTAssertFalse(allCards.contains { $0.isEmpty }, "\(shot) ASSERTION 7 (head): \(allCards.count - cardTops.count) "
+            + "of \(allCards.count) step cards have no measurable frame, so this clause would answer about a later "
+            + "card — cards=\(allCards.map(describeRect).joined(separator: ","))")
+        guard let cardTop = cardTops.min() else { return }
+        XCTAssertGreaterThanOrEqual(cardTop, band.minY, "\(shot) ASSERTION 7 (head): the first step card starts at "
+            + "y=\(cardTop), above the visible content area \(describeRect(band)) — on this platform the title bar "
+            + "is TRANSLUCENT, so that content is composited THROUGH it and renders as a blurred half-line under "
+            + "the window title rather than being cleanly cropped")
     }
 }

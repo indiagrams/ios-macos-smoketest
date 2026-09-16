@@ -101,17 +101,34 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// frame cannot contain ``captureWindowSize``, and it prints both sizes. Any display large enough
     /// runs it. Nothing keys on HOME. `ScreenshotContract.swift` §"The headless-runner self-skip"
     /// carries the history.
+    ///
+    /// **AND AS OF 08.6-03 THE SKIP IS ITSELF CONDITIONAL — ON A DECLARATION (D-154, D-155).**
+    /// A short display no longer skips by default; it REFUSES. The skip above is not free on the
+    /// one path that matters: `ci/take-screenshots.sh:187` goes on to
+    /// `ci/extract-mac-screenshots.sh`, whose `rm` at `:53` deletes the existing
+    /// `fastlane/Mac_screenshots/en-US/macos-*.png` tiles BEFORE discovering at `:156` that the
+    /// run produced no attachment — and they are untracked and gitignored, so a skip there
+    /// destroys the previous set and exits 0. Default-strict is the safe polarity because the
+    /// delete is one-way and a red is not: an invocation path nobody has thought about goes loudly
+    /// red instead of quietly reaching it. **The only path permitted to declare is a FORK-OWNED
+    /// CI cell that provably cannot reach that `rm`** — one invoking `xcodebuild` directly and
+    /// never `ci/take-screenshots.sh`. The decision itself is `CaptureFit.captureDeclaration`
+    /// (`CaptureFit.swift`), pure and unit-exercisable, because none of the interesting inputs
+    /// exist on the machine this suite is developed on.
     override func setUpWithError() throws {
         let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.size
         let visibleText = visible.map { "\($0.width)x\($0.height)" } ?? "none"
-        let parts = Self.captureWindowSize.split(separator: "x").compactMap { Double($0) }
         print("capture_fit requested=\(Self.captureWindowSize) visibleFrame=\(visibleText)")
-        guard parts.count == 2, let visible, visible.width >= parts[0], visible.height >= parts[1] else {
-            throw XCTSkip(
-                "the screen's visible frame (\(visibleText) points) cannot contain the "
-                    + "\(Self.captureWindowSize)-point capture window, so every shot would overflow the "
-                    + "screen (run 34978692666, D-137)"
-            )
+        switch CaptureFit.captureDeclaration(visible: visible,
+                                             requested: Self.captureWindowSize,
+                                             environment: ProcessInfo.processInfo.environment) {
+        case .proceed:
+            break
+        case .skip(let reason):
+            throw XCTSkip(reason)
+        case .refuse(let reason):
+            XCTFail(reason)
+            throw CaptureFitRefusal.displayCannotHoldCaptureWindow(reason)
         }
 
         // TRUE, AND IT IS THE STRICTER SETTING RATHER THAN THE LOOSER ONE — the iOS twin's
@@ -284,39 +301,6 @@ final class AppStoreScreenshotTests: XCTestCase {
             + "screenshot of a broken pipeline")
 
         return texts
-    }
-
-    /// **ASSERTION 7 (head) — the head of the pipeline is in the photograph.** Two clauses, and the
-    /// second is THIS PLATFORM'S defect in its general form: content clipped at the TOP is the
-    /// defect, content continuing past the bottom fold is not.
-    ///
-    /// **THE TOP CLAUSE IS SHARPER HERE THAN ON iOS AND THE MESSAGE SAYS SO.** `band.minY` is the
-    /// LOCATED toolbar's maxY. iPhone's navigation bar is OPAQUE and cuts a clipped line cleanly;
-    /// this platform's title bar is TRANSLUCENT, so a card pushed above the band top is composited
-    /// THROUGH it and renders as a blurred half-line bleeding under the window title — a RENDERING
-    /// BUG rather than a crop, which is what the UAT found by cropping the title band.
-    func assertHeadInFrame(_ shot: String, _ measure: FitMeasurement) {
-        let band = measure.band
-        let outside = measure.head.filter { $0.frame.isEmpty || !band.contains($0.frame) }
-        XCTAssertTrue(outside.isEmpty, "\(shot) ASSERTION 7 (head): \(outside.count) of \(measure.head.count) head "
-            + "elements are outside the visible content area \(describeRect(band)): "
-            + "\(outside.map { "\($0.identifier)\(describeRect($0.frame))" }.joined(separator: " ")) — this tile "
-            + "does not show where the pipeline starts")
-
-        // AND THE SAME FILTER HERE MADE THE SAME SUBSTITUTION as `topmost(_:)`'s: over a per-card
-        // population it silently promotes the SECOND card to "the first step card" once the root's
-        // frame degenerates, and this clause does not record which card won. An empty member of a
-        // NON-EMPTY population is a card that is not in the photograph.
-        let allCards = frames(AccessibilityIdentifiers.Step.card)
-        let cardTops = allCards.filter { !$0.isEmpty }.map(\.minY)
-        XCTAssertFalse(allCards.contains { $0.isEmpty }, "\(shot) ASSERTION 7 (head): \(allCards.count - cardTops.count) "
-            + "of \(allCards.count) step cards have no measurable frame, so this clause would answer about a later "
-            + "card — cards=\(allCards.map(describeRect).joined(separator: ","))")
-        guard let cardTop = cardTops.min() else { return }
-        XCTAssertGreaterThanOrEqual(cardTop, band.minY, "\(shot) ASSERTION 7 (head): the first step card starts at "
-            + "y=\(cardTop), above the visible content area \(describeRect(band)) — on this platform the title bar "
-            + "is TRANSLUCENT, so that content is composited THROUGH it and renders as a blurred half-line under "
-            + "the window title rather than being cleanly cropped")
     }
 
     /// Assertion 4's macOS half: open the app menu positionally, count the privacy item by

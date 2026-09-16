@@ -54,6 +54,13 @@ final class LaunchLayoutTests: XCTestCase {
     var app: XCUIApplication!
 
     /// The scope these assertions are taken at, in the amended criterion's own terms.
+    ///
+    /// **R1-IN-08:** this string declares iPhone SE, but runs 35005180801 / 35005180682 — the
+    /// red/green witness for row 22's fix — actually ran on iPhone 16 Pro Max
+    /// (`.planning/phases/08.5-ui-automation-drive-half/deferred-items.md:86`), so the 667 pt
+    /// worst case this scope names was unwitnessed until plan 08.6-06 measured it directly. The
+    /// device an actual run used is now recorded alongside this string
+    /// (`criterion5_scope=… device=…`) rather than left to this comment alone.
     private static let scope = "dynamic-type-large,iphone-se-portrait,macos-720x480"
 
     /// Dynamic Type `.large`, pinned as the DEFAULT rather than clamped. `UICTContentSizeCategoryL`
@@ -92,7 +99,10 @@ final class LaunchLayoutTests: XCTestCase {
 
     /// The three clauses, on all three surfaces, with nothing tapped first.
     func testCriterion5ThreeClausesHoldOnEverySurfaceWithNoPriorInteraction() {
-        record("criterion5_scope=\(Self.scope)")
+        // R1-IN-08: the device this run actually used, next to the scope it is measured against —
+        // the same `SIMULATOR_DEVICE_NAME` source `AppStoreScreenshotTests.swift:129` reads.
+        let witnessDevice = ProcessInfo().environment["SIMULATOR_DEVICE_NAME"] ?? "unknown"
+        record("criterion5_scope=\(Self.scope) device=\(witnessDevice)")
         for surface in Self.surfaces {
             assertTheThreeClauses(surface.destination, surface.name, surface.probe)
         }
@@ -134,14 +144,47 @@ final class LaunchLayoutTests: XCTestCase {
         )
         XCTAssertTrue(inside, "clause 2: \(surface)'s add-step rect \(describeRect(rects[0])) is not inside \(describeRect(window))")
 
-        // Clause 2's VISIBLE CONTENT AREA ends at the tab bar's top edge, not at the window's bottom: the
-        // window test above carries the tab bar's whole height as slack, so a rect already under the bar
-        // exited 0 (criterion 6 row 22, deferred 08-12). NOT CAUGHT HERE, by design: a bar-height change
-        // such as a large navigation title that still leaves the rect above the tab bar. That is a
-        // bar-height rule, not clause 2.
+        assertClause2VisibleContentArea(surface, rects, window)
+
+        // Clause 3 — structural, and recorded as the number it actually is.
+        record("criterion5_priorinteraction_\(surface)=navigation-only")
+        record("criterion5_taps_before_assertion_\(surface)=0")
+    }
+
+    /// Clause 2's VISIBLE CONTENT AREA ends at the tab bar's top edge, not at the window's bottom:
+    /// `assertTheThreeClauses`'s window test carries the tab bar's whole height as slack, so a rect
+    /// already under the bar exited 0 (criterion 6 row 22, deferred 08-12). Split into its own
+    /// method to keep `assertTheThreeClauses` under SwiftLint's function-body-length ceiling — no
+    /// behaviour moved, only the statements.
+    ///
+    /// **The bar-height bound (D-164/D-165, 08.6-06).** The `aboveTabBar` assertion below catches
+    /// the rect falling BELOW the tab bar, but says nothing about a bar-height increase that still
+    /// leaves the rect above it — the CLOSE-GAPS gap `08.6-UI-SPEC-AMENDMENT.md` names. `margin` is
+    /// the SAME value the `record()` line already emits (`contentBottom - rects[0].maxY`); the
+    /// second assertion is on that already-recorded number, not a new clause.
+    ///
+    /// **R1-IN-08.** `TARGETED_DEVICE_FAMILY` is "1,2" (`app/project.yml:118`). MEASURED on iPad
+    /// Pro 13-inch (M4), iOS 18.6 (this plan, `evidence/08.6-06-bar-height.txt`): the review's own
+    /// prediction — "TabView draws its bar at the top" — undersold the change. `app.tabBars` has
+    /// ZERO matches there at all; the accessibility hierarchy shows the tab items as loose
+    /// `Button`s near y=33 with no enclosing `tabBar`-typed element. So the ORIGINAL blind
+    /// `XCTAssertTrue(tabBar.exists, …)` this clause used to open with would itself fail on every
+    /// iPad surface — not the position check downstream of it. Both cases this clause cannot
+    /// evaluate (no `tabBar` element at all, and a `tabBar` element positioned in the window's top
+    /// half) are folded into the same SKIP, with a recorded reason naming which one fired, rather
+    /// than a hard failure or a silent pass.
+    private func assertClause2VisibleContentArea(_ surface: String, _ rects: [CGRect], _ window: CGRect) {
         let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.exists, "clause 2: \(surface) presents no tab bar, so the visible content area has no bottom edge")
+        let tabBarExists = tabBar.exists
+        let tabBarAtTop = tabBarExists && tabBar.frame.minY < window.midY
+        guard tabBarExists, !tabBarAtTop else {
+            let reason = tabBarExists ? "ipad-top-tabbar" : "no-tabbar-element"
+            record("criterion5_tabbar_position_\(surface)=top reason=\(reason) skipped=above_tabbar,margin_bound")
+            return
+        }
+
         let contentBottom = tabBar.frame.minY
+        record("criterion5_tabbar_position_\(surface)=bottom")
         let aboveTabBar = !rects[0].isEmpty && rects[0].maxY <= contentBottom
         record("criterion5_above_tabbar_\(surface)=\(aboveTabBar) tabbar_minY=\(contentBottom) "
             + "first_maxY=\(rects[0].maxY) margin=\(contentBottom - rects[0].maxY)")
@@ -151,11 +194,6 @@ final class LaunchLayoutTests: XCTestCase {
                 + "at y=\(contentBottom), so it is not within the visible content area"
         )
 
-        // D-164/D-165 (08.6-06): the assertion above catches the rect falling BELOW the tab bar,
-        // but says nothing about a bar-height increase that still leaves the rect above it — the
-        // CLOSE-GAPS gap `08.6-UI-SPEC-AMENDMENT.md` names. `margin` is the SAME value the record()
-        // line above already emits (`contentBottom - rects[0].maxY`); this is a SECOND assertion on
-        // that already-recorded number, not a new clause.
         let margin = contentBottom - rects[0].maxY
         XCTAssertGreaterThanOrEqual(
             margin,
@@ -165,10 +203,6 @@ final class LaunchLayoutTests: XCTestCase {
                 + "floor — a bar-height increase (e.g. `.navigationBarTitleDisplayMode(.large)`) is the "
                 + "change this bound exists to catch"
         )
-
-        // Clause 3 — structural, and recorded as the number it actually is.
-        record("criterion5_priorinteraction_\(surface)=navigation-only")
-        record("criterion5_taps_before_assertion_\(surface)=0")
     }
 
     /// The additive assertion the UI contract recommends, in its OWN method so the tap it performs

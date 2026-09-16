@@ -26,17 +26,98 @@ final class DriveHalfTests: XCTestCase {
 
     /// Criterion 1: the robot presents a window, and `register(with:)` leaves a `final-state`
     /// attachment at teardown. Asserts only that a window exists — nothing about what is in it.
+    ///
+    /// **THE ROUTE ASSERTED IS LAUNCH'S OWN, AND UNTIL 08.6-09 IT WAS NOT (R1-IN-10).** This case
+    /// used to run the activation dance a SECOND time and quote that call's return value. (This
+    /// sentence deliberately does not spell the method's name: the plan's own check counts call
+    /// sites in this file by grep, and prose describing the removed shape must not satisfy it —
+    /// the grep-gate hygiene the sibling gates in test/ already follow.) By then
+    /// `launch` had already run the dance, so the app was `.runningForeground` with a window up and
+    /// the second call returned `"present"` almost unconditionally — whatever launch had actually
+    /// done. The failure message therefore named a route that no longer described how the window
+    /// got there, and a `"new-window"` launch was indistinguishable from a `"present"` one. The
+    /// route now comes from `robot.presentRoute`, which `launch` stores, and the dance runs once.
     func testRobotPresentsAWindowAndLeavesAFinalState() {
         let robot = TestRobot(app: XCUIApplication())
         robot.register(with: self)
         robot.launch(args: ["UI_TESTING"])
 
-        let route = robot.app.presentWindow()
+        let route = robot.presentRoute ?? "unrecorded"
         XCTAssertTrue(
             robot.app.windows.firstMatch.waitForExistence(timeout: 5),
             "no window present after the robot's activation dance, route=\(route)"
         )
         namedScreenshot("drive-half-launched")
+    }
+
+    /// W-02: the `File > New Window` fallback, forced rather than hoped for.
+    ///
+    /// **WHY THIS CASE EXISTS.** The fallback branch of `presentWindow` is currently exercised only
+    /// because the hosted runner happens to be slow enough that no window has appeared by the time
+    /// the first `waitForExistence` expires (run 34984109925). That is the runner's weather, not a
+    /// property of this suite: a faster runner image would take the `"present"` route every time and
+    /// the fallback would stop being covered WITH NO SIGNAL AT ALL — the branch would simply never
+    /// run again and every cell would stay green. This case removes the dependency on timing by
+    /// closing every window first, so `"new-window"` is the only route that can succeed.
+    ///
+    /// **THE PRECONDITIONS ARE ASSERTED, NOT ASSUMED.** The draft this follows assumed the app stays
+    /// running with zero windows after the last one closes. That is a property of
+    /// `applicationShouldTerminateAfterLastWindowClosed`, not a law — an app that quits on last close
+    /// would make this case pass vacuously, because a relaunched app presents a window by the
+    /// `"present"` route and the assertion below would be satisfied by the wrong mechanism. Both
+    /// preconditions are therefore checked BEFORE the dance, and fail by name if they do not hold.
+    ///
+    /// **THE CLOSE LOOP IS BOUNDED.** A `while` over a live window count spins forever against a
+    /// window that refuses to close (a modal, a sheet, a save prompt); the bound turns that into a
+    /// named failure instead of a job timeout with no verdict.
+    func testNewWindowFallbackRunsWhenNoWindowIsPresent() {
+        let robot = TestRobot(app: XCUIApplication())
+        robot.register(with: self)
+        robot.launch(args: ["UI_TESTING"])
+
+        XCTAssertTrue(
+            robot.app.windows.firstMatch.waitForExistence(timeout: 5),
+            "launch produced no window at all, so there is nothing to close and this case cannot "
+                + "reach its subject (route=\(robot.presentRoute ?? "unrecorded"))"
+        )
+
+        // Bounded deliberately — see the doc comment. Twelve is well above any window count this
+        // app produces and still terminates against one that will not close.
+        let closeAttemptLimit = 12
+        var attempts = 0
+        while robot.app.windows.count > 0, attempts < closeAttemptLimit {
+            robot.app.typeKey("w", modifierFlags: .command)
+            attempts += 1
+            _ = robot.app.windows.firstMatch.waitForNonExistence(timeout: 1)
+        }
+        driveHalfRecord("drive_half_fallback_close_attempts=\(attempts)")
+
+        XCTAssertEqual(
+            robot.app.windows.count, 0,
+            "\(robot.app.windows.count) window(s) still open after \(attempts) close attempt(s); the "
+                + "fallback route cannot be forced while a window remains, so this case would have "
+                + "measured the \"present\" path instead"
+        )
+        XCTAssertEqual(
+            robot.app.state, .runningForeground,
+            "the app is \(robot.app.state.rawValue) rather than runningForeground after closing every "
+                + "window, so it terminates on last close and this case would pass by relaunching "
+                + "rather than by taking the fallback — assert the precondition, do not assume it"
+        )
+
+        let route = robot.app.presentWindow()
+        driveHalfRecord("drive_half_forced_fallback_route=\(route)")
+        XCTAssertEqual(
+            route, "new-window",
+            "with zero windows open the dance returned \"\(route)\", not \"new-window\"; the "
+                + "File > New Window fallback did not run, so the branch this case exists to cover "
+                + "was not exercised"
+        )
+        XCTAssertTrue(
+            robot.app.windows.firstMatch.waitForExistence(timeout: 5),
+            "the fallback ran but produced no window (route=\(route))"
+        )
+        namedScreenshot("drive-half-fallback")
     }
 
     /// See the file header's "IS A MEASUREMENT, NOT A VERDICT" paragraph. Bounded to the first 12

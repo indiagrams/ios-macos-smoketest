@@ -112,6 +112,20 @@ extension XCTestCase {
 class TestRobot {
     let app: XCUIApplication
 
+    /// The route `launch(args:env:)`'s own `presentWindow()` call took — `"present"`,
+    /// `"new-window"` or `"none"` — or `nil` where no dance ran.
+    ///
+    /// **WHY THIS EXISTS (R1-IN-10).** `launch` called `presentWindow()` and DISCARDED the result,
+    /// so the only way a test could name a route was to call `presentWindow()` a SECOND time — by
+    /// which point the app is already `.runningForeground` with a window up, so the second call
+    /// returns `"present"` almost unconditionally and reports on itself rather than on launch. A
+    /// case asserting that value was asserting that calling the dance twice works. The route launch
+    /// actually took is the one worth quoting in a failure message, so `launch` keeps it here.
+    ///
+    /// `nil` on iOS, where `launch` runs no dance at all: an empty string would be indistinguishable
+    /// from a dance that returned nothing, and this is a fact about which platform ran, not a value.
+    private(set) var presentRoute: String?
+
     required init(app: XCUIApplication) {
         self.app = app
     }
@@ -139,7 +153,7 @@ class TestRobot {
         app.launchEnvironment = env
         app.launch()
         #if os(macOS)
-            app.presentWindow()
+            presentRoute = app.presentWindow()
         #endif
         return self
     }

@@ -1,0 +1,105 @@
+# The store URLs, checked against the network on a schedule — and DELIBERATELY
+# NOT a required status context.
+#
+# WHY THIS IS NOT REQUIRED, AND MUST NEVER BECOME ONE. This job makes real HTTP
+# requests to a host this repository does not operate. A required check that
+# depends on someone else's DNS blocks every merge on an outage nobody here can
+# fix, and it is flaky by construction rather than by accident (D-166). The
+# offline agreement clauses — scheme, authority, one-host, and the
+# listing-vs-xcconfig comparison — run inside the required `review notes` lane's
+# own gates instead, where they belong, because they need no network at all.
+#
+# WHAT IT COVERS. META-06's Automated Command in 08-VALIDATION.md is
+# `curl -sI "$URL" | head -1`, and that string was in no file in this repository:
+# measured 2026-09-16, zero hits across `ci/ .github/workflows/ test/ Makefile
+# bin/` against a positive control of 7 files naming the host. A command named in
+# a validation map and performed nowhere claims a coverage that does not exist.
+#
+# WHY THERE IS NO `make` TARGET. The Makefile is template-owned and byte-identical
+# to upstream (D-131); a fork-only instrument cannot be reached through it, so this
+# workflow calls the script by path.
+#
+# THE `pull_request` TRIGGER is path-filtered to the URL files and the instrument
+# itself, so a URL edit is checked at the moment it is made rather than up to a
+# week later. It runs the LIVE mode there too. If that proves flaky in practice
+# the fix is to run the offline mode on the PR path and keep the live mode on the
+# schedule — recorded here as the decision to make rather than pre-empted, because
+# a flakiness claim should rest on observed flakes.
+#
+# THE CRON SLOT. Thursdays 09:00 UTC. The repository's two existing schedules are
+# Mondays 07:00 (`bootstrap-doctor-matrix`) and Saturdays 07:00 (`canary-trigger`);
+# this shares neither a day nor an hour with either, so a failure here is never
+# competing for a runner with them and is never confused for one of theirs.
+
+name: store urls liveness
+
+on:
+  schedule:
+    - cron: '0 9 * * 4' # Thursdays 09:00 UTC — no day or hour shared with the Monday 07:00 bootstrap matrix or the Saturday 07:00 canary.
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'test/store_urls_test.rb'
+      - 'fastlane/metadata/**/*_url.txt'
+      - 'fastlane/metadata-macos/**/*_url.txt'
+      - 'app/Identity.xcconfig'
+
+permissions:
+  contents: read
+
+jobs:
+  store-urls-liveness:
+    name: store urls liveness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # stdlib only — uri, net/http, openssl
+
+      # THE SETUP, ASSERTED APART FROM THE SUBJECT. A missing interpreter, a
+      # missing require or a missing instrument must fail AS itself, so that a red
+      # below is always a statement about the URLs and never about the runner.
+      - name: preconditions — the interpreter, the requires, and the instrument
+        run: |
+          set -euo pipefail
+          v=$(ruby -e 'print RUBY_VERSION')
+          echo "precondition_ruby=$v at $(command -v ruby)"
+          case "$v" in
+            3.3.*) ;;
+            *) echo "::error::expected Ruby 3.3.x (the interpreter this instrument was measured under); got $v"; exit 1 ;;
+          esac
+          for r in uri net/http openssl; do
+            ruby -e "require '$r'" || { echo "::error::$r did not resolve — the instrument requires exactly uri, net/http and openssl, all stdlib"; exit 1; }
+            echo "precondition_require=$r"
+          done
+          for p in test/store_urls_test.rb bin/lib/xcconfig.rb app/Identity.xcconfig; do
+            [ -e "$p" ] || { echo "::error::$p is missing from the checkout; an instrument that cannot open its own source of truth proves nothing"; exit 1; }
+            echo "precondition_path=$p"
+          done
+          # COUNTED WITH `find`, AND EACH DIRECTORY TESTED BEFORE IT IS WALKED.
+          # `find DIR` exits non-zero when DIR does not exist, and `2>/dev/null`
+          # hides the message while leaving the status — under this step's
+          # `set -euo pipefail` that kills the step before the subject is
+          # reached, which is UL-113, measured on a hosted runner in this same
+          # phase. The existence test is the fix; the redirect is not.
+          count=0
+          for d in fastlane/metadata/en-US fastlane/metadata-macos/en-US; do
+            if [ -d "$d" ]; then
+              n=$(find "$d" -maxdepth 1 -type f -name '*_url.txt' | wc -l | tr -d ' ')
+              count=$((count + n))
+            fi
+          done
+          echo "precondition_url_files=$count"
+          [ "$count" -gt 0 ] || { echo "::error::no *_url.txt files found under fastlane/metadata*/en-US/; the instrument would pass vacuously"; exit 1; }
+
+      # THE LIVE HALF. One HEAD per DISTINCT url (six tracked values collapse to
+      # three endpoints), each bounded by an explicit open and read timeout — a
+      # scheduled job that hangs is worse than one that fails, because nothing
+      # reports it. The bound was measured against a blackholed address rather
+      # than declared: evidence/08.6-08-meta06.txt PART 4.
+      - name: store URLs — live HEAD against every distinct endpoint
+        run: ruby test/store_urls_test.rb --live

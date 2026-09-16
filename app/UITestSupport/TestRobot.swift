@@ -98,7 +98,6 @@ extension XCTestCase {
                 driveHalfRecord("drive_half_present_route=none reason=new-window-item-absent")
                 return "none"
             }
-            newWindowItem.click()
             driveHalfRecord("drive_half_present_route=new-window")
             return "new-window"
         }

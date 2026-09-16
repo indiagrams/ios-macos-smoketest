@@ -63,6 +63,15 @@ final class LaunchLayoutTests: XCTestCase {
     /// The worst case the margin was measured on: iPhone SE (3rd generation), 375 x 667 pt.
     static let worstCase = CGSize(width: 375, height: 667)
 
+    /// The bar-height floor D-164 amends into the launch-layout clause: half of
+    /// `Spacing.iOSHitTarget` (44 pt, `app/Shared/Design/Spacing.swift:105`), repeated here as a
+    /// literal because this target does not import `app/Shared`. Derived, and checked against both
+    /// "passes today" and "fails on the roadmap's named `.navigationBarTitleDisplayMode(.large)`
+    /// change", in `.planning/phases/08.6-screenshot-capture-path-witnessed/08.6-UI-SPEC-AMENDMENT.md`.
+    /// Do not raise this to make a future layout pass — that is the D-165 stop condition, and it
+    /// routes to `ios-macos-smoketest-74`, not to this constant.
+    static let minimumContentMargin: CGFloat = 22
+
     /// The three surfaces, in shell order.
     static let surfaces = [
         Surface(LaunchState.encodeDestination, "encode", AccessibilityIdentifiers.Encode.input),
@@ -140,6 +149,21 @@ final class LaunchLayoutTests: XCTestCase {
             aboveTabBar,
             "clause 2: \(surface)'s first add-step rect \(describeRect(rects[0])) ends below the tab bar's top edge "
                 + "at y=\(contentBottom), so it is not within the visible content area"
+        )
+
+        // D-164/D-165 (08.6-06): the assertion above catches the rect falling BELOW the tab bar,
+        // but says nothing about a bar-height increase that still leaves the rect above it — the
+        // CLOSE-GAPS gap `08.6-UI-SPEC-AMENDMENT.md` names. `margin` is the SAME value the record()
+        // line above already emits (`contentBottom - rects[0].maxY`); this is a SECOND assertion on
+        // that already-recorded number, not a new clause.
+        let margin = contentBottom - rects[0].maxY
+        XCTAssertGreaterThanOrEqual(
+            margin,
+            Self.minimumContentMargin,
+            "clause 2 bar-height bound (08.6-UI-SPEC-AMENDMENT.md): \(surface)'s margin between the first "
+                + "add-step rect and the tab bar is \(margin) pt, below the \(Self.minimumContentMargin) pt "
+                + "floor — a bar-height increase (e.g. `.navigationBarTitleDisplayMode(.large)`) is the "
+                + "change this bound exists to catch"
         )
 
         // Clause 3 — structural, and recorded as the number it actually is.

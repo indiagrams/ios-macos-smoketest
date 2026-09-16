@@ -281,6 +281,77 @@ final class DriveHalfTests: XCTestCase {
         )
     }
 
+    /// G-14's MEASUREMENT, AND DELIBERATELY NOT ITS ASSERTION.
+    ///
+    /// **WHAT IS UNKNOWN.** `08-REVIEW-FIX.md` § WR-08 records that nothing verifies the app menu
+    /// has actually CLOSED before the macOS capture runs, and that no assertion was added there —
+    /// because whether AppKit keeps `AXMenuItem` children in the accessibility tree once a menu is
+    /// closed **has never been measured in this repository**. Both outcomes are plausible: the
+    /// children may vanish with the menu, or the menu element may persist with its population
+    /// intact and merely stop being displayed.
+    ///
+    /// **WHY AN ASSERTION HERE WOULD BE A MISTAKE RATHER THAN A RISK.** If the children persist,
+    /// an assertion that the count drops to zero after Escape is PERMANENTLY RED — and this case
+    /// runs in the macOS cell alongside the capture suite, so it would refuse every macOS tile for
+    /// a property nobody had checked. Writing the assertion first is the exact mistake
+    /// `08-REVIEW-FIX.md` declined to make at Phase 8's close-out, and this case exists to supply
+    /// the number that decision was missing rather than to repeat it.
+    ///
+    /// **THIS CASE RECORDS AND ASSERTS NOTHING ABOUT THE COUNT.** It asserts only that it reached
+    /// its own subject — an unpopulated menu would make the measurement meaningless, and a
+    /// measurement that cannot tell "zero children after Escape" from "no menu was ever open" is
+    /// not a measurement (the B-05 lesson, one plan old).
+    ///
+    /// **PLAN 08.6-11 CONVERTS THIS INTO AN ASSERTION**, against the number this case records. Naming
+    /// that plan here is not decoration: an assertion-free case with no named successor is how
+    /// `testUnconditionalActivateCost` became a permanent resident of the required cells, removed
+    /// directly below this one. This case has a named successor and an expiry.
+    ///
+    /// **IT DOES NOT NEED THE CAPTURE WINDOW SIZE.** The measurement runs on the 1024x768 hosted
+    /// runner, which is the whole reason it lives here and not in the capture suite — that suite
+    /// refuses on exactly that display (D-154, D-155), so a measurement placed there would never
+    /// run on the machine that has to produce it.
+    func testMenuItemsAfterEscapeMeasurement() {
+        let robot = TestRobot(app: XCUIApplication())
+        robot.register(with: self)
+        robot.launch(args: ["UI_TESTING"])
+
+        let appMenu = selectApplicationMenuBarItemByIdentity(on: robot.app)
+        let itemsBefore = openedMenuItems(of: appMenu).count
+
+        robot.app.typeKey(.escape, modifierFlags: [])
+        // A bounded settle, not a verdict: Escape is asynchronous and this measurement must not
+        // read the tree mid-dismissal. Nothing here waits FOR a particular outcome, because the
+        // outcome is what is being measured.
+        _ = openedMenuItems(of: appMenu).firstMatch.waitForNonExistence(timeout: 2)
+
+        let itemsAfter = openedMenuItems(of: appMenu).count
+        let menuExistsAfter = appMenu.exists
+        driveHalfRecord(
+            "menu_items_after_escape=\(itemsAfter) menu_items_before_escape=\(itemsBefore) "
+                + "menu_exists_after_escape=\(menuExistsAfter)"
+        )
+
+        let attachment = XCTAttachment(
+            string: "menu_items_before_escape=\(itemsBefore)\n"
+                + "menu_items_after_escape=\(itemsAfter)\n"
+                + "menu_exists_after_escape=\(menuExistsAfter)\n"
+        )
+        attachment.name = "g14-menu-after-escape"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // THE ONLY ASSERTION, AND IT IS ABOUT THIS CASE AND NOT ABOUT G-14: the menu was open
+        // before Escape. Without it, a run where the menu never opened would record
+        // `menu_items_after_escape=0` and look exactly like the outcome G-14 hopes for.
+        XCTAssertGreaterThan(
+            itemsBefore, 0,
+            "the application menu presented no items BEFORE Escape, so this run measured nothing: "
+                + "a zero after-count here would be indistinguishable from a menu that closed, "
+                + "which is the one thing this measurement must be able to tell apart"
+        )
+    }
+
     // REMOVED 2026-09-16 BY PLAN 08.6-09: `testUnconditionalActivateCost` (R1-IN-07, R1-RISK-4).
     //
     // A DELETION THAT ERASES THE REASON THE CODE EXISTED IS HOW THE NEXT READER RE-ADDS IT, so the

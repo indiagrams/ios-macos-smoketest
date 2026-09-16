@@ -68,9 +68,16 @@ struct AppMain: App {
             // FAIL. If it does not, the control is vacuous the way R1-IN-04's was.
             // The shipped control is deliberately left untouched: this tests the
             // control, not the plant. See B-06.
+            // CORRECTED after run 35063001871: the first attempt used CFBundleDisplayName
+            // ("Shipkit Pipes", with a space) and the plant LANDED but did not duplicate --
+            // menu bar went 7 -> 8 while deduped stayed 8 and matches stayed 1, i.e. the new
+            // title was not the one the control compares against. Measured from the built
+            // bundle: CFBundleName = "ShipkitPipes", CFBundleDisplayName = "Shipkit Pipes".
+            // AppKit titles the app menu from CFBundleName, so that is the string step 15's
+            // `expected` holds.
             CommandMenu(
-                Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-                    ?? "Shipkit Pipes"
+                Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+                    ?? ProcessInfo.processInfo.processName
             ) {
                 Button("planted duplicate — scratch only") {}
             }

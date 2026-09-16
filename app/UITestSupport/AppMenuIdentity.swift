@@ -245,8 +245,14 @@ import XCTest
         /// named the wrong menu. The identifier is a generic literal, naming no view and no type
         /// of this application (standing rule 16).
         private func noSelectionSentinel(on app: XCUIApplication) -> XCUIElement {
-            app.menuBarItems.matching(identifier: "__no_selection__").firstMatch
+            app.menuBarItems.matching(identifier: Self.noSelectionSentinelIdentifier).firstMatch
         }
+
+        /// The identifier `noSelectionSentinel(on:)` matches on, held once rather than spelled at
+        /// each site. Internal, not private, so a control can COUNT how many live menu-bar items
+        /// carry it — zero, by construction — instead of re-typing the literal and silently
+        /// drifting from it. A generic literal naming no view and no type of any application.
+        static let noSelectionSentinelIdentifier = "__no_selection__"
 
         /// Selects, opens and safety-checks the application's OWN top-level menu-bar item BY
         /// IDENTITY — see the file header. Records the `.keepAlways` `menu-bar-enumeration`
@@ -265,9 +271,19 @@ import XCTest
         /// live item, which IS the Apple menu (R1-IN-04); that made every follow-on failure under
         /// `continueAfterFailure = true` misdescribe the Apple menu as the selection. The sentinel
         /// makes that misattribution structurally impossible.
+        ///
+        /// `matchingName` OVERRIDES THE RESOLVED EXPECTATION, AND EXISTS FOR ONE REASON (B-05).
+        /// The RETURN VALUE of the failure paths is the thing R1-IN-04 changed, and it is only
+        /// observable when the failure happens on an application that HAS a menu bar: where the
+        /// bar is empty, the sentinel and the pre-fix `menuBarItems.firstMatch` are both
+        /// non-existent and nothing distinguishes them. Nothing in this codebase can make a real
+        /// resolved name miss a real bar, so the expectation is supplied instead. Nil at every
+        /// production call site; a non-nil value marks the caller a control, and the failure
+        /// message records `source: caller-supplied` so a reader cannot mistake one for the other.
         @discardableResult
         func selectApplicationMenuBarItemByIdentity(
             on app: XCUIApplication,
+            matchingName nameOverride: String? = nil,
             file: StaticString = #filePath,
             line: UInt = #line
         ) -> XCUIElement {
@@ -282,7 +298,16 @@ import XCTest
                 return noSelectionSentinel(on: app)
             }
 
-            let expected = resolvedApplicationName(applicationRenderedText: applicationRenderedText)
+            // `matchingName` IS A CONTROL SEAM AND NOTHING ELSE — see the parameter's own note in
+            // the doc comment above. Every production call site leaves it nil and gets the resolved
+            // name unchanged; a control supplies a name it knows the live bar cannot carry, so the
+            // NAME-MATCH failure path can be driven against a menu bar that is fully present.
+            let expected: (value: String, source: String)
+            if let nameOverride {
+                expected = (nameOverride, "caller-supplied")
+            } else {
+                expected = resolvedApplicationName(applicationRenderedText: applicationRenderedText)
+            }
             recordMenuBarEnumeration(entries, expected: expected)
 
             guard !expected.value.isEmpty else {

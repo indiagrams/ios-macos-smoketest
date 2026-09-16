@@ -105,51 +105,98 @@ final class DriveHalfTests: XCTestCase {
         robot.app.typeKey(.escape, modifierFlags: [])
     }
 
-    /// THE STANDING RED HALF of R1-IN-04's sentinel (08.6-02). Forces
-    /// `selectApplicationMenuBarItemByIdentity`'s THIRD failure path — "no menu-bar item's title
-    /// matches" — and asserts the returned element cannot be mistaken for real menu content.
+    /// R1-IN-04'S CONTROL, REPAIRED. THE PREVIOUS VERSION WAS VACUOUS FOR TWO INDEPENDENT
+    /// REASONS, BOTH READ OUT OF AN XCRESULT RATHER THAN ARGUED (B-05).
     ///
-    /// THE FORCING INPUT, AND WHY IT IS THE CHEAPEST ONE THAT DOES NOT EDIT SHIPPED CODE:
-    /// `com.apple.dock` is an always-running `LSUIElement` accessory process. Its own application
-    /// element renders a non-empty name (so the search does not instead hit the SECOND failure
-    /// path, "app element rendered no name"), but an `LSUIElement` publishes NO top-level
-    /// menu-bar items at all — Dock has no menu bar. So `selectApplicationMenuBarItemByIdentity(on:
-    /// dock)` reads a non-empty expected name, then searches a live `menuBarItems` query that is
-    /// unconditionally empty, and falls through to the "no menu-bar item's title matches" branch
-    /// deterministically — no timing race, no dependency on this app's own window state, and no
-    /// edit to this app's shipped UI.
+    /// 1. IT NEVER REACHED ITS OWN ASSERTIONS. `continueAfterFailure` is false in this suite, and
+    ///    a failure raised inside an `XCTExpectFailure` block unwinds the test method AT the
+    ///    failure — so the record and both `XCTAssert`s that followed the block were dead code.
+    ///    `menu_selector_failure_return=` is absent from BOTH the phase-branch bundle (run
+    ///    35061521778) and the planted-defect bundle (run 35061527283); the case's whole verdict
+    ///    was "the expected failure fired", which is decided by the selector's `XCTFail` — a line
+    ///    the R1-IN-04 revert does not touch. Measured in BOTH directions on the iOS Simulator by
+    ///    `evidence/08.6-07-expectfailure-unwind-harness.swift`: with the flag false the activity
+    ///    after the block is ABSENT, with it true it is PRESENT.
+    /// 2. AND THE TARGET APPLICATION LEFT THE ASSERTION UNDISCRIMINATING EVEN IF REACHED. It drove
+    ///    the failure against an `LSUIElement` with no menu bar at all — its own
+    ///    `menu-bar-enumeration` attachment reads `resolved_name="Dock"` with ZERO enumerated
+    ///    rows. With no menu-bar items the pre-fix `menuBarItems.firstMatch` and the fix's
+    ///    sentinel are BOTH non-existent, so `exists` is false in either world. The old doc
+    ///    comment's "the reverted code returns the bar's own first live item (the Apple menu)" was
+    ///    reasoning about THIS app's bar while the code queried a different application's.
     ///
-    /// THE RED THIS STAGES (standing rule 5 forbids a local macOS UI run; plan 08.6-07 pushes it):
-    /// `evidence/08.6-02-in04-scratch.diff` reverts the three sentinel returns in
-    /// `AppMenuIdentity.swift` back to `app.menuBarItems.firstMatch`. Applied on the runner, THIS
-    /// test must go red at `XCTAssertFalse(returned.exists)`, because the reverted code returns the
-    /// bar's own first live item (the Apple menu), which DOES exist.
+    /// WHAT DISCRIMINATES NOW, NAMED EXACTLY: `returned.exists`, taken against the APP UNDER TEST,
+    /// whose live bar CI measured at 7 items (`Apple | ShipkitPipes | File | Edit | View | Window
+    /// | Help`). The fixed code returns an element matching an identifier no item carries, so
+    /// `exists == false`. The reverted code returns `menuBarItems.firstMatch`, which on this bar
+    /// IS the Apple menu, so `exists == true`. One boolean over a non-empty population — and no
+    /// attribute read on a possibly-absent element, whose behaviour this phase has not measured.
+    ///
+    /// AND NON-ARRIVAL IS ITSELF A FAILURE (L-10). A control that cannot separate "the defect is
+    /// present" from "the test stopped before the assertion" carries the old weakness in a new
+    /// shape. The teardown block below fails the case when the assertions were never reached, and
+    /// the live count is recorded beside the verdict so an empty bar — the state that made the
+    /// previous version vacuous — shows up as a value instead of as a pass.
     func testFailedMenuSelectionReturnsAnElementThatCannotExist() {
+        // POINT 1 ABOVE, UNDONE DELIBERATELY. The suite default is false; this case needs the
+        // lines after the expected-failure block to execute, because they ARE the case.
+        continueAfterFailure = true
+
+        var reachedTheAssertions = false
+        addTeardownBlock {
+            XCTAssertTrue(
+                reachedTheAssertions,
+                "this case never reached its assertions — the expected failure unwound the test "
+                    + "first, so it measured nothing at all about what the failure path returned"
+            )
+        }
+
         let robot = TestRobot(app: XCUIApplication())
         robot.register(with: self)
         robot.launch(args: ["UI_TESTING"])
 
-        let dock = XCUIApplication(bundleIdentifier: "com.apple.dock")
+        // A name the live bar cannot carry, supplied to the selector rather than planted in the
+        // app: the subject here is the failure path's RETURN VALUE, not name resolution.
+        let unmatchableName = "no-menu-bar-item-carries-this-name-\(UUID().uuidString)"
 
         let options = XCTExpectedFailure.Options()
         options.issueMatcher = { issue in
             issue.compactDescription.contains("no menu-bar item's title matches")
         }
-        var returned: XCUIElement!
+        var returned: XCUIElement?
         XCTExpectFailure(
-            "com.apple.dock is an LSUIElement with no menu-bar items, so the identity search "
-                + "must fail by name",
+            "the expected name is unmatchable by construction, so the identity search must fail by name",
             options: options
         ) {
-            returned = selectApplicationMenuBarItemByIdentity(on: dock)
+            returned = selectApplicationMenuBarItemByIdentity(on: robot.app, matchingName: unmatchableName)
         }
 
-        driveHalfRecord("menu_selector_failure_return=\(returned.identifier) exists=\(returned.exists)")
-        XCTAssertFalse(returned.exists, "a failed selection must return an element that cannot exist")
-        XCTAssertEqual(
-            returned.identifier,
-            "__no_selection__",
-            "a failed selection must return the generic sentinel, never a real menu-bar item"
+        let live = robot.app.menuBarItems.count
+        let sentinels = robot.app.menuBarItems
+            .matching(identifier: XCTestCase.noSelectionSentinelIdentifier).count
+        let returnedExists = returned?.exists
+        let existsText = returnedExists.map { $0 ? "true" : "false" } ?? "no-return"
+        reachedTheAssertions = true
+        driveHalfRecord(
+            "menu_selector_failure_return exists=\(existsText) live_menu_bar_items=\(live) "
+                + "sentinel_matching_items=\(sentinels) reached=yes"
+        )
+
+        XCTAssertGreaterThan(
+            live, 0,
+            "this case needs a POPULATED menu bar to discriminate: with zero live items the fix's "
+                + "sentinel and the defect's firstMatch are both non-existent and `exists` proves "
+                + "nothing — that is exactly how this control was vacuous before"
+        )
+        guard let returnedExists else {
+            XCTFail("the selector returned nothing to inspect, so the failure path was not observed")
+            return
+        }
+        XCTAssertFalse(
+            returnedExists,
+            "a failed selection returned an element that EXISTS — with \(live) live menu-bar "
+                + "item(s) present, the failure path handed back a real one (the bar's own first "
+                + "item, which is the Apple menu) instead of an element that cannot exist"
         )
     }
 

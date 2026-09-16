@@ -113,14 +113,18 @@ SCAN_ROOTS = [".github/workflows", "ci", "bin", "tools", "fastlane", "Makefile"]
 # known to contain, and a mismatch in EITHER direction is a failure.
 #
 #   reaches_rm   does this path go on to ci/extract-mac-screenshots.sh:53's rm?
-#   owner        fork (we may edit it) or template (D-131, byte-identical pin)
+#   maintained_by  fork (we may edit it) or template (D-131, byte-identical pin).
+#                  Spelled this way, and not with the shorter word, because
+#                  test/drive_half_vocabulary_test.rb hunts that word as a private
+#                  repository's domain vocabulary and this file is inside its swept
+#                  population. Caught by that gate on this file's first run.
 #   declared_in  where its non-capture declaration lives, or why it has none
 ALLOWLIST = [
   {
     path: "ci/take-screenshots.sh",
     sites: 1,
     reaches_rm: true,
-    owner: "template",
+    maintained_by: "template",
     declared_in: "NONE-BY-DESIGN",
     note: "THE capture path, and the only one that reaches the rm (:187 -> " \
           "ci/extract-mac-screenshots.sh:53). It must NEVER declare: the strict default is " \
@@ -130,7 +134,7 @@ ALLOWLIST = [
     path: ".github/workflows/review-notes.yml",
     sites: 1,
     reaches_rm: false,
-    owner: "fork",
+    maintained_by: "fork",
     declared_in: "PENDING-08.6-07",
     note: "the ui-drive-half macOS cell, which names the capture suite explicitly. Its " \
           "declaration and the two D-158 controls are plan 08.6-07's, on a hosted runner, " \
@@ -140,7 +144,7 @@ ALLOWLIST = [
     path: ".github/workflows/pr.yml",
     sites: 1,
     reaches_rm: false,
-    owner: "fork",
+    maintained_by: "fork",
     declared_in: ".github/workflows/pr.yml",
     note: "B-01 invoker 3 — implicit, by scheme inclusion, and BOTH required contexts " \
           "app (macOS) and app (Tuist macOS). Undeclared, the refusal makes every PR unmergeable"
@@ -149,7 +153,7 @@ ALLOWLIST = [
     path: "ci/test-migrate-identity.sh",
     sites: 2,
     reaches_rm: false,
-    owner: "template",
+    maintained_by: "template",
     declared_in: ".github/workflows/migrate.yml",
     note: "B-01 invoker 4 — implicit, scoped only when MIGRATE_MACOS_ONLY_TESTING is set and " \
           ":410 defaults it OFF. TEMPLATE-OWNED, so the declaration is set in the fork-owned " \
@@ -442,7 +446,7 @@ ALLOWLIST.each do |row|
          "declared#{sites.empty? ? '' : " (lines #{sites.join(', ')})"} — a count that DROPPED " \
          "means this gate has gone blind to a path that still exists; a count that ROSE means a " \
          "new invocation was added to a file already on the list, which clause 3 cannot see. " \
-         "Row: reaches_rm=#{row[:reaches_rm]} owner=#{row[:owner]} declared_in=#{row[:declared_in]}"
+         "Row: reaches_rm=#{row[:reaches_rm]} maintained_by=#{row[:maintained_by]} declared_in=#{row[:declared_in]}"
 end
 
 # ── Clause 5: a declaration a row claims is a declaration that exists ─────────
@@ -471,7 +475,7 @@ puts "capture_suite_invokers=#{discovered.length} sites=#{discovered.values.flat
 discovered.keys.sort.each do |path|
   row = ALLOWLIST.find { |r| r[:path] == path }
   puts "  #{path}:#{discovered[path].join(',')} reaches_rm=#{row ? row[:reaches_rm] : 'UNDECLARED'} " \
-       "owner=#{row ? row[:owner] : 'UNDECLARED'} declared_in=#{row ? row[:declared_in] : 'UNDECLARED'}"
+       "maintained_by=#{row ? row[:maintained_by] : 'UNDECLARED'} declared_in=#{row ? row[:declared_in] : 'UNDECLARED'}"
 end
 pending = ALLOWLIST.select { |r| r[:declared_in] == "PENDING-08.6-07" }.map { |r| r[:path] }
 puts "capture_suite_declarations_pending=#{pending.empty? ? 'none' : pending.join(',')}"

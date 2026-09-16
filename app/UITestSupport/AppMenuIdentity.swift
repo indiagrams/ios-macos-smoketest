@@ -53,8 +53,14 @@ import XCTest
 #if os(macOS)
     extension XCUIApplication {
         /// One top-level menu-bar item, read from a single accessibility snapshot: its own rendered
-        /// text and its first submenu entry's rendered text. AppKit publishes a menu's structure via
-        /// accessibility whether or not it is open, so reading this needs no click.
+        /// text and its own submenu's first entry's rendered text. AppKit publishes a menu's
+        /// structure via accessibility whether or not it is open, so reading this needs no click.
+        ///
+        /// `firstChildTitle` READS THE GRANDCHILD, NOT THE CHILD (R1-IN-03, fixed 08.6-04). A
+        /// menu-bar item's DIRECT child is its own `menu` node, which renders no text of its own —
+        /// the phase evidence recorded `first_child_title=""` for all 7 items while the walk read
+        /// only that far. The field carries the submenu's first entry, one level further in, which
+        /// is what every reader of the `menu-bar-enumeration` attachment already assumed it meant.
         struct MenuBarSnapshotEntry {
             let title: String
             let firstChildTitle: String
@@ -74,41 +80,61 @@ import XCTest
             }
         }
 
-        /// EVERY top-level menu-bar item, in document order, from ONE `snapshot()` call — never a
-        /// click-per-item loop, matching this codebase's bounded-read discipline
-        /// (`SweepDriver.swift`'s `count(_:)` doc comment; `BlindReadGuards.swift`'s file header).
-        /// Deduplicates by title, the same rule `SweepDriver.swift`'s `harvest(_:inherited:into:)`
-        /// already applies when it builds the array `productName` reads from. THIS DEDUP IS FOR
-        /// READERS THAT WANT A DISPLAY LIST — a reader that needs to COUNT the population, so a
-        /// uniqueness bound can fail on a duplicate title, must use `menuBarSnapshotTitles()`
-        /// below instead (R1-IN-02).
-        func menuBarSnapshotEntries() throws -> [MenuBarSnapshotEntry] {
+        /// EVERY top-level menu-bar item, in document order, walked over a root ALREADY TAKEN by
+        /// the caller — never a click-per-item loop, matching this codebase's bounded-read
+        /// discipline (`SweepDriver.swift`'s `count(_:)` doc comment; `BlindReadGuards.swift`'s
+        /// file header). Deduplicates by title, the same rule `SweepDriver.swift`'s
+        /// `harvest(_:inherited:into:)` already applies when it builds the array `productName`
+        /// reads from. THIS DEDUP IS FOR READERS THAT WANT A DISPLAY LIST — a reader that needs to
+        /// COUNT the population, so a uniqueness bound can fail on a duplicate title, must use
+        /// `menuBarSnapshotTitles(from:)` below instead (R1-IN-02).
+        ///
+        /// TAKES NO SNAPSHOT ITSELF (R1-IN-01, fixed 08.6-04). Before this fix, every caller that
+        /// already held a root from its own `try app.snapshot()` still called the throwing,
+        /// no-argument form below, which took a SECOND, independent `snapshot()` — two reads that
+        /// were never the atomic view the file header claimed. `selectApplicationMenuBarItemByIdentity`
+        /// and `SweepDriver.privacyControlOnThisSurface` now both pass their own root here instead.
+        func menuBarSnapshotEntries(from root: XCUIElementSnapshot) -> [MenuBarSnapshotEntry] {
             var entries: [MenuBarSnapshotEntry] = []
-            let root = try snapshot()
             walkMenuBarItems(root) { node in
                 let title = node.renderedText
                 if !title.isEmpty, !entries.contains(where: { $0.title == title }) {
-                    let firstChild = node.children.first?.renderedText ?? ""
+                    let firstChild = node.children.first?.children.first?.renderedText ?? ""
                     entries.append(MenuBarSnapshotEntry(title: title, firstChildTitle: firstChild))
                 }
             }
             return entries
         }
 
-        /// EVERY top-level menu-bar item's title, in document order, from the SAME single
-        /// `snapshot()` walk as `menuBarSnapshotEntries()` above — but with NO deduplication.
+        /// The one-line convenience for a caller that has not already taken a snapshot: takes the
+        /// ONE `snapshot()` this file's header claims, then forwards to `menuBarSnapshotEntries(from:)`
+        /// above. A caller that already holds a root — every call site in this codebase, today —
+        /// must call the `from:` overload directly instead; calling this one AS WELL would be the
+        /// second, independent snapshot R1-IN-01 existed to stop.
+        func menuBarSnapshotEntries() throws -> [MenuBarSnapshotEntry] {
+            menuBarSnapshotEntries(from: try snapshot())
+        }
+
+        /// EVERY top-level menu-bar item's title, in document order, walked over a root ALREADY
+        /// TAKEN by the caller — the same walk `menuBarSnapshotEntries(from:)` above uses, but with
+        /// NO deduplication.
         ///
         /// IT EXISTS BECAUSE A UNIQUENESS ASSERTION CANNOT BE MADE OVER A POPULATION THAT WAS
         /// ALREADY MADE UNIQUE (R1-IN-02, unreachable until 08.6-02). `SweepDriver.swift`'s step
         /// 15 asserts a live menu-bar title appears EXACTLY once; counting over
-        /// `menuBarSnapshotEntries()`'s deduped titles means the count can only ever be 0 or 1 —
-        /// the `> 1` half of "exactly 1" was structurally unreachable, because the dedup guard
+        /// `menuBarSnapshotEntries(from:)`'s deduped titles means the count can only ever be 0 or
+        /// 1 — the `> 1` half of "exactly 1" was structurally unreachable, because the dedup guard
         /// above collapses two same-titled items into one before the count ever runs. This reader
         /// keeps every title, duplicates included, so that half can fail. Display-list readers
-        /// keep using `menuBarSnapshotEntries()`; this one is for readers that count.
-        func menuBarSnapshotTitles() throws -> [String] {
+        /// keep using `menuBarSnapshotEntries(from:)`; this one is for readers that count.
+        ///
+        /// TAKES NO SNAPSHOT ITSELF, AND HAS NO THROWING NO-ARGUMENT TWIN (R1-IN-01). Every caller
+        /// of this reader already holds a root taken for another read on the same invocation
+        /// (`SweepDriver.privacyControlOnThisSurface` reads `expected`, `raw` and `deduped` from
+        /// one snapshot); a second convenience that took its own would reintroduce the defect this
+        /// function's sibling above was just fixed to stop.
+        func menuBarSnapshotTitles(from root: XCUIElementSnapshot) -> [String] {
             var titles: [String] = []
-            let root = try snapshot()
             walkMenuBarItems(root) { node in
                 let title = node.renderedText
                 if !title.isEmpty {
@@ -243,7 +269,7 @@ import XCTest
             do {
                 let root = try app.snapshot()
                 applicationRenderedText = root.renderedText
-                entries = try app.menuBarSnapshotEntries()
+                entries = app.menuBarSnapshotEntries(from: root)
             } catch {
                 XCTFail("could not read the menu bar's accessibility snapshot: \(error)", file: file, line: line)
                 return noSelectionSentinel(on: app)

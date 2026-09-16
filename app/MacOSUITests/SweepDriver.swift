@@ -275,15 +275,22 @@ extension VisibleStringSweep {
     /// COUNTS OVER THE RAW, UNDEDUPED TITLES — this bound was unreachable until 08.6-02 (R1-IN-02):
     /// counting over `menuBarSnapshotEntries()`'s deduped titles meant `matches` could only ever be
     /// 0 or 1, so the `> 1` half of "expected exactly 1" could never fire on a duplicate title.
+    ///
+    /// READS `expected`, `raw` AND `deduped` FROM ONE ROOT (R1-IN-01, fixed 08.6-04). Before this
+    /// fix, this step took THREE independent whole-app snapshots per surface — one for `expected`,
+    /// one inside the old throwing `menuBarSnapshotTitles()`, one inside the old throwing
+    /// `menuBarSnapshotEntries()` — none of them the same accessibility view. All three now read
+    /// the single `try app.snapshot()` below.
     func privacyControlOnThisSurface(_ surface: String) {
         let inTree = count(Ident.Shell.privacyPolicy)
         let expected: String
         let raw: [String]
         let deduped: [String]
         do {
-            expected = try app.snapshot().renderedText
-            raw = try app.menuBarSnapshotTitles()
-            deduped = try app.menuBarSnapshotEntries().map(\.title)
+            let root = try app.snapshot()
+            expected = root.renderedText
+            raw = app.menuBarSnapshotTitles(from: root)
+            deduped = app.menuBarSnapshotEntries(from: root).map(\.title)
         } catch {
             XCTFail("step 15: could not read the application or menu-bar snapshot on \(surface): \(error)")
             return

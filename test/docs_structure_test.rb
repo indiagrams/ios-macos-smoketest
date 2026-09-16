@@ -472,11 +472,36 @@ dupe = ids.tally.select { |_, n| n > 1 }.keys
 assert dupe.empty?,
        "#{UPSTREAM_LEDGER}: UL IDs are unique#{dupe.empty? ? '' : " — duplicated: #{dupe.join(', ')}"}"
 
+# W-08 (08.5-VALIDATION-AUDIT.md §5.6): the SCOPE test cell used to be checked only for
+# non-emptiness, which is how a row nobody actually answered -- a bare "TBD" -- would
+# still pass the gate that exists to make UP-03 auditable per row. SCOPE.md's own gate
+# ("Does this addition require modifying Swift source files in `app/Shared/` to use it?")
+# admits exactly two answers, matching docs/CONTRIBUTING-UPSTREAM.md §1's restatement of
+# the same test ("No -> around the project; in scope" / "Yes -> inside the project; out
+# of scope"); a ledger row answers with one of the two, not with the question restated,
+# not with "TBD", and not with a near-miss spelling of either.
+#
+# MEASURED 2026-09-15: 102 UL-NNN rows = 100 "No - in scope" + 2 "Yes - out of scope".
+# The set below is DERIVED from that measurement, not invented — a hardcoded pair that
+# did not match the file's real vocabulary would fail this gate on day one, which is
+# exactly the property that makes freezing it meaningful.
+SCOPE_ANSWERS = ["No - in scope", "Yes - out of scope"].freeze
+
 if scope_idx
-  missing_scope = data_rows.filter_map { |r| cells(r).first if cells(r)[scope_idx].to_s.empty? }
-  assert missing_scope.empty?,
-         "#{UPSTREAM_LEDGER}: every row records a SCOPE test answer (UP-03 stays auditable per row)" \
-         "#{missing_scope.empty? ? '' : " — missing: #{missing_scope.join(', ')}"}"
+  # The non-empty check is folded into membership below (an empty string is not in
+  # SCOPE_ANSWERS either), but its wording is kept as the message's fallback so a blank
+  # cell still reads as "missing" rather than as an inscrutable vocabulary mismatch.
+  off_vocab = data_rows.filter_map do |r|
+    c     = cells(r)
+    value = c[scope_idx].to_s.strip
+    next if SCOPE_ANSWERS.include?(value)
+
+    "#{c.first}=#{value.empty? ? '(missing)' : value.inspect}"
+  end
+  assert off_vocab.empty?,
+         "#{UPSTREAM_LEDGER}: every SCOPE test cell is one of #{SCOPE_ANSWERS.inspect} " \
+         "(UP-03 stays auditable per row, not merely non-empty)" \
+         "#{off_vocab.empty? ? '' : " — offending: #{off_vocab.join('; ')}"}"
 end
 
 # ─── docs/UI-TESTING-ON-BOTH-PLATFORMS.md ────────────────────────────────────

@@ -308,6 +308,36 @@ jobs:
 
       - name: test macOS (unsigned)
         if: matrix.platform == 'macos'
+        env:
+          # THIS CELL DECLARES ITSELF A NON-CAPTURE RUN, AND WITHOUT IT EVERY PULL
+          # REQUEST IS UNMERGEABLE. Do not delete it as mysterious (B-01).
+          #
+          # This step runs the FULL App-macOS scheme with no -only-testing, and that
+          # scheme's Test action includes AppMacOSUITests (app/project.yml:377-381 and
+          # app/Project.swift:326-331, both manifests agreeing). So it runs the App
+          # Store capture suite BY INCLUSION, without ever naming it — which is why a
+          # grep for the suite name missed this path and D-155 recorded two invokers
+          # where there are four.
+          #
+          # As of plan 08.6-03 that suite REFUSES rather than skips on a display too
+          # short to hold its 1440x900-point capture window, unless the run says it is
+          # a non-capture run. A hosted macOS runner is 1024x768 (run 34978692666,
+          # D-137), i.e. exactly that input — and this cell is BOTH required contexts
+          # "app (macOS)" and "app (Tuist macOS)" in branch protection on main. Without
+          # this declaration the refusal turns both red on every PR, with no way out
+          # but an admin edit to protection. D-154 exists to prevent precisely that.
+          #
+          # Declaring is safe here BECAUSE THIS PATH PROVABLY CANNOT DESTROY ANYTHING:
+          # it calls xcodebuild directly and never ci/take-screenshots.sh, so it cannot
+          # reach ci/extract-mac-screenshots.sh:53's rm. The capture path itself is
+          # never declared and keeps the strict default.
+          #
+          # THE SPELLING IS LOAD-BEARING. It must be the TEST_RUNNER_-prefixed name in
+          # an env: block — xcodebuild strips the prefix in transit and the guard reads
+          # the bare CAPTURE_NON_STRICT. The same name appended to the xcodebuild
+          # command line is consumed as a BUILD SETTING and was measured never to
+          # arrive, on both a simulator and a hosted runner (run 35047725894, UL-100).
+          TEST_RUNNER_CAPTURE_NON_STRICT: "1"
         run: |
           set -o pipefail
           # macOS test destination is bare `platform=macOS` — `xcodebuild

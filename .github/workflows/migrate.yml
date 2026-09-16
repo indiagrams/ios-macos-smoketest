@@ -133,4 +133,29 @@ jobs:
           # MIGRATE_MACOS_ONLY_TESTING is deliberately NOT set. CI is the
           # arbiter for the macOS UI-test target, and the Gatekeeper dialog that
           # knob exists for is a local-desktop problem, not a runner one.
+          #
+          # AND BECAUSE IT IS NOT SET, THIS STEP RUNS THE APP STORE CAPTURE SUITE.
+          # Do not delete the key below as mysterious (B-01).
+          #
+          # ci/test-migrate-identity.sh:920 and :934 run the FULL App-macOS scheme,
+          # scoped only when MIGRATE_MACOS_ONLY_TESTING is set, and :410 defaults it
+          # OFF in its own words: "Unset is the CI shape: the FULL App-macOS scheme,
+          # UI targets included." That scheme's Test action includes AppMacOSUITests,
+          # so the capture suite runs there BY INCLUSION and the script never names it.
+          #
+          # As of plan 08.6-03 that suite REFUSES rather than skips on a display too
+          # short for its capture window, unless the run declares itself a non-capture
+          # run — and a hosted macOS runner is 1024x768 (run 34978692666, D-137).
+          # Declaring is safe here because this path invokes xcodebuild directly and
+          # never ci/take-screenshots.sh, so it cannot reach that script's rm at :53.
+          #
+          # THE DECLARATION LIVES HERE, IN A FORK-OWNED FILE, ON PURPOSE.
+          # ci/test-migrate-identity.sh is TEMPLATE-OWNED and must stay byte-identical
+          # to its upstream pin (D-131). A key set in this step's env: block propagates
+          # through the shell into the script's xcodebuild child, which is the same
+          # form-A mechanism plan 08.6-01 measured — so invoker 4 is declared for
+          # WITHOUT EDITING A SINGLE TEMPLATE-OWNED BYTE. The TEST_RUNNER_ prefix is
+          # the carrier and is stripped in transit; the guard reads the bare
+          # CAPTURE_NON_STRICT (run 35047725894, UL-100).
+          TEST_RUNNER_CAPTURE_NON_STRICT: "1"
         run: bash ci/test-migrate-identity.sh

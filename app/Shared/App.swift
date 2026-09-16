@@ -57,6 +57,23 @@ struct AppMain: App {
             CommandGroup(after: .appInfo) {
                 PrivacyPolicyLink()
             }
+            // PLANTED DEFECT — SCRATCH BRANCH ONLY, THIS MUST NEVER MERGE.
+            // A second top-level menu titled with the app's own name, so that
+            // `SweepDriver.privacyControlOnThisSurface`'s step-15 assertion meets the
+            // input it CANNOT meet on a clean runner: a DUPLICATE app-name title.
+            // Measured on the phase branch at b96912a: raw=7 deduped=7 matches=1, i.e.
+            // raw and deduped are identical in CI, so the R1-IN-02 fix (count `raw`,
+            // not `deduped`) changes nothing there and the control has only ever been
+            // seen green. With this plant the FIXED control must report matches=2 and
+            // FAIL. If it does not, the control is vacuous the way R1-IN-04's was.
+            // The shipped control is deliberately left untouched: this tests the
+            // control, not the plant. See B-06.
+            CommandMenu(
+                Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                    ?? "Shipkit Pipes"
+            ) {
+                Button("planted duplicate — scratch only") {}
+            }
         }
         #endif
     }

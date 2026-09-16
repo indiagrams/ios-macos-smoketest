@@ -1516,10 +1516,29 @@ jobs:
       # device fastlane/Snapfile pins for App Store screenshot capture (read at
       # execution time, never hardcoded — Snapfile's own header records that a
       # hardcoded pin rots), resolve a destination via the upstream-adopted
-      # bin/uitest-destination.sh (plan 08.5-01), and pre-boot it exactly as
-      # pr.yml's `app` job does (same bootstatus -b -d 300 shape) so a stuck
+      # bin/uitest-destination.sh (plan 08.5-01), and pre-boot it so a stuck
       # booter fails within minutes rather than idling inside xcodebuild's own
       # prepare phase.
+      #
+      # THE STEPS MIRRORED FROM pr.yml's `app` job, LISTED RATHER THAN CLAIMED
+      # (R1-IN-09). This comment used to say the pre-boot was done "exactly as
+      # pr.yml's", and it was not: pr.yml:220 shuts every simulator down FIRST
+      # and this step did not, so the claim was false in the one respect that
+      # could fail a job. An equivalence assertion in prose cannot be checked by
+      # anyone; a list can be read line against line, and a future divergence is
+      # then visible rather than asserted away.
+      #
+      #   1. `xcrun simctl shutdown all || true`   <- pr.yml:220 (ADDED 08.6-09)
+      #   2. UDID resolved from `simctl list devices available -j` + jq,
+      #      never a hardcoded name=/OS= pair       <- pr.yml:221-234
+      #   3. `xcrun simctl boot "$UDID"`            <- pr.yml
+      #   4. `xcrun simctl bootstatus "$UDID" -b -d 300`  <- pr.yml
+      #   5. `timeout-minutes` on the step so a stuck booter fails fast
+      #
+      # DELIBERATELY NOT MIRRORED: the device SELECTION. pr.yml takes the first
+      # available iPhone; this step requires the Snapfile-pinned capture device
+      # by name, because a capture run on some other device would produce tiles
+      # of the wrong dimensions. That difference is the point of this job.
       - name: iOS Simulator — probe capture device, resolve destination, pre-boot
         if: matrix.platform == 'ios-sim'
         id: sim
@@ -1572,6 +1591,14 @@ jobs:
           [ -n "$UDID" ] || { echo "::error::no available simulator UDID matches name '$SIM_NAME'"; exit 1; }
           echo "Using simulator UDID=$UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+          # SHUT DOWN FIRST — step 1 of the mirrored list above (pr.yml:220).
+          # GitHub-hosted runners can carry stale boot state across workflow runs
+          # that share image caches, and `xcrun simctl boot` EXITS NON-ZERO on an
+          # already-booted device, which under this step's `set -euo pipefail`
+          # kills the job before xcodebuild ever starts. A safe no-op when
+          # nothing is booted.
+          xcrun simctl shutdown all || true
 
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b -d 300

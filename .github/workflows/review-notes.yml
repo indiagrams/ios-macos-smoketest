@@ -1661,6 +1661,13 @@ jobs:
       - name: "measure form A — TEST_RUNNER_ prefix as a trailing xcodebuild argument"
         id: probe-a
         continue-on-error: true
+        env:
+          # The probe ASSERTS as of plan 08.6-03, and it decides WHICH arm to assert
+          # from these two markers rather than from the subject variable itself —
+          # asserting your own input's absence is a tautology. Both are read
+          # prefix-stripped inside the runner, by the same mechanism under test.
+          TEST_RUNNER_CAPTURE_PROBE_SUBJECT: "CAPTURE_REQUIRED"
+          TEST_RUNNER_CAPTURE_PROBE_EXPECT: "absent"
         run: |
           set -o pipefail
           xcodebuild test \
@@ -1685,6 +1692,12 @@ jobs:
         continue-on-error: true
         env:
           TEST_RUNNER_CAPTURE_REQUIRED: "1"
+          # The probe ASSERTS as of plan 08.6-03, and it decides WHICH arm to assert
+          # from these two markers rather than from the subject variable itself —
+          # asserting your own input's absence is a tautology. Both are read
+          # prefix-stripped inside the runner, by the same mechanism under test.
+          TEST_RUNNER_CAPTURE_PROBE_SUBJECT: "CAPTURE_REQUIRED"
+          TEST_RUNNER_CAPTURE_PROBE_EXPECT: "present:1"
         run: |
           set -o pipefail
           xcodebuild test \
@@ -1709,6 +1722,12 @@ jobs:
         continue-on-error: true
         env:
           CAPTURE_REQUIRED: "1"
+          # The probe ASSERTS as of plan 08.6-03, and it decides WHICH arm to assert
+          # from these two markers rather than from the subject variable itself —
+          # asserting your own input's absence is a tautology. Both are read
+          # prefix-stripped inside the runner, by the same mechanism under test.
+          TEST_RUNNER_CAPTURE_PROBE_SUBJECT: "CAPTURE_REQUIRED"
+          TEST_RUNNER_CAPTURE_PROBE_EXPECT: "absent"
         run: |
           set -o pipefail
           xcodebuild test \
@@ -1728,6 +1747,13 @@ jobs:
       - name: "measure form none — nothing declared anywhere"
         id: probe-none
         continue-on-error: true
+        env:
+          # The probe ASSERTS as of plan 08.6-03, and it decides WHICH arm to assert
+          # from these two markers rather than from the subject variable itself —
+          # asserting your own input's absence is a tautology. Both are read
+          # prefix-stripped inside the runner, by the same mechanism under test.
+          TEST_RUNNER_CAPTURE_PROBE_SUBJECT: "CAPTURE_REQUIRED"
+          TEST_RUNNER_CAPTURE_PROBE_EXPECT: "absent"
         run: |
           set -o pipefail
           xcodebuild test \

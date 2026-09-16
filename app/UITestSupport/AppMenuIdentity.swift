@@ -202,6 +202,19 @@ import XCTest
             )
         }
 
+        /// A menu-bar item guaranteed to have ZERO matches, by construction: no real menu-bar
+        /// item is ever given this identifier. Returned by every failure path of
+        /// `selectApplicationMenuBarItemByIdentity` below instead of the bar's own first live
+        /// item — which, measured (R1-IN-04), IS the application's own Apple menu, so a caller that
+        /// proceeds past a failure under `continueAfterFailure = true` (as
+        /// `PrivacyLinkTests.testOnePrivacyControlOnEverySurface` does, deliberately) previously
+        /// went on to read the Apple menu's own contents, and every follow-on failure message
+        /// named the wrong menu. The identifier is a generic literal, naming no view and no type
+        /// of this application (standing rule 16).
+        private func noSelectionSentinel(on app: XCUIApplication) -> XCUIElement {
+            app.menuBarItems.matching(identifier: "__no_selection__").firstMatch
+        }
+
         /// Selects, opens and safety-checks the application's OWN top-level menu-bar item BY
         /// IDENTITY — see the file header. Records the `.keepAlways` `menu-bar-enumeration`
         /// attachment, clicks the matched item, asserts the opened menu excludes the Apple menu's own
@@ -213,8 +226,12 @@ import XCTest
         /// never falls back to an index. If `continueAfterFailure` is true at the call site (as
         /// `PrivacyLinkTests.testOnePrivacyControlOnEverySurface` sets it, deliberately, to measure
         /// every surface even after one fails), execution continues past the failure and this
-        /// returns an UNCLICKED placeholder — a mechanical necessity of the non-optional return
-        /// type, not a second selection route; the failure above has already named the defect.
+        /// returns the sentinel defined above — an element that structurally cannot exist, a
+        /// mechanical necessity of the non-optional return type, not a second selection route; the
+        /// failure above has already named the defect. It previously returned the bar's own first
+        /// live item, which IS the Apple menu (R1-IN-04); that made every follow-on failure under
+        /// `continueAfterFailure = true` misdescribe the Apple menu as the selection. The sentinel
+        /// makes that misattribution structurally impossible.
         @discardableResult
         func selectApplicationMenuBarItemByIdentity(
             on app: XCUIApplication,
@@ -229,7 +246,7 @@ import XCTest
                 entries = try app.menuBarSnapshotEntries()
             } catch {
                 XCTFail("could not read the menu bar's accessibility snapshot: \(error)", file: file, line: line)
-                return app.menuBarItems.firstMatch
+                return noSelectionSentinel(on: app)
             }
 
             let expected = resolvedApplicationName(applicationRenderedText: applicationRenderedText)
@@ -241,7 +258,7 @@ import XCTest
                         + "\(entries.map(\.title).joined(separator: " | "))",
                     file: file, line: line
                 )
-                return app.menuBarItems.firstMatch
+                return noSelectionSentinel(on: app)
             }
 
             let live = app.menuBarItems
@@ -262,7 +279,7 @@ import XCTest
                     + "\(expected.source)) — enumerated: \(entries.map(\.title).joined(separator: " | "))",
                 file: file, line: line
             )
-            return app.menuBarItems.firstMatch
+            return noSelectionSentinel(on: app)
         }
     }
 #endif

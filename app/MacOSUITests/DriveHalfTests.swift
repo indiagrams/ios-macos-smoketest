@@ -105,6 +105,54 @@ final class DriveHalfTests: XCTestCase {
         robot.app.typeKey(.escape, modifierFlags: [])
     }
 
+    /// THE STANDING RED HALF of R1-IN-04's sentinel (08.6-02). Forces
+    /// `selectApplicationMenuBarItemByIdentity`'s THIRD failure path — "no menu-bar item's title
+    /// matches" — and asserts the returned element cannot be mistaken for real menu content.
+    ///
+    /// THE FORCING INPUT, AND WHY IT IS THE CHEAPEST ONE THAT DOES NOT EDIT SHIPPED CODE:
+    /// `com.apple.dock` is an always-running `LSUIElement` accessory process. Its own application
+    /// element renders a non-empty name (so the search does not instead hit the SECOND failure
+    /// path, "app element rendered no name"), but an `LSUIElement` publishes NO top-level
+    /// menu-bar items at all — Dock has no menu bar. So `selectApplicationMenuBarItemByIdentity(on:
+    /// dock)` reads a non-empty expected name, then searches a live `menuBarItems` query that is
+    /// unconditionally empty, and falls through to the "no menu-bar item's title matches" branch
+    /// deterministically — no timing race, no dependency on this app's own window state, and no
+    /// edit to this app's shipped UI.
+    ///
+    /// THE RED THIS STAGES (standing rule 5 forbids a local macOS UI run; plan 08.6-07 pushes it):
+    /// `evidence/08.6-02-in04-scratch.diff` reverts the three sentinel returns in
+    /// `AppMenuIdentity.swift` back to `app.menuBarItems.firstMatch`. Applied on the runner, THIS
+    /// test must go red at `XCTAssertFalse(returned.exists)`, because the reverted code returns the
+    /// bar's own first live item (the Apple menu), which DOES exist.
+    func testFailedMenuSelectionReturnsAnElementThatCannotExist() {
+        let robot = TestRobot(app: XCUIApplication())
+        robot.register(with: self)
+        robot.launch(args: ["UI_TESTING"])
+
+        let dock = XCUIApplication(bundleIdentifier: "com.apple.dock")
+
+        let options = XCTExpectedFailure.Options()
+        options.issueMatcher = { issue in
+            issue.compactDescription.contains("no menu-bar item's title matches")
+        }
+        var returned: XCUIElement!
+        XCTExpectFailure(
+            "com.apple.dock is an LSUIElement with no menu-bar items, so the identity search "
+                + "must fail by name",
+            options: options
+        ) {
+            returned = selectApplicationMenuBarItemByIdentity(on: dock)
+        }
+
+        driveHalfRecord("menu_selector_failure_return=\(returned.identifier) exists=\(returned.exists)")
+        XCTAssertFalse(returned.exists, "a failed selection must return an element that cannot exist")
+        XCTAssertEqual(
+            returned.identifier,
+            "__no_selection__",
+            "a failed selection must return the generic sentinel, never a real menu-bar item"
+        )
+    }
+
     /// Bounded probe (T-08.5-11): the wall-clock cost of an UNCONDITIONAL `app.activate()`,
     /// wrapped in a non-strict `XCTExpectFailure` since `ScreenshotContract.swift:80-90` records a
     /// failure for exactly this call on a headless runner. Plan 08.5-08 reads the measured seconds

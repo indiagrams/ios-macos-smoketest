@@ -2124,10 +2124,21 @@ jobs:
           # BY THEIR OWN TEXT, and what remains must be empty. Beside it, the
           # script's own `step()` banner shape (`==> `, ci/take-screenshots.sh:56)
           # must appear zero times, which is what its execution would look like.
+          # EACH grep IS GUARDED BECAUSE FINDING NOTHING IS THIS CLAUSE'S PASSING
+          # CASE, NOT AN ERROR. `grep -v` that filters out every line exits 1;
+          # with `set -o pipefail` above and GitHub's default `bash -e {0}`, that
+          # status killed the whole step AT THIS ASSIGNMENT — before clause 4 was
+          # evaluated, before clause 5 ran, and before the RESULT line was
+          # emitted. Run 35068795899 is the measurement: the log shows
+          # `skip_message_present=no` and then `exit code 1`, with
+          # `take_screenshots_invoked=` never printed. So the verdict could not
+          # pass in the one world it exists to certify — a correctly refusing
+          # guard, whose refusal message is the only thing naming that script
+          # (T-08.6-29). `wc`/`tr` stay unguarded: those failing IS an error.
           # shellcheck disable=SC2126  # two exclusions stand between the match and the count
           invoked=$(grep -F 'take-screenshots' "$log" \
-            | grep -vF 'REFUSING to run the capture suite rather than skipping it' \
-            | grep -vF 'displayCannotHoldCaptureWindow' \
+            | { grep -vF 'REFUSING to run the capture suite rather than skipping it' || true; } \
+            | { grep -vF 'displayCannotHoldCaptureWindow' || true; } \
             | wc -l | tr -d ' ')
           banners=$(grep -c '^==> ' "$log" || true)
           echo "take_screenshots_invoked=$invoked take_screenshots_banners=$banners"

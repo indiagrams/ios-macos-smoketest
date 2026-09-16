@@ -115,18 +115,25 @@ final class AppStoreScreenshotTests: XCTestCase {
     /// never `ci/take-screenshots.sh`. The decision itself is `CaptureFit.captureDeclaration`
     /// (`CaptureFit.swift`), pure and unit-exercisable, because none of the interesting inputs
     /// exist on the machine this suite is developed on.
+    ///
+    /// **AND THE DECISION RIDES AN ACTIVITY, NOT A BARE `print` (08.6-07).** `print` from this
+    /// bundle does NOT reach `xcodebuild`'s pipe on macOS (`docs/UI-TESTING-ON-BOTH-PLATFORMS.md`
+    /// §7) — so on the ONE platform where this decision exists, a CI step had nothing to read and
+    /// no control could show the guard reached its subject. `driveHalfRecord` does both.
     override func setUpWithError() throws {
         let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.size
         let visibleText = visible.map { "\($0.width)x\($0.height)" } ?? "none"
-        print("capture_fit requested=\(Self.captureWindowSize) visibleFrame=\(visibleText)")
+        driveHalfRecord("capture_fit requested=\(Self.captureWindowSize) visibleFrame=\(visibleText)")
         switch CaptureFit.captureDeclaration(visible: visible,
                                              requested: Self.captureWindowSize,
                                              environment: ProcessInfo.processInfo.environment) {
         case .proceed:
-            break
+            driveHalfRecord("capture_fit decision=proceed")
         case .skip(let reason):
+            driveHalfRecord("capture_fit decision=skip reason=\(reason)")
             throw XCTSkip(reason)
         case .refuse(let reason):
+            driveHalfRecord("capture_fit decision=refuse reason=\(reason)")
             XCTFail(reason)
             throw CaptureFitRefusal.displayCannotHoldCaptureWindow(reason)
         }

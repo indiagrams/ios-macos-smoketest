@@ -132,13 +132,19 @@ ALLOWLIST = [
   },
   {
     path: ".github/workflows/review-notes.yml",
-    sites: 1,
+    sites: 2,
+    strict_sites: 1,
     reaches_rm: false,
     maintained_by: "fork",
-    declared_in: "PENDING-08.6-07",
-    note: "the ui-drive-half macOS cell, which names the capture suite explicitly. Its " \
-          "declaration and the two D-158 controls are plan 08.6-07's, on a hosted runner, " \
-          "because that is the machine supplying the 1024x768 display the controls need"
+    declared_in: ".github/workflows/review-notes.yml",
+    note: "TWO sites, and they are deliberately opposite. (1) the ui-drive-half macOS cell " \
+          "names the capture suite explicitly and DECLARES itself a non-capture run, so it " \
+          "skips green on a 1024x768 runner. (2) capture-refusal-control declares NOTHING, on " \
+          "purpose: it is D-158's must-be-seen-red half, and under a default-strict rule the " \
+          "strict arm IS an absence. So `declared_in` being this file does NOT mean every site " \
+          "here declares — `strict_sites` records how many must not, and clause 5 below only " \
+          "asserts that the declaration named exists somewhere in the file. Adding the opt-out " \
+          "to job (2) would delete the only control that shows the guard refuses"
   },
   {
     path: ".github/workflows/pr.yml",
@@ -456,7 +462,15 @@ ALLOWLIST.each do |row|
   when "NONE-BY-DESIGN", "PENDING-08.6-07"
     next
   else
+    # COMMENTS DO NOT COUNT, and this clause shipped without that filter. A
+    # `#` line mentioning the key by name satisfied `include?` exactly as a live
+    # setting did -- measured on a scratch copy of this tree with the real
+    # declaration DELETED and only a prose mention of it left behind: the gate
+    # stayed green. Standing rule 10's "grep -c counts comments" is the same
+    # defect, and the population here is YAML and shell, where a stripped line
+    # beginning `#` is a comment in both.
     text = read_source(row[:declared_in])
+    text = text.lines.reject { |line| line.strip.start_with?("#") }.join unless text.nil?
     assert !text.nil? && text.include?(DECLARATION_KEY),
            "#{row[:path]}: its declaration is in #{row[:declared_in]}, and that file carries " \
            "#{DECLARATION_KEY} — without it this invoker refuses on a hosted runner. The " \
@@ -475,7 +489,8 @@ puts "capture_suite_invokers=#{discovered.length} sites=#{discovered.values.flat
 discovered.keys.sort.each do |path|
   row = ALLOWLIST.find { |r| r[:path] == path }
   puts "  #{path}:#{discovered[path].join(',')} reaches_rm=#{row ? row[:reaches_rm] : 'UNDECLARED'} " \
-       "maintained_by=#{row ? row[:maintained_by] : 'UNDECLARED'} declared_in=#{row ? row[:declared_in] : 'UNDECLARED'}"
+       "maintained_by=#{row ? row[:maintained_by] : 'UNDECLARED'} declared_in=#{row ? row[:declared_in] : 'UNDECLARED'} " \
+       "strict_sites=#{row ? (row[:strict_sites] || 0) : 'UNDECLARED'}"
 end
 pending = ALLOWLIST.select { |r| r[:declared_in] == "PENDING-08.6-07" }.map { |r| r[:path] }
 puts "capture_suite_declarations_pending=#{pending.empty? ? 'none' : pending.join(',')}"

@@ -1370,11 +1370,33 @@ jobs:
             scheme: App-iOS
             only: "-only-testing:AppUITests/DriveHalfTests -only-testing:AppUITests/LaunchLayoutTests"
             suites: "DriveHalfTests LaunchLayoutTests"
+            # NOTHING DECLARED HERE, AND THE EMPTY VALUE IS THE POINT. This cell
+            # runs the App-iOS scheme and no capture suite at all, so a blanket
+            # opt-out would buy nothing today and rot tomorrow: plan 08.6-11
+            # creates the iOS twin of the capture guard, and a declaration left
+            # lying here would make that twin skip silently on its first run.
+            # CaptureFit honours the opt-out ONLY as the exact string "1" — "",
+            # "0" and "true" all land on the strict side, measured (T-08.6-11).
+            declare_non_capture: ""
           - platform: macos
             display: macOS
             scheme: App-macOS
             only: "-only-testing:AppMacOSUITests/DriveHalfTests -only-testing:AppMacOSUITests/AppStoreScreenshotTests -only-testing:AppMacOSUITests/PrivacyLinkTests -only-testing:AppMacOSUITests/VisibleStringSweep"
             suites: "DriveHalfTests AppStoreScreenshotTests PrivacyLinkTests VisibleStringSweep"
+            # THIS CELL DECLARES ITSELF A NON-CAPTURE RUN — the ONE opt-out
+            # D-155 permits on this path, and the reason it is not a hole. It
+            # names AppStoreScreenshotTests explicitly and invokes `xcodebuild`
+            # DIRECTLY; it never calls ci/take-screenshots.sh, so it cannot
+            # reach the `rm` at ci/extract-mac-screenshots.sh:53 that deletes
+            # the untracked, gitignored fastlane/Mac_screenshots/en-US/macos-*.png
+            # tiles a hundred lines BEFORE discovering, at :156, that the run
+            # produced no attachment. A hosted macOS runner's visible frame is
+            # 1024x768 (run 34978692666, D-137) — too short for the
+            # 1440x900-point capture window — so without this the suite REFUSES
+            # and this cell is permanently red, which is how a real red stops
+            # being read (D-154). The capture path itself is NEVER declared and
+            # keeps the strict default; that asymmetry is the whole design.
+            declare_non_capture: "1"
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
@@ -1456,6 +1478,22 @@ jobs:
 
       - name: "xcodebuild test — ${{ matrix.display }} (${{ matrix.suites }})"
         id: uitest
+        env:
+          # THE SPELLING IS LOAD-BEARING, AND THE TWO NAMES ARE DIFFERENT NAMES.
+          # This step SETS the TEST_RUNNER_-prefixed name; the guard READS the
+          # bare CAPTURE_NON_STRICT. xcodebuild strips the prefix in transit and
+          # that prefix is what carries the value across xcodebuild ->
+          # testmanagerd -> the test bundle. Two spellings were each measured
+          # ABSENT twice — the same name appended to the xcodebuild command line
+          # (consumed as a BUILD SETTING) and the bare name alone in an env:
+          # block (plain shell inheritance does not reach the bundle process) —
+          # on an iOS Simulator and on a hosted macos-15 runner alike
+          # (run 35047725894, UL-100). A guard reading the prefixed name would
+          # see nothing, forever, and would look like it worked.
+          #
+          # The value is a fixed literal written into the matrix above, per
+          # platform, never an interpolation of anything an event carries.
+          TEST_RUNNER_CAPTURE_NON_STRICT: ${{ matrix.declare_non_capture }}
         run: |
           set -o pipefail
           if [ "${{ matrix.platform }}" = "ios-sim" ]; then
@@ -1564,6 +1602,90 @@ jobs:
           done
           echo "suites_unexercised=${unexercised} suite_counts_unreadable=${unreadable}"
           [ "$unexercised" -eq 0 ] && [ "$unreadable" -eq 0 ]
+
+      # D-169(b), THE SKIP-GREEN HALF OF D-158'S PAIR — and the half that is easy
+      # to believe without evidence. The cell above declares itself a non-capture
+      # run; this step shows the guard actually SAW that declaration, actually
+      # judged a display, and skipped for the measured reason rather than for
+      # some other one. A green cell that recorded neither has not shown it
+      # reached its subject, which is the `icon-and-built-plist` lesson: a
+      # conclusion with no facts is not a measurement.
+      #
+      # THE FACTS COME OUT OF THE XCRESULT, NEVER OUT OF THE LOG, and that is not
+      # a stylistic preference. `docs/UI-TESTING-ON-BOTH-PLATFORMS.md` §7 MEASURED
+      # that a `print` from a UI-test bundle reaches xcodebuild's pipe on the
+      # simulator and does NOT on macOS. Plan 08.6-07 found `setUpWithError`
+      # emitting its `capture_fit` line with a bare `print`, i.e. invisible on the
+      # one platform the line exists for; it now goes through `driveHalfRecord`,
+      # which is a `print` AND an `XCTContext` activity. Grepping the job log for
+      # it would have been a gate that could never pass.
+      - name: "capture declaration read-back (macOS) — the skip-green control"
+        if: always() && matrix.platform == 'macos'
+        run: |
+          set -uo pipefail
+          BUNDLE="$RUNNER_TEMP/ui-drive-half-macos.xcresult"
+          if [ ! -d "$BUNDLE" ]; then
+            echo "no xcresult bundle at $BUNDLE — xcodebuild test did not produce one"
+            if [ "${{ steps.uitest.outcome }}" = "success" ]; then
+              echo "::error::the test step succeeded but left no result bundle, so the capture guard cannot be shown to have been reached"
+              exit 1
+            fi
+            exit 0
+          fi
+          TESTS="$RUNNER_TEMP/capture-fit-tests.json"
+          xcrun xcresulttool get test-results tests --path "$BUNDLE" > "$TESTS" 2>/dev/null || true
+          ids=$(jq -r '[.. | objects | select(.nodeType? == "Test Case") | select((.nodeIdentifier? // "") | startswith("AppStoreScreenshotTests/")) | .nodeIdentifier] | .[]' "$TESTS" 2>/dev/null || true)
+          if [ -z "$ids" ]; then
+            echo "::error::no AppStoreScreenshotTests case is in the macOS result bundle, so this cell never reached the capture guard and nothing below could be asserted"
+            exit 1
+          fi
+          ACT="$RUNNER_TEMP/capture-fit-activities.txt"
+          : > "$ACT"
+          printf '%s\n' "$ids" | while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            res=$(jq -r --arg i "$id" '[.. | objects | select(.nodeIdentifier? == $i) | .result] | .[0] // "unreadable"' "$TESTS" 2>/dev/null || true)
+            echo "capture_case=$id result=${res:-unreadable}"
+            xcrun xcresulttool get test-results activities --path "$BUNDLE" --test-id "$id" --compact 2>/dev/null \
+              | grep -o 'capture_fit [^"]*' >> "$ACT" || true
+          done
+          sort -u "$ACT" -o "$ACT"
+          fit=$(grep -m1 '^capture_fit requested=' "$ACT" || true)
+          dec=$(grep -m1 '^capture_fit decision=' "$ACT" || true)
+          echo "capture_fit_line=${fit:-ABSENT}"
+          echo "capture_fit_decision=${dec:-ABSENT}"
+          status=0
+          if [ -z "$fit" ]; then
+            echo "::error::no 'capture_fit requested=… visibleFrame=…' activity in the macOS bundle — a cell that never recorded the display it judged has not shown it reached the guard"
+            status=1
+          fi
+          if [ -z "$dec" ]; then
+            echo "::error::no 'capture_fit decision=…' activity in the macOS bundle — the guard's answer was never recorded"
+            status=1
+          fi
+          case "$dec" in
+            *"decision=skip"*)
+              if printf '%s' "$dec" | grep -q '34978692666'; then
+                echo "skip_cited=34978692666"
+              else
+                echo "::error::the skip did not cite run 34978692666 — it skipped for some reason other than the measured short display, which is a different finding and not this control"
+                status=1
+              fi
+              ;;
+            *"decision=proceed"*)
+              echo "::notice::this runner's visible frame HELD the capture window and the suite proceeded — the skip-green control did not apply on this run"
+              ;;
+            *"decision=refuse"*)
+              echo "::error::this cell DECLARED itself a non-capture run and the guard REFUSED anyway, so the declaration did not arrive. Check the TEST_RUNNER_-prefixed spelling in this step's env: block (UL-100)"
+              status=1
+              ;;
+            *)
+              echo "::error::the recorded decision '${dec:-ABSENT}' is none of skip, proceed or refuse"
+              status=1
+              ;;
+          esac
+          visible=$(printf '%s' "$fit" | sed -n 's/.*visibleFrame=\([^ ]*\).*/\1/p' | head -1)
+          echo "RESULT control=skip-green uitest_outcome=${{ steps.uitest.outcome }} visible_frame=${visible:-unreadable} declared=yes"
+          exit "$status"
 
       - name: upload xcresult + failure screenshots
         if: always()
@@ -1837,5 +1959,206 @@ jobs:
             ${{ runner.temp }}/capture-declaration-probe-A-env.xcresult
             ${{ runner.temp }}/capture-declaration-probe-B.xcresult
             ${{ runner.temp }}/capture-declaration-probe-none.xcresult
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # PHASE 8.6 WAVE 3 (2026-09-15), plan 08.6-07 — D-158'S MUST-BE-SEEN-RED HALF,
+  # AND DELIBERATELY *NOT* A REQUIRED STATUS CONTEXT. IT NEVER WILL BE.
+  #
+  # The three fork-added blocks above all state the same promotion bar: several
+  # green runs on real pushes PLUS a demonstrated red before a new name goes into
+  # branch protection. THIS JOB CANNOT MEET THAT BAR BY CONSTRUCTION, because it
+  # is RED BY DESIGN on any runner whose display cannot hold the capture window
+  # — which is every hosted macOS runner (visible frame 1024x768, run
+  # 34978692666, D-137). Wiring it into protection would leave every pull request
+  # unmergeable with no way out but an admin edit to protection: the
+  # locale-doctor-regression outcome this repository has already paid for once,
+  # and the one this file's own `on:` comment describes.
+  #
+  # WHY IT EXISTS. A guard only ever observed green is not yet known to test
+  # anything — this repository has shipped `[ "" -eq 0 ]`. Plan 08.6-03 drove
+  # CaptureFit's decision over all eight rows with a harness that COMPILES
+  # `app/MacOSUITests/CaptureFit.swift` verbatim, and saw it red against a copy
+  # with the declaration test inverted. What no machine available to this project
+  # could supply is the guard REFUSING from inside a real XCTest bundle on a real
+  # short display, which is the behaviour the tiles actually depend on. This job
+  # is that measurement, taken on the one machine that has the input. D-169(a).
+  #
+  # THE STRICT ARM IS AN ABSENCE, NOT A SETTING, AND THAT IS NOT AN OVERSIGHT.
+  # D-155 is DEFAULT-STRICT: a run that declares nothing IS the capture-declared
+  # arm. So the opt-out key appears NOWHERE in this job, deliberately. A later
+  # reader who sets the opt-out key here to "fix the red" has
+  # not fixed anything — they have deleted the only control that shows the guard
+  # refuses, and the next thing to reach the delete will do so unwatched.
+  #
+  # WHY IT CANNOT DESTROY ANYTHING, which is the property that makes it safe to
+  # run the capture suite's strict arm on a runner at all. The step below calls
+  # `xcodebuild` DIRECTLY and never `ci/take-screenshots.sh`, so it cannot reach
+  # the `rm` at `ci/extract-mac-screenshots.sh:53` even in principle, and the
+  # suite refuses in `setUpWithError` before any app is launched or any
+  # attachment is written. The verdict step ASSERTS that rather than asserting it
+  # in prose — including a tile count taken before and after.
+  #
+  # No secrets. Inherits the workflow's own `contents: read`. The trigger is
+  # unchanged. Every value below is a fixed literal written by the workflow
+  # author; no `${{ github.event.* }}` reaches any `run:` body (T-08.6-02).
+  capture-refusal-control:
+    name: capture refusal control
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: install xcbeautify + xcodegen
+        run: brew install xcbeautify xcodegen
+
+      - name: regenerate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      # THE SETUP, ASSERTED APART FROM THE SUBJECT — the same shape and the same
+      # reason as every other gate in this file. A broken checkout must fail AS a
+      # broken checkout, before a red can be attributed to the guard. The tile
+      # count is taken here so the verdict step can compare it: this job must
+      # leave the set exactly as it found it.
+      - name: preconditions — the guard, the suite, the reader, and the tiles
+        run: |
+          set -euo pipefail
+          for p in app/MacOSUITests/CaptureFit.swift app/MacOSUITests/AppStoreScreenshotTests.swift app/App.xcodeproj; do
+            [ -e "$p" ] || { echo "::error::$p is missing after generation; a red below would say nothing about the guard"; exit 1; }
+            echo "precondition_path=$p"
+          done
+          xcrun xcresulttool version > /dev/null || { echo "::error::no xcresulttool on this runner — the bundle would be unreadable"; exit 1; }
+          tiles=$(find fastlane/Mac_screenshots -name 'macos-*.png' 2>/dev/null | wc -l | tr -d ' ')
+          echo "tiles_before=$tiles"
+          echo "TILES_BEFORE=$tiles" >> "$GITHUB_ENV"
+
+      # THE STRICT ARM. Nothing is declared, which under D-155 means "this run
+      # may reach the delete", which on a 1024x768 display means REFUSE. The raw
+      # xcodebuild output is teed to a file because the verdict below reads the
+      # failure MESSAGE, and xcbeautify's rendering is for humans.
+      - name: "the capture suite with NOTHING declared — the default-strict arm"
+        id: strict
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project app/App.xcodeproj \
+            -scheme App-macOS \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:AppMacOSUITests/AppStoreScreenshotTests \
+            -resultBundlePath "$RUNNER_TEMP/capture-refusal-control.xcresult" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$RUNNER_TEMP/capture-refusal-control.log" | xcbeautify --renderer github-actions
+
+      # THE VERDICT, AND A GREEN XCODEBUILD FAILS IT. "The guard did not refuse"
+      # is the finding this control exists to surface, so it is a failure here
+      # exactly like a missing refusal message is. A crash, a compile error or a
+      # bad destination would also turn the step above red while proving nothing,
+      # which is why the message itself — not the exit code — carries clause 2.
+      - name: verdict — the refusal fired, and it is the guard's own
+        if: always()
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/capture-refusal-control.log"
+          if [ ! -f "$log" ]; then
+            echo "::error::no log at $log — the strict arm produced nothing, so this job measured nothing at all"
+            exit 1
+          fi
+          status=0
+
+          # (1) THE XCODEBUILD STEP MUST HAVE FAILED.
+          echo "xcodebuild_outcome=${{ steps.strict.outcome }}"
+          if [ "${{ steps.strict.outcome }}" != "failure" ]; then
+            echo "::error::the capture suite did NOT fail with nothing declared. Either the guard stopped refusing, or this runner's display now holds the 1440x900-point capture window. Both are findings; neither is a pass"
+            status=1
+          fi
+
+          # (2) AND THE RED MUST BE THE GUARD'S OWN NAMED REFUSAL.
+          refusal=$(grep -c 'REFUSING to run the capture suite rather than skipping it' "$log" || true)
+          cites=$(grep -c 'D-154, D-155' "$log" || true)
+          echo "refusal_message_lines=$refusal refusal_cites=$cites"
+          if [ "$refusal" -eq 0 ] || [ "$cites" -eq 0 ]; then
+            echo "::error::this log carries no CaptureFit refusal message, so whatever went red above was not the guard. A crash, a compile error or a missing destination is not a control"
+            status=1
+          fi
+
+          # (3) AND IT MUST NOT HAVE SKIPPED. Only the skip message cites run
+          # 34978692666; the refusal message does not, so its presence here means
+          # something declared a non-capture run in the one job that must not.
+          skipped=$(grep -c '34978692666' "$log" || true)
+          if [ "$skipped" -eq 0 ]; then skip_present=no; else skip_present=yes; fi
+          echo "skip_message_present=$skip_present"
+          if [ "$skip_present" = "yes" ]; then
+            echo "::error::the skip message's run 34978692666 citation is in this log, so the suite skipped instead of refusing and this control observed nothing"
+            status=1
+          fi
+
+          # (4) NOTHING INVOKED ci/take-screenshots.sh — AND THE OBVIOUS SPELLING
+          # OF THIS CHECK CANNOT BE THE CHECK. The guard's refusal message NAMES
+          # that script twice, because naming it is the whole point of the
+          # message, so a bare `grep -c take-screenshots` over this log is
+          # non-zero on a perfectly correct run and an assertion built on it
+          # could never pass. Lines carrying the refusal — in either rendering,
+          # the recorded failure and the thrown CaptureFitRefusal — are excluded
+          # BY THEIR OWN TEXT, and what remains must be empty. Beside it, the
+          # script's own `step()` banner shape (`==> `, ci/take-screenshots.sh:56)
+          # must appear zero times, which is what its execution would look like.
+          # shellcheck disable=SC2126  # two exclusions stand between the match and the count
+          invoked=$(grep -F 'take-screenshots' "$log" \
+            | grep -vF 'REFUSING to run the capture suite rather than skipping it' \
+            | grep -vF 'displayCannotHoldCaptureWindow' \
+            | wc -l | tr -d ' ')
+          banners=$(grep -c '^==> ' "$log" || true)
+          echo "take_screenshots_invoked=$invoked take_screenshots_banners=$banners"
+          if [ "$invoked" -ne 0 ] || [ "$banners" -ne 0 ]; then
+            echo "::error::this job looks to have invoked ci/take-screenshots.sh, which is the one thing it may never do — it is the only path that reaches ci/extract-mac-screenshots.sh:53's rm"
+            status=1
+          fi
+
+          # (5) AND THE TILE SET IS EXACTLY AS IT WAS FOUND.
+          tiles_after=$(find fastlane/Mac_screenshots -name 'macos-*.png' 2>/dev/null | wc -l | tr -d ' ')
+          echo "tiles_before=${TILES_BEFORE:-unreadable} tiles_after=$tiles_after"
+          if [ -n "${TILES_BEFORE:-}" ] && [ "$TILES_BEFORE" != "$tiles_after" ]; then
+            echo "::error::the macOS tile count changed across this job; nothing here may touch that set"
+            status=1
+          fi
+
+          # The runner's own measured visible frame, read OUT OF THE XCRESULT
+          # (a `print` does not reach xcodebuild's pipe on macOS, §7), and
+          # reported as `unreadable` rather than guessed when it cannot be read —
+          # it is context for the red, not one of the assertions.
+          visible=unreadable
+          BUNDLE="$RUNNER_TEMP/capture-refusal-control.xcresult"
+          if [ -d "$BUNDLE" ]; then
+            TESTS="$RUNNER_TEMP/capture-refusal-control-tests.json"
+            xcrun xcresulttool get test-results tests --path "$BUNDLE" > "$TESTS" 2>/dev/null || true
+            TID=$(jq -r '[.. | objects | select(.nodeType? == "Test Case") | .nodeIdentifier] | .[0] // ""' "$TESTS" 2>/dev/null || true)
+            if [ -n "$TID" ]; then
+              read_back=$(xcrun xcresulttool get test-results activities --path "$BUNDLE" --test-id "$TID" --compact 2>/dev/null \
+                | grep -o 'capture_fit requested=[^"]*' | sed -n 's/.*visibleFrame=\([^ ]*\).*/\1/p' | head -1)
+              [ -n "$read_back" ] && visible="$read_back"
+            fi
+          fi
+          if [ "$status" -eq 0 ]; then verdict=observed; else verdict=NOT-observed; fi
+          echo "RESULT control=refusal xcodebuild_outcome=${{ steps.strict.outcome }} refusal_message_lines=$refusal skip_message_present=$skip_present take_screenshots_invoked=$invoked visible_frame=$visible verdict=$verdict"
+          exit "$status"
+
+      - name: upload the refusal control's xcresult and raw log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capture-refusal-control
+          path: |
+            ${{ runner.temp }}/capture-refusal-control.xcresult
+            ${{ runner.temp }}/capture-refusal-control.log
           if-no-files-found: warn
           retention-days: 14

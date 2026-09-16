@@ -2034,7 +2034,19 @@ jobs:
             echo "precondition_path=$p"
           done
           xcrun xcresulttool version > /dev/null || { echo "::error::no xcresulttool on this runner — the bundle would be unreadable"; exit 1; }
-          tiles=$(find fastlane/Mac_screenshots -name 'macos-*.png' 2>/dev/null | wc -l | tr -d ' ')
+          # AN ABSENT TILE DIRECTORY IS THE NORMAL STATE HERE AND MUST NOT ABORT THIS STEP.
+          # The 8 macOS tiles are gitignored (.gitignore:68), so a fresh checkout has no
+          # fastlane/Mac_screenshots at all. `find` on a missing starting point exits 1;
+          # under this step's `set -euo pipefail` that killed the whole step BEFORE the
+          # strict arm ran, and run 35061521778 went red on "the strict arm produced
+          # nothing" — a red that says nothing about the guard, which is the one thing
+          # this job exists to rule out (T-08.6-28). The directory's existence is tested
+          # first and its absence recorded as a count of zero, which is what it is.
+          if [ -d fastlane/Mac_screenshots ]; then
+            tiles=$(find fastlane/Mac_screenshots -name 'macos-*.png' | wc -l | tr -d ' ')
+          else
+            tiles=0
+          fi
           echo "tiles_before=$tiles"
           echo "TILES_BEFORE=$tiles" >> "$GITHUB_ENV"
 
@@ -2125,7 +2137,11 @@ jobs:
           fi
 
           # (5) AND THE TILE SET IS EXACTLY AS IT WAS FOUND.
-          tiles_after=$(find fastlane/Mac_screenshots -name 'macos-*.png' 2>/dev/null | wc -l | tr -d ' ')
+          if [ -d fastlane/Mac_screenshots ]; then
+            tiles_after=$(find fastlane/Mac_screenshots -name 'macos-*.png' | wc -l | tr -d ' ')
+          else
+            tiles_after=0
+          fi
           echo "tiles_before=${TILES_BEFORE:-unreadable} tiles_after=$tiles_after"
           if [ -n "${TILES_BEFORE:-}" ] && [ "$TILES_BEFORE" != "$tiles_after" ]; then
             echo "::error::the macOS tile count changed across this job; nothing here may touch that set"

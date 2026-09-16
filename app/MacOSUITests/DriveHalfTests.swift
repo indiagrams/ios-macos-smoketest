@@ -281,26 +281,37 @@ final class DriveHalfTests: XCTestCase {
         )
     }
 
-    /// Bounded probe (T-08.5-11): the wall-clock cost of an UNCONDITIONAL `app.activate()`,
-    /// wrapped in a non-strict `XCTExpectFailure` since `ScreenshotContract.swift:80-90` records a
-    /// failure for exactly this call on a headless runner. Plan 08.5-08 reads the measured seconds
-    /// back to decide whether `ScreenshotDriver`'s own unconditional activate must be routed
-    /// through `presentWindow(within:)` before its capture skip (D-137) is lifted.
-    func testUnconditionalActivateCost() {
-        let robot = TestRobot(app: XCUIApplication())
-        robot.register(with: self)
-        robot.launch(args: ["UI_TESTING"])
-
-        let start = Date()
-        XCTExpectFailure(
-            "unconditional activate() may record \"Failed to activate application\" on a "
-                + "headless runner (ScreenshotContract.swift:80-90) — this probe measures cost, "
-                + "not correctness",
-            options: .nonStrict()
-        ) {
-            robot.app.activate()
-        }
-        let elapsed = Date().timeIntervalSince(start)
-        driveHalfRecord("drive_half_unconditional_activate_seconds=\(elapsed)")
-    }
+    // REMOVED 2026-09-16 BY PLAN 08.6-09: `testUnconditionalActivateCost` (R1-IN-07, R1-RISK-4).
+    //
+    // A DELETION THAT ERASES THE REASON THE CODE EXISTED IS HOW THE NEXT READER RE-ADDS IT, so the
+    // record stays here rather than only in a commit message nobody greps.
+    //
+    // WHAT IT MEASURED: the wall-clock cost of an UNCONDITIONAL `app.activate()` (T-08.5-11),
+    // recorded as `drive_half_unconditional_activate_seconds`.
+    //
+    // WHAT IT RECORDED: 0.008880972862243652 seconds.
+    //
+    // THE DECISION IT FED, AND WHERE THAT DECISION LIVES: whether `ScreenshotDriver`'s own
+    // unconditional activate had to be routed through `presentWindow(within:)` before the D-137
+    // capture skip could be lifted. Taken in Phase 8.5 plan 08 and recorded as
+    // `RESULT decision=screenshotdriver-reroute taken=no evidence=…` in
+    // `.planning/phases/08.5-ui-automation-drive-half/evidence/08.5-08-skip-measurement.txt`.
+    // Eight milliseconds is three orders of magnitude below the 30-second threshold that would
+    // have forced the reroute, so the question is settled and the probe has no remaining consumer.
+    //
+    // WHY IT HAD TO GO RATHER THAN STAY: it carried NO ASSERTION AT ALL, and its
+    // `XCTExpectFailure` was declared NON-STRICT — an expected failure that does not require the
+    // failure to occur. (Spelled in prose, because the plan's own check counts the strict-waiver
+    // option's literal name in this file and this description of the removed shape must not
+    // satisfy it; the same grep-gate hygiene the gates in test/ follow.) Such a case cannot go red
+    // for any reason: not if activate() breaks, not if
+    // the app never launches, not if the measurement is absurd. And it ran in the REQUIRED
+    // `app (macOS)` cells on every pull request (R1-RISK-4), because pr.yml's macOS step runs the
+    // FULL App-macOS scheme with no `-only-testing` (pr.yml:315) and the scheme's Test action
+    // includes AppMacOSUITests (app/project.yml:377-381, app/Project.swift:326-331) — so every
+    // contributor paid its launch on every PR for a number that was already decided.
+    //
+    // A green that cannot become a red is the exact shape this phase exists to remove. Keeping it
+    // behind a flag was the alternative the review offered; it was declined because a flag would
+    // preserve a case whose verdict is meaningless rather than retire a question that is answered.
 }

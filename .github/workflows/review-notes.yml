@@ -1575,3 +1575,241 @@ jobs:
             ${{ runner.temp }}/failure-screenshots-${{ matrix.platform }}
           if-no-files-found: warn
           retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # PHASE 8.6 WAVE 0 (2026-09-15), plan 08.6-01 — AND DELIBERATELY *NOT* A
+  # REQUIRED STATUS CONTEXT, on the same bar the `app-source-rules` and
+  # `drive-half-vocabulary` blocks above state: several green runs on real
+  # pushes PLUS a demonstrated red, before any new name goes into branch
+  # protection. THIS JOB WILL NEVER MEET THAT BAR, because it is scheduled for
+  # REMOVAL by plan 08.6-03 — it is an instrument, not a gate, and it is here to
+  # answer exactly one question on exactly the machine that matters.
+  #
+  # THE QUESTION (08.6-RESEARCH Open Question 1, Assumptions Log A1): does a
+  # declaration variable handed to `xcodebuild test` reach the XCTest BUNDLE
+  # process? D-155's whole guard mechanism is chosen from the answer, and the
+  # repository contains no prior art to pattern-match — the only existing
+  # `ProcessInfo.environment` reads are simulator-supplied
+  # (`SIMULATOR_DEVICE_NAME`). The hosted macOS runner is the machine D-169(a)'s
+  # refusal control will run on, whose 1024x768 visible frame is the real short
+  # display the guard exists for, so the answer must be measured HERE and not
+  # extrapolated from the simulator.
+  #
+  # WHY FOUR MEASURING STEPS AND NOT THE THREE PLAN 08.6-01 DRAFTED. The iOS
+  # simulator half measured first, and it separated two spellings the plan's own
+  # text had not: `TEST_RUNNER_FOO=1` appended as a TRAILING ARGUMENT to
+  # `xcodebuild` is consumed as a BUILD SETTING and never reaches the runner
+  # process, while the same name EXPORTED INTO XCODEBUILD'S ENVIRONMENT arrives
+  # with the prefix stripped (measured: 72 -> 73 environment keys, bare name
+  # present, prefixed name absent). A job carrying only the trailing-argument
+  # spelling would have reported an absence caused by spelling, and plan
+  # 08.6-01's STOP CONDITION would have fired on an artifact rather than on the
+  # runner. Step A (trailing argument) is KEPT anyway: a measured negative on
+  # this machine is worth having on record beside the positive.
+  #
+  # WHY IT CANNOT DESTROY ANYTHING. Every step calls `xcodebuild` DIRECTLY and
+  # none calls `ci/take-screenshots.sh`, so no step can reach the `rm` at
+  # `ci/extract-mac-screenshots.sh:53` even in principle — the same property
+  # D-155 relies on for the existing macOS cell. It runs only
+  # `CaptureDeclarationProbe`, which asserts nothing and launches no app.
+  #
+  # WHY IT IS ALMOST ENTIRELY `continue-on-error`. An ABSENT variable is a
+  # legitimate measurement and must not be able to fail this job — a job that
+  # went red on absence would be asserting the answer it was built to discover.
+  # The job's ONLY red is a MISSING RESULT BUNDLE, which means nothing was
+  # measured at all, and that is the one outcome the instrument may call a
+  # failure.
+  #
+  # No secrets. Inherits the workflow's own `contents: read`. The trigger is
+  # unchanged and stays plain `pull_request` — never its writable-token variant.
+  # Every declaration value below is a FIXED LITERAL written by the workflow
+  # author; no `${{ github.event.* }}` reaches any `run:` body (T-08.6-02).
+  capture-declaration-probe:
+    name: capture declaration probe
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: install xcbeautify + xcodegen
+        run: brew install xcbeautify xcodegen
+
+      - name: regenerate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      # THE SETUP, ASSERTED APART FROM THE SUBJECT — the same shape and the same
+      # reason as the store-copy and app-source-rules gates above. A broken
+      # checkout must fail AS a broken checkout, before any measurement is
+      # attributed to the runner.
+      - name: preconditions — the probe source and the generated target exist
+        run: |
+          set -euo pipefail
+          for p in app/MacOSUITests/CaptureDeclarationProbe.swift app/App.xcodeproj; do
+            [ -e "$p" ] || { echo "::error::$p is missing after generation; nothing below would measure the runner"; exit 1; }
+            echo "precondition_path=$p"
+          done
+          xcrun xcresulttool version || { echo "::error::no xcresulttool on this runner — every value below would be unreadable"; exit 1; }
+
+      # FORM A — the TRAILING-ARGUMENT spelling. Measured ABSENT on the iOS
+      # simulator (consumed as a build setting); kept so the same negative is on
+      # record for this runner rather than assumed to carry over.
+      - name: "measure form A — TEST_RUNNER_ prefix as a trailing xcodebuild argument"
+        id: probe-a
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project app/App.xcodeproj \
+            -scheme App-macOS \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:AppMacOSUITests/CaptureDeclarationProbe \
+            -resultBundlePath "$RUNNER_TEMP/capture-declaration-probe-A.xcresult" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            TEST_RUNNER_CAPTURE_REQUIRED=1 \
+            2>&1 | xcbeautify --renderer github-actions
+
+      # FORM A-env — the SAME name in the STEP's own `env:` block, i.e. exported
+      # into xcodebuild's environment. This is xcodebuild's documented
+      # test-runner injection, and the form the simulator measured ARRIVING with
+      # the prefix stripped. A fixed literal, never an interpolation.
+      - name: "measure form A-env — TEST_RUNNER_ prefix in the step's env block"
+        id: probe-a-env
+        continue-on-error: true
+        env:
+          TEST_RUNNER_CAPTURE_REQUIRED: "1"
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project app/App.xcodeproj \
+            -scheme App-macOS \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:AppMacOSUITests/CaptureDeclarationProbe \
+            -resultBundlePath "$RUNNER_TEMP/capture-declaration-probe-A-env.xcresult" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions
+
+      # FORM B — the BARE name in the step's `env:` block, i.e. plain shell
+      # inheritance with nothing on the command line. This is the form the
+      # existing macOS cell would use to declare itself a non-capture run, and
+      # the one RESEARCH could not verify. A fixed literal, never an
+      # interpolation.
+      - name: "measure form B — bare name in the step's env block"
+        id: probe-b
+        continue-on-error: true
+        env:
+          CAPTURE_REQUIRED: "1"
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project app/App.xcodeproj \
+            -scheme App-macOS \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:AppMacOSUITests/CaptureDeclarationProbe \
+            -resultBundlePath "$RUNNER_TEMP/capture-declaration-probe-B.xcresult" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions
+
+      # FORM none — the baseline. Without it, a "seen" above proves only that
+      # SOMETHING set the name, not that this step's declaration did.
+      - name: "measure form none — nothing declared anywhere"
+        id: probe-none
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project app/App.xcodeproj \
+            -scheme App-macOS \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:AppMacOSUITests/CaptureDeclarationProbe \
+            -resultBundlePath "$RUNNER_TEMP/capture-declaration-probe-none.xcresult" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions
+
+      # THE JOB'S VERDICT. Values come OUT OF THE XCRESULT, never out of the
+      # console pipe: `docs/UI-TESTING-ON-BOTH-PLATFORMS.md` §7 records that a
+      # `print` reaches xcodebuild's pipe on the iOS Simulator job and does NOT
+      # on the macOS job, so a log-scraped value here would read as measured and
+      # be unreadable from the artifact (08.6-RESEARCH Pitfall 3).
+      #
+      # A value this step cannot read is reported as `unreadable`, never as
+      # `absent`. Those are different findings and collapsing them would let a
+      # broken reader masquerade as a measured negative — the shape UL-077 and
+      # the `[ "" -eq 0 ]` incident both name. The authoritative read is plan
+      # 08.6-01 Task 4's, done against the uploaded bundles; this step exists so
+      # the answer is legible in the run log too.
+      - name: read back both propagation forms out of the xcresults
+        if: always()
+        run: |
+          set -uo pipefail
+          missing=0
+          for form in A A-env B none; do
+            BUNDLE="$RUNNER_TEMP/capture-declaration-probe-$form.xcresult"
+            if [ ! -d "$BUNDLE" ]; then
+              echo "::error::no result bundle at $BUNDLE — form $form measured NOTHING. A missing bundle is the only outcome this job may call red; an absent variable is not."
+              missing=$((missing + 1))
+              continue
+            fi
+            TESTS="$RUNNER_TEMP/capture-declaration-probe-$form-tests.json"
+            xcrun xcresulttool get test-results tests --path "$BUNDLE" > "$TESTS" 2>/dev/null || true
+            TID=$(jq -r '[.. | objects | select(.nodeType? == "Test Case") | .nodeIdentifier] | .[0] // ""' "$TESTS" 2>/dev/null || true)
+            LINES=""
+            if [ -n "$TID" ]; then
+              LINES=$(xcrun xcresulttool get test-results activities --path "$BUNDLE" --test-id "$TID" --compact 2>/dev/null | grep -o 'declaration_probe [^"]*' | sort -u || true)
+            fi
+            echo "== form $form (test_id=${TID:-<none>}) =="
+            if [ -z "$LINES" ]; then
+              echo "  (no declaration_probe activity could be read out of this bundle)"
+            else
+              printf '%s\n' "$LINES" | sed 's/^/  /'
+            fi
+            read_state() {
+              state=$(printf '%s\n' "$LINES" | sed -n "s/^declaration_probe name=$1 present=\([a-z][a-z]*\) .*$/\1/p" | head -1)
+              case "$state" in
+                yes) echo seen ;;
+                no)  echo absent ;;
+                *)   echo unreadable ;;
+              esac
+            }
+            read_value() {
+              v=$(printf '%s\n' "$LINES" | sed -n "s/^declaration_probe name=$1 present=[a-z][a-z]* value=\(.*\)$/\1/p" | head -1)
+              [ -n "$v" ] && echo "$v" || echo "-"
+            }
+            keys=$(printf '%s\n' "$LINES" | sed -n 's/^declaration_probe env_key_count=\([0-9][0-9]*\)$/\1/p' | head -1)
+            proc=$(printf '%s\n' "$LINES" | sed -n 's/^declaration_probe process=\(.*\)$/\1/p' | head -1)
+            echo "RESULT macos form=$form CAPTURE_REQUIRED=$(read_state CAPTURE_REQUIRED) value=$(read_value CAPTURE_REQUIRED) TEST_RUNNER_CAPTURE_REQUIRED=$(read_state TEST_RUNNER_CAPTURE_REQUIRED) env_key_count=${keys:-unreadable} process=${proc:-unreadable} step_outcome=unrecorded"
+          done
+          echo "capture_declaration_probe_missing_bundles=$missing"
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::$missing of 4 forms produced no result bundle, so this job measured less than it was asked to"
+            exit 1
+          fi
+
+      - name: upload the four probe xcresults
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capture-declaration-probe
+          path: |
+            ${{ runner.temp }}/capture-declaration-probe-A.xcresult
+            ${{ runner.temp }}/capture-declaration-probe-A-env.xcresult
+            ${{ runner.temp }}/capture-declaration-probe-B.xcresult
+            ${{ runner.temp }}/capture-declaration-probe-none.xcresult
+          if-no-files-found: warn
+          retention-days: 14

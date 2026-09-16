@@ -60,27 +60,62 @@ import XCTest
             let firstChildTitle: String
         }
 
+        /// The single recursive walk both menu-bar readers below share: visits every
+        /// `.menuBarItem` node reachable from `node`, in document order, over an already-taken
+        /// `snapshot()`. Neither reader re-derives what a menu-bar item is; they differ only in
+        /// what `visit` collects, so a future change cannot make them disagree about the
+        /// population.
+        private func walkMenuBarItems(_ node: XCUIElementSnapshot, visit: (XCUIElementSnapshot) -> Void) {
+            if node.elementType == .menuBarItem {
+                visit(node)
+            }
+            for child in node.children {
+                walkMenuBarItems(child, visit: visit)
+            }
+        }
+
         /// EVERY top-level menu-bar item, in document order, from ONE `snapshot()` call — never a
         /// click-per-item loop, matching this codebase's bounded-read discipline
         /// (`SweepDriver.swift`'s `count(_:)` doc comment; `BlindReadGuards.swift`'s file header).
         /// Deduplicates by title, the same rule `SweepDriver.swift`'s `harvest(_:inherited:into:)`
-        /// already applies when it builds the array `productName` reads from.
+        /// already applies when it builds the array `productName` reads from. THIS DEDUP IS FOR
+        /// READERS THAT WANT A DISPLAY LIST — a reader that needs to COUNT the population, so a
+        /// uniqueness bound can fail on a duplicate title, must use `menuBarSnapshotTitles()`
+        /// below instead (R1-IN-02).
         func menuBarSnapshotEntries() throws -> [MenuBarSnapshotEntry] {
             var entries: [MenuBarSnapshotEntry] = []
-            func walk(_ node: XCUIElementSnapshot) {
-                if node.elementType == .menuBarItem {
-                    let title = node.renderedText
-                    if !title.isEmpty, !entries.contains(where: { $0.title == title }) {
-                        let firstChild = node.children.first?.renderedText ?? ""
-                        entries.append(MenuBarSnapshotEntry(title: title, firstChildTitle: firstChild))
-                    }
-                }
-                for child in node.children {
-                    walk(child)
+            let root = try snapshot()
+            walkMenuBarItems(root) { node in
+                let title = node.renderedText
+                if !title.isEmpty, !entries.contains(where: { $0.title == title }) {
+                    let firstChild = node.children.first?.renderedText ?? ""
+                    entries.append(MenuBarSnapshotEntry(title: title, firstChildTitle: firstChild))
                 }
             }
-            try walk(snapshot())
             return entries
+        }
+
+        /// EVERY top-level menu-bar item's title, in document order, from the SAME single
+        /// `snapshot()` walk as `menuBarSnapshotEntries()` above — but with NO deduplication.
+        ///
+        /// IT EXISTS BECAUSE A UNIQUENESS ASSERTION CANNOT BE MADE OVER A POPULATION THAT WAS
+        /// ALREADY MADE UNIQUE (R1-IN-02, unreachable until 08.6-02). `SweepDriver.swift`'s step
+        /// 15 asserts a live menu-bar title appears EXACTLY once; counting over
+        /// `menuBarSnapshotEntries()`'s deduped titles means the count can only ever be 0 or 1 —
+        /// the `> 1` half of "exactly 1" was structurally unreachable, because the dedup guard
+        /// above collapses two same-titled items into one before the count ever runs. This reader
+        /// keeps every title, duplicates included, so that half can fail. Display-list readers
+        /// keep using `menuBarSnapshotEntries()`; this one is for readers that count.
+        func menuBarSnapshotTitles() throws -> [String] {
+            var titles: [String] = []
+            let root = try snapshot()
+            walkMenuBarItems(root) { node in
+                let title = node.renderedText
+                if !title.isEmpty {
+                    titles.append(title)
+                }
+            }
+            return titles
         }
     }
 

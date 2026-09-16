@@ -271,26 +271,33 @@ extension VisibleStringSweep {
     /// presence in the tree is RECORDED beside it rather than asserted, because whether a
     /// `CommandGroup` button reaches a CLOSED menu's tree is exactly the `[OPEN]` this phase is
     /// measuring and not something to bake into a gate before it has an answer.
+    ///
+    /// COUNTS OVER THE RAW, UNDEDUPED TITLES — this bound was unreachable until 08.6-02 (R1-IN-02):
+    /// counting over `menuBarSnapshotEntries()`'s deduped titles meant `matches` could only ever be
+    /// 0 or 1, so the `> 1` half of "expected exactly 1" could never fire on a duplicate title.
     func privacyControlOnThisSurface(_ surface: String) {
         let inTree = count(Ident.Shell.privacyPolicy)
         let expected: String
-        let titles: [String]
+        let raw: [String]
+        let deduped: [String]
         do {
             expected = try app.snapshot().renderedText
-            titles = try app.menuBarSnapshotEntries().map(\.title)
+            raw = try app.menuBarSnapshotTitles()
+            deduped = try app.menuBarSnapshotEntries().map(\.title)
         } catch {
             XCTFail("step 15: could not read the application or menu-bar snapshot on \(surface): \(error)")
             return
         }
-        let matches = titles.filter { !expected.isEmpty && $0 == expected }.count
-        recordCounter("step15_privacy_surface=\(surface) step15_menubar_items=\(titles.count) "
-            + "step15_app_menu_matches=\(matches) step15_privacy_in_tree=\(inTree)")
+        let matches = raw.filter { !expected.isEmpty && $0 == expected }.count
+        recordCounter("step15_privacy_surface=\(surface) step15_menubar_items=\(raw.count) "
+            + "step15_app_menu_matches=\(matches) step15_privacy_in_tree=\(inTree) "
+            + "step15_raw_menubar_items=\(raw.count) step15_deduped_menubar_items=\(deduped.count)")
         XCTAssertEqual(
             matches,
             1,
             "step 15: \(matches) menu-bar item(s) are titled with the app's own name \"\(expected)\" on "
                 + "\(surface), expected exactly 1, so the app's own menu is not addressable by identity and "
-                + "the privacy item cannot be reached — menu bar: \(titles.joined(separator: " | "))"
+                + "the privacy item cannot be reached — menu bar (raw): \(raw.joined(separator: " | "))"
         )
     }
 

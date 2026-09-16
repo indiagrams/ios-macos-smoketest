@@ -279,7 +279,7 @@ import XCTest
                 entries = app.menuBarSnapshotEntries(from: root)
             } catch {
                 XCTFail("could not read the menu bar's accessibility snapshot: \(error)", file: file, line: line)
-                return noSelectionSentinel(on: app)
+                return app.menuBarItems.firstMatch
             }
 
             let expected = resolvedApplicationName(applicationRenderedText: applicationRenderedText)
@@ -291,7 +291,7 @@ import XCTest
                         + "\(entries.map(\.title).joined(separator: " | "))",
                     file: file, line: line
                 )
-                return noSelectionSentinel(on: app)
+                return app.menuBarItems.firstMatch
             }
 
             let live = app.menuBarItems
@@ -312,7 +312,7 @@ import XCTest
                     + "\(expected.source)) — enumerated: \(entries.map(\.title).joined(separator: " | "))",
                 file: file, line: line
             )
-            return noSelectionSentinel(on: app)
+            return app.menuBarItems.firstMatch
         }
     }
 #endif

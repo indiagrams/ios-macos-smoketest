@@ -70,13 +70,39 @@
 
 require "date"
 
-ROOT = File.expand_path("..", __dir__)
+# --root DIR: read the fork's documents (and answer `git ls-files`) against a different
+# tree, so a red control can edit a SCRATCH COPY's markdown without ever touching the
+# shipped copy this suite normally checks (D-158/D-163's scratch-copy rule) — matching
+# the convention already used by test/icon_set_test.rb and test/app_offline_test.rb.
+# Default is computed exactly as this constant always was, so a caller that passes no
+# flag sees no behaviour change; W-05b's own red controls are the only callers that pass
+# one.
+USAGE = "Usage: ruby test/docs_structure_test.rb [--root DIR]"
+
+def no_verdict(message)
+  warn "CANNOT RUN: #{message}"
+  exit 2
+end
+
+root_arg = nil
+argv     = ARGV.dup
+until argv.empty?
+  case (arg = argv.shift)
+  when "--root"       then root_arg = argv.shift or no_verdict("--root needs a directory. #{USAGE}")
+  when "-h", "--help" then puts USAGE; exit 0
+  else no_verdict("unrecognised argument #{arg.inspect}. #{USAGE}")
+  end
+end
+
+ROOT = root_arg.nil? ? File.expand_path("..", __dir__) : File.expand_path(root_arg)
+no_verdict("--root #{ROOT} is not a directory") unless File.directory?(ROOT)
 
 REVIEW_ARGUMENTS   = "docs/REVIEW-ARGUMENTS.md"
 UPSTREAM_LEDGER    = "docs/UPSTREAM-LEDGER.md"
 CONTRIBUTING_UP    = "docs/CONTRIBUTING-UPSTREAM.md"
 PRODUCT_IDENTITY   = "docs/PRODUCT-IDENTITY.md"
 APPLE_ACCOUNT_STATE = "docs/APPLE-ACCOUNT-STATE.md"
+UI_TESTING_BOTH    = "docs/UI-TESTING-ON-BOTH-PLATFORMS.md"
 # APPLE_ACCOUNT_STATE's membership here is load-bearing on its own: it is what
 # puts the fifth document under the EMAIL sweep at the bottom of this file, which
 # is how "no personal information is committed" stops being a habit and becomes a
@@ -451,6 +477,88 @@ if scope_idx
   assert missing_scope.empty?,
          "#{UPSTREAM_LEDGER}: every row records a SCOPE test answer (UP-03 stays auditable per row)" \
          "#{missing_scope.empty? ? '' : " — missing: #{missing_scope.join(', ')}"}"
+end
+
+# ─── docs/UI-TESTING-ON-BOTH-PLATFORMS.md ────────────────────────────────────
+#
+# W-05b (08.5-VALIDATION-AUDIT.md §5.4): criterion 5 of Phase 8.5 moved section 8's
+# prior art out of a private checkout and into this repository. Nothing standing
+# re-checks that claim today — the only re-check anywhere is
+# drive_half_vocabulary_test.rb's vocabulary sweep, which is scoped to the phase's OWN
+# added lines (W-01 applies to it) and never re-runs against section 8 as it stands. This
+# is the standing clause: every time this suite runs, it re-extracts every backticked
+# path section 8 cites and re-checks each one against `git ls-files` for whichever --root
+# it is pointed at — this repository by default, a scratch copy for the red controls.
+#
+# Deliberately scoped to section 8, because that is what criterion 5 claimed — not the
+# whole page. The page ALSO carries a stronger, page-wide sentence. MEASURED 2026-09-15:
+# the exact sentence the Phase 8.5 audit's draft assumed when it wrote this clause
+# ("every path this page now cites is a file in this repository", lower-case,
+# unqualified) is NOT present verbatim on the page today; the sentence actually there
+# reads "Every source path, script and repository doc this page now cites is a file in
+# this repository." (capitalised, and naming three kinds of citation, not one). So the
+# page-wide arm below is written CONDITIONALLY on finding the sentence that is actually
+# on the page, and prints which arm ran (`docs_structure_page_wide_clause=active|absent`)
+# rather than silently doing nothing — a clause that cannot be told it ran or did not is
+# the shape this phase exists to remove.
+puts
+puts "#{UI_TESTING_BOTH} — section 8's cited paths are tracked in this repository:"
+
+uitb = read_doc(UI_TESTING_BOTH)
+s8   = section(uitb, /^## 8\./)
+
+# Anchored on this repository's real top-level directories (matching the audit draft's
+# own pattern) — not a bare backticked-span sweep, which would also match inline code
+# that is not a path at all: a class name, a flag, a shell token.
+PATH_IN_BACKTICKS = %r{`((?:app|bin|ci|docs|test|tools|fastlane|\.github|evidence)/[A-Za-z0-9_./-]+\.[a-z]+)`}
+cited_paths = ->(text) { text.to_s.scan(PATH_IN_BACKTICKS).flatten.uniq }
+
+s8_cited = cited_paths.(s8)
+assert !s8.nil? && !s8_cited.empty?,
+       "#{UI_TESTING_BOTH}: section 8 exists and cites at least one repository path " \
+       "(non-vacuity — a section that cites nothing must not pass by citing nothing)"
+
+# The non-vacuity assertion above already reports the empty-citation case; a membership
+# check over an empty set would otherwise pass VACUOUSLY (an empty set is a subset of
+# anything), which is exactly the shape this clause exists to refuse — so it only runs
+# when there is something to check membership of.
+if s8_cited.empty?
+  puts "  (skipping the tracked-paths clause — section 8 cites nothing, already reported above)"
+else
+  ls_files_out    = IO.popen(["git", "-C", ROOT, "ls-files", "-z"], "r",
+                              err: [:child, :out], &:read).to_s
+  ls_files_status = $?.exitstatus
+  if ls_files_status != 0
+    assert false, "#{UI_TESTING_BOTH}: git ls-files could not be answered for --root #{ROOT} " \
+                  "(exit #{ls_files_status}) — #{ls_files_out.strip.inspect}"
+  else
+    tracked   = ls_files_out.split("\0")
+    untracked = s8_cited.reject { |p| tracked.include?(p) }
+    assert untracked.empty?,
+           "#{UI_TESTING_BOTH}: every path section 8 cites is tracked in this repository " \
+           "(--root #{ROOT})#{untracked.empty? ? '' : " — untracked: #{untracked.join(', ')}"}"
+  end
+end
+
+PAGE_WIDE_SENTENCE = "Every source path, script and repository doc this page now cites is " \
+                     "a file in this repository."
+page_wide_active = uitb.include?(PAGE_WIDE_SENTENCE)
+puts "docs_structure_page_wide_clause=#{page_wide_active ? 'active' : 'absent'}"
+if page_wide_active
+  all_cited       = cited_paths.(uitb)
+  ls_files_out2    = IO.popen(["git", "-C", ROOT, "ls-files", "-z"], "r",
+                               err: [:child, :out], &:read).to_s
+  ls_files_status2 = $?.exitstatus
+  if ls_files_status2 != 0
+    assert false, "#{UI_TESTING_BOTH}: git ls-files could not be answered for the page-wide " \
+                  "clause at --root #{ROOT} (exit #{ls_files_status2}) — #{ls_files_out2.strip.inspect}"
+  else
+    tracked_all   = ls_files_out2.split("\0")
+    untracked_all = all_cited.reject { |p| tracked_all.include?(p) }
+    assert untracked_all.empty?,
+           "#{UI_TESTING_BOTH}: the page-wide claim holds for every path the page cites " \
+           "(--root #{ROOT})#{untracked_all.empty? ? '' : " — untracked: #{untracked_all.join(', ')}"}"
+  end
 end
 
 # ─── docs/CONTRIBUTING-UPSTREAM.md ───────────────────────────────────────────

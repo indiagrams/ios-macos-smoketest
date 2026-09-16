@@ -80,15 +80,22 @@ extension XCTestCase {
                 driveHalfRecord("drive_half_present_route=present")
                 return "present"
             }
+            // "File" and "New Window" are AppKit's own standard menu, not this app's (standing
+            // rule 16 allows platform vocabulary) — but they are LOCALE-dependent, which is the
+            // actual defect R1-IN-06 names: on a non-English runner these matches never fire and
+            // this route falls through to "none" silently. `TestRobot.launch` below pins
+            // `-AppleLanguages (en)` so that stays true rather than merely declared. Each "none"
+            // now RECORDS WHICH LOOKUP FAILED, so a locale break is distinguishable from an app
+            // that genuinely has no File menu — the half R1-IN-06 called silent.
             let fileMenu = menuBarItems["File"]
             guard fileMenu.waitForExistence(timeout: 3) else {
-                driveHalfRecord("drive_half_present_route=none")
+                driveHalfRecord("drive_half_present_route=none reason=file-menu-absent")
                 return "none"
             }
             fileMenu.click()
             let newWindowItem = menuItems["New Window"]
             guard newWindowItem.waitForExistence(timeout: 3) else {
-                driveHalfRecord("drive_half_present_route=none")
+                driveHalfRecord("drive_half_present_route=none reason=new-window-item-absent")
                 return "none"
             }
             newWindowItem.click()
@@ -109,11 +116,26 @@ class TestRobot {
         self.app = app
     }
 
+    /// `-AppleLanguages (en)`, pinned so `presentWindow`'s macOS fallback route — which matches
+    /// AppKit's own "File" and "New Window" menu items BY ENGLISH TITLE — has a runner where that
+    /// match is guaranteed rather than merely assumed (R1-IN-06). A caller that passes its OWN
+    /// `-AppleLanguages` argument is left alone: this only ADDS the pin when the caller has not
+    /// already made its own locale choice, so a future test of a non-English locale still can.
+    private static let englishLanguagePin = ["-AppleLanguages", "(en)"]
+
     /// Launch with the given arguments/environment, then — on macOS only — run the
     /// window-activation dance so the app has a window before the caller's first query.
+    ///
+    /// PINS THE ENGLISH LOCALE (R1-IN-06) UNLESS `args` ALREADY NAMES ITS OWN `-AppleLanguages`.
+    /// `presentWindow`'s fallback route (below) matches AppKit's standard menu by its English
+    /// title; on a non-English runner it fell through to `"none"` silently. Making the runner's
+    /// language a measurement this robot controls, rather than an assumption about whoever runs
+    /// it, is preferred here over merely declaring the assumption — the drive half's whole point
+    /// is that the fallback route executes.
     @discardableResult
     func launch(args: [String] = [], env: [String: String] = [:]) -> Self {
-        app.launchArguments = args
+        let callerPinnedItsOwnLanguage = args.contains(Self.englishLanguagePin[0])
+        app.launchArguments = (callerPinnedItsOwnLanguage ? [] : Self.englishLanguagePin) + args
         app.launchEnvironment = env
         app.launch()
         #if os(macOS)

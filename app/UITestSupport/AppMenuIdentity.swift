@@ -193,6 +193,13 @@ import XCTest
         /// THE SAFETY ASSERTION — see the file header. Reads only `selected`'s own submenu: its first
         /// `menu` descendant's direct `menuItem` children, bounded to 12. Internal so the standing
         /// control can aim it at a deliberately wrong selection.
+        ///
+        /// "About This Mac" and "Force Quit" BELOW ARE AN EN-LOCALE ASSUMPTION, DECLARED RATHER
+        /// THAN PINNED (R1-IN-06). Unlike `TestRobot.presentWindow`'s "File"/"New Window" match,
+        /// which had no control at all, a locale break here already has one:
+        /// `DriveHalfTests.testAppleMenuExclusionFiresOnTheAppleMenu` opens bar item 0 and expects
+        /// this exact assertion's message, so a non-English runner that stops matching these two
+        /// strings fails that standing control rather than failing silently.
         func assertOpenedMenuIsNotTheAppleMenu(
             _ selected: XCUIElement,
             selectedName: String,

@@ -93,17 +93,20 @@ extension PrivacyLinkTests {
             return byIdentifier.element(boundBy: 0)
         }
         // IDENTITY, NOT POSITION (the AppStoreScreenshotTests.swift:350 shape): scan every
-        // entry's text — renderedText, falling back to title when empty. AXTitle is where AppKit
-        // publishes a menu item's text; the shared read rule reads `title` third, and `.label` never
-        // falls back to it (run 34984109925) — and select the one that equals `privacyPolicyTitle`,
-        // rather than trusting a fixed ordinal (adversarial #14 / C-19e).
+        // entry's renderedText, which already reads `label`, then the string `value`, then
+        // `title` (R1-IN-05: this scan used to re-apply its own `.isEmpty ? entry.title :
+        // entry.renderedText` fallback on top of that — dead logic, since renderedText already
+        // falls back to title, and it doubled the round trips per entry). AXTitle is where AppKit
+        // publishes a menu item's text; the shared read rule reads `title` third, and `.label`
+        // never falls back to it (run 34984109925) — and select the one that equals
+        // `privacyPolicyTitle`, rather than trusting a fixed ordinal (adversarial #14 / C-19e).
         let entries = menu.descendants(matching: .menuItem)
         let population = entries.count
         var titles: [String] = []
         var matches: [Int] = []
         for index in 0 ..< population {
             let entry = entries.element(boundBy: index)
-            let text = entry.renderedText.isEmpty ? entry.title : entry.renderedText
+            let text = entry.renderedText
             titles.append(text)
             if text == PrivacyLinkTests.privacyPolicyTitle {
                 matches.append(index)

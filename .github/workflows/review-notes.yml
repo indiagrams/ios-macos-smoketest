@@ -106,7 +106,7 @@ jobs:
           # instead of silently blinding it — which is the only reason it is
           # safe to write a gate's precondition in YAML.
           fetch-depth: 0
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: '3.3'
           bundler-cache: false  # the generator and both suites are stdlib-only; no gems to install
@@ -832,7 +832,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: '3.3'
           bundler-cache: false  # this gate is stdlib-only; no gems to install
@@ -969,7 +969,7 @@ jobs:
       # this line depends on which Ruby is first on PATH any more, and nothing
       # below it shells out to `make`. The two gates are pinned to 3.3 because
       # 3.3 is the interpreter both were measured under.
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: '3.3'
           bundler-cache: false  # both gates are stdlib-only; no gems to install
@@ -1142,7 +1142,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: '3.3'
           bundler-cache: false  # this gate is stdlib-only and makes ZERO requires
@@ -1242,7 +1242,7 @@ jobs:
           # tip — a depth-1 checkout would make that commit unreachable and
           # the gate would refuse rather than report a false population.
           fetch-depth: 0
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
           ruby-version: '3.3'
           bundler-cache: false  # this gate is stdlib-only (digest, open3, optparse); no gem
